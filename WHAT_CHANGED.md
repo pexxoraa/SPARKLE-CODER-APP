@@ -1,0 +1,199 @@
+# SPARKLE CODER 0.6.3 — packaged-app fixes and a paired website interface
+
+- Retains the supplied light/dark redesign, cloud connection preset and packaging.
+- Finds project Python instead of running the packaged app as an interpreter.
+- Recovers moved managed-project paths while keeping unavailable entries.
+- Returns native folder selections without relying on console output.
+- Caps optional balance checks at three seconds and skips unsupported providers.
+- Uses one configured gateway URL for connection, balance and access links.
+- Adds a static Vercel build and an explicit local-app website connection.
+- Keeps model keys and device projects out of the website deployment.
+- Grants the release job the repository permission needed to attach artifacts.
+- Adds an executable smoke check covering approval, repair, history and download
+  through the paired HTTP boundary. See TEST_REPORT.md for results and limits.
+
+The separate Sparkle Cloud gateway is absent from the supplied files. Its
+authentication, billing, and live NVIDIA forwarding remain unverified. A hosted
+interface still requires a running local engine on the same computer.
+
+## SPARKLE CODER 0.6.2 — recover abandoned locks and keep startup usable
+
+The “Close the previous app and finish its active task” migration popup came from
+checking whether a lock file existed without checking whether its process still
+ran. Migration and workspace operations now recover a PID lock only when its
+owner is confirmed to have exited. A native file guard serializes recovery so
+two app processes cannot reclaim the same workspace concurrently.
+
+Active, uncertain, or linked locks are preserved. Migration keeps affected
+projects at their original paths, opens another project, and offers **Review
+project move → Retry project move** inside the app. Retrying preserves project
+IDs and saved history. Source locks are held while copying, and runtime lock
+files are excluded from the copies. The same recovery applies when changing
+device storage. Invalid task-history content and real copy failures are still
+reported; they are not silently converted into successful moves.
+
+See TEST_REPORT.md for actual process-crash, concurrency, and Linux source-launcher
+coverage. Native Windows/macOS execution remains unverified.
+
+## 0.6.1 — open the app when an old project is missing
+
+Fixed the startup failure “Projects could not be moved ... The old project folder
+is missing.” Missing registrations keep their identity and original path while
+available managed projects and saved tasks are copied into PROJECTS. Existing
+folders and settings remain as backups. Real copy failures still stop migration
+and roll back copied projects before publishing new settings.
+
+The app selects an available project or creates a distinct new project when none
+are available. A plain notice offers **Find folder** to reconnect a moved or
+restored project without replacing its identity. Existing saved tasks in that
+folder become accessible again. Deleted files cannot be recovered by this action.
+Opening a missing registered project cannot silently recreate an empty folder.
+Switching device storage also preserves missing registrations at their old paths.
+
+## 0.6.0 — guided work and honest completion
+
+Open **Project brief** to save a purpose, a plain-language requirements checklist,
+and constraints. Each new task receives a snapshot; saved tasks retain theirs.
+Open **Check setup** for a read-only inspection of project manifests and available
+tools. It does not execute commands, install packages, or claim test success.
+
+The result panel now includes your saved requirements and their check evidence.
+Completion requires passing evidence for every saved requirement and every active
+recorded/discovered check. A passing required command cannot hide another failure.
+The agent supplies coverage links; the runtime validates IDs, results, and freshness.
+
+Environment commands invalidate old evidence even when only an ignored dependency
+folder changes. Repeated unsuccessful checks or completion claims trigger a source
+and setup review. **What SPARKLE investigated** lists the inspected files and next
+investigation. Repairs can still stall; failures are never converted into passes.
+
+Simple view is the default, with optional activity details and the full Run monitor.
+The sidebar switches to advanced view. This preference is saved with device app
+settings. Approval, Stop, files, downloads, and PROJECTS storage are retained.
+Node check discovery now respects an explicit packageManager declaration.
+
+This is Stage 1 of the agreed expansion. Live preview, browser tests, parallel
+agents, a GitHub interface, document tools, plugins, schedules, voice, and remote
+access remain planned. See ROADMAP.md and TEST_REPORT.md.
+
+## Retained from 0.5.0 — simple explanations and PROJECTS
+
+The recovery screen explains what happened, what it means and the next action.
+Commands and tracebacks are collapsed under optional details. **Try fixing it**
+continues a repair; **Explain this simply** asks for a read-only explanation.
+Command approval also shows its purpose, when supplied by the agent, with the
+exact command available for inspection.
+
+The reported “Expected vocab 36, got 54” incident has a dedicated explanation:
+the test expected 36 text symbols and the program produced 54. The count alone
+does not establish which is wrong. The agent now receives instructions to
+inspect training data, normalization and special symbols, and to split independent
+checks instead of stopping all testing at the first assertion.
+
+A new **revise_check** tool handles mistaken agent-created checks. It requires
+existing check IDs, a current source file read, its matching hash, a reason, and
+a passing replacement command. Earlier failures remain in history. Required
+commands and discovered project commands cannot be retired with this tool.
+This records evidence and accountability; it does not formally prove that the
+agent's reasoning or replacement test is correct.
+
+**What works and what is left** provides a result explanation, usage steps,
+limitations and feature checks. The runtime derives check status from recorded
+results and file freshness. The feature-to-check mapping is authored by the
+model and may be incomplete. Untested features stay marked as untested.
+
+Default storage is now **PROJECTS** and **APP_DATA** inside the SPARKLE CODER
+application folder. Managed projects and saved tasks from older app data are
+copied automatically on the first default launch. Originals remain as backups;
+externally registered projects stay in place. Partial migration failures do not
+commit new settings, and existing destination projects are never overwritten.
+Checks that name the old project location cannot accidentally test the backup.
+
+Quit the old app before upgrading. Use a writable app folder, and preserve
+**PROJECTS** and **APP_DATA** when updating program files in future. Open **Device
+storage → Open PROJECTS folder** to find the actual project location.
+
+A simple offline to-do list is now the first starter suggestion. API keys still
+go in **Connect Nemotron → API key → Test connection → Save connection**. Keys
+stay in memory until the engine quits. Runs retain the unlimited defaults and
+optional user caps introduced earlier.
+
+These additions address opaque failures, mistaken tests and unclear completion.
+They have not been benchmarked against other agents and are not claimed to be
+exclusive inventions. See **TEST_REPORT.md** for validation and remaining limits.
+
+## Retained from 0.4.0 — repairs and resumable work
+
+This update removes premature completion cutoffs, adds automatic check discovery,
+and continues repairs while the code or check evidence changes. The agent now
+requests a specific next step when it actually needs help. Failures remain visible.
+
+Build/Ask modes separate implementation from read-only project questions.
+Temporary API/network failures retry with visible progress. Slow model requests
+can be stopped without waiting for their response to execute any actions.
+
+Connect Nemotron now includes **Show**/**Remove configured key**, connection
+status that survives saving, optional API timeouts and **Remove all run caps**.
+Commands have no default deadline. Existing standard two-minute command settings
+migrate to unlimited; custom caps remain editable. The app cannot change provider
+context/output limits, rate limits or account quota.
+
+Large tool output is compacted only in the model request; full saved history stays
+on the device. Large projects can now have current content-based verification.
+The same failing command can run again after a repair. Denied commands do not
+keep requesting approval in one run, but can be retried after you resume.
+
+## Earlier improvements
+
+Version 0.3.1 renamed the app, package, browser branding, icon and launchers to
+SPARKLE CODER. Existing device data is detected automatically. The file transfer
+and monitoring improvements from 0.3 are retained.
+
+Version 0.3.2 removes the default model-call, elapsed-time, and total-token run
+caps. Leave the optional cap fields blank for an open-ended run; use **Stop** to
+end it yourself. API keys are entered in **Connect Nemotron → API key** and
+remain memory-only.
+
+| Need | Control | Behavior |
+| --- | --- | --- |
+| Bring files from your device | Project files → Import files / Import folder | Preserves folder paths; duplicate names create new copies |
+| Paste or drop files | Project files drop area | Imports browser-supported clipboard/drop files |
+| Copy generated code | Copy code on chat blocks; Copy text on a selected file | Copies to the system clipboard, with a browser fallback |
+| Copy a file inside the project | Duplicate | Preserves the original and refuses to overwrite an existing file |
+| Download a file | Download file | Transfers exact bytes, including supported binary assets |
+| Download completed software | Download ZIP | Includes project source and build outputs, excluding credentials/dependencies/state |
+| Copy into a device folder | Copy to folder | Creates a new folder without overwriting an existing project |
+| Inspect what is happening | Run monitor | Shows model requests, tools, paths, commands, results, elapsed time and real emitted output |
+| Review edits before they happen | Review each file edit | Shows file-tool diffs for one-use approval |
+| Pause work | Pause / Resume | Holds the next action after the current operation finishes |
+| End a run | Stop | Stops the local run promptly; an already submitted provider request may finish remotely |
+| Keep evidence | Save report / Save log | Downloads summaries/checks and persistent JSONL activity |
+| Choose where data lives | Device storage | Copies managed data to an empty device folder and remembers the choice |
+| Configure model access | Connect Nemotron | Paste a hosted NVIDIA key in **API key**; the value is cleared when the app quits |
+| Keep a task running | Connect Nemotron → Remove all run caps | Clears model-call, elapsed-time, total-token and command-duration caps; Save connection applies it |
+
+File-tool approval and undo do not cover changes made by an approved shell
+command. Commands remain individually reviewable. No tool can guarantee that
+generated software is correct solely because a model says it is finished.
+
+Transfers are bounded to 20 MiB per file; ZIP/folder project exports support
+100 MiB and 3000 files. Browser import selections support 500 files/100 MiB.
+Files above these limits can be copied in your file manager using Open folder.
+The live window retains recent events; saved logs hold up to 5 MiB per run,
+and Save log supports up to 20 MiB of combined task logs. A report includes
+up to 200 recent events. Command programs may buffer output before emitting it.
+
+## First check after upgrading
+
+1. Quit the previous app, extract this version, and open its launcher.
+2. Run the offline demo and inspect Run monitor and the recorded checks.
+3. Import a small file, duplicate it, and download it again. Confirm the contents.
+4. Choose an empty device data folder. Quit and reopen the app; confirm your
+   project and history remain available.
+5. Connect your Nemotron endpoint, run a small task with edit review enabled,
+   and exercise Pause, Resume, and one file-edit approval.
+
+Automated behavior is tested on Linux. Windows/macOS launch, visual browser
+interaction, clipboard/file-manager integration, and live Nemotron generation
+still require checks on your machine. No comparative benchmark against other
+coding agents has been run; this release adds concrete control and visibility.

@@ -1,0 +1,133 @@
+name: Build installers
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths: ["sparkle_coder/**", "packaging/**", "scripts/**", "gateway/**", "tests/**", ".github/workflows/build-installers.yml"]
+  workflow_dispatch:
+    inputs:
+      pilot:
+        description: "Build tester edition (requires SPARKLE_PILOT_URL repository variable)"
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: python -m unittest discover -s tests -v
+      - run: npm test --prefix gateway
+      - name: Verify Cloudflare migration with the local D1 runtime
+        run: |
+          npm ci --prefix gateway
+          npm run test:migrations --prefix gateway
+      - name: Verify browser helpers
+        run: |
+          node tests/test_ui_client.js
+          node tests/test_ui_hosted.js
+          node tests/test_ui_explanations.js
+          node tests/test_ui_project_recovery.js
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      SPARKLE_PILOT_URL: ${{ vars.SPARKLE_PILOT_URL }}
+      REQUEST_PILOT: ${{ inputs.pilot }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: pip install pyinstaller uv
+      - name: Select edition
+        shell: bash
+        run: |
+          if [ -n "$SPARKLE_PILOT_URL" ] || [ "$REQUEST_PILOT" = "true" ]; then
+            python scripts/configure_pilot.py
+          else
+            python scripts/configure_pilot.py --personal
+          fi
+      - name: Build desktop app
+        run: pyinstaller --clean --noconfirm packaging/sparkle-coder.spec
+      - name: Bundle real Python for project commands
+        run: python scripts/bundle_runtime.py
+      - name: Verify packaged app with bundled Python
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            python scripts/smoke_packaged.py dist/SparkleCoder.exe --bundled
+          else
+            python scripts/smoke_packaged.py dist/SparkleCoder --bundled
+          fi
+      - name: Build Windows setup wizard
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $compiler packaging/windows.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify Windows installation and preserve existing user data
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP "sparkle-installed"
+          $installer = (Resolve-Path out/SPARKLE-CODER-Windows-Setup.exe).Path
+          $proc = Start-Process $installer -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=`"$target`"" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
+          python scripts/smoke_packaged.py "$target/SparkleCoder.exe" --bundled
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force "$target/PROJECTS/keep", "$target/APP_DATA" | Out-Null
+          Set-Content "$target/PROJECTS/keep/existing.txt" "user project"
+          Set-Content "$target/APP_DATA/keep.txt" "user state"
+          $proc = Start-Process $installer -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=`"$target`"" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
+          if ((Get-Content "$target/PROJECTS/keep/existing.txt") -ne "user project") { throw "Project lost on update" }
+          $proc = Start-Process "$target/unins000.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
+          if (!(Test-Path "$target/PROJECTS/keep/existing.txt") -or !(Test-Path "$target/APP_DATA/keep.txt")) { throw "User data lost on uninstall" }
+      - name: Archive Linux or macOS app
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p out
+          tar -czf "out/SPARKLE-CODER-${RUNNER_OS}-${RUNNER_ARCH}.tar.gz" -C dist SparkleCoder runtime
+      - name: Identify distribution mode
+        shell: bash
+        run: |
+          python -c "import json,pathlib; d=json.loads(pathlib.Path('sparkle_coder/distribution.json').read_text()); pathlib.Path('out/EDITION.txt').write_text(d['mode']+' edition\n'+d['gateway_url']+'\n')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SPARKLE-CODER-${{ runner.os }}-${{ runner.arch }}
+          path: out/*
+  release:
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          body: |
+            SPARKLE CODER 0.7.0. Check EDITION.txt before distribution.
+            Tester builds connect to the configured shared server; members do not enter API keys.
+            Windows: run SPARKLE-CODER-Windows-Setup.exe. Python is bundled.
+            Builds are unsigned. Operating-system security warnings may appear.
