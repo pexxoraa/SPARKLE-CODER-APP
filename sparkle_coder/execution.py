@@ -11,7 +11,7 @@ from .config import Config
 from .workspace import Workspace
 
 
-def child_environment() -> dict[str, str]:
+def child_environment(*, docker: bool = False) -> dict[str, str]:
     allowed = {
         "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMP", "TEMP", "TMPDIR",
         "SYSTEMROOT", "SystemRoot", "COMSPEC", "PATHEXT", "WINDIR", "USERPROFILE",
@@ -19,6 +19,10 @@ def child_environment() -> dict[str, str]:
         "CARGO_HOME", "RUSTUP_HOME", "DOTNET_ROOT", "SDKROOT", "DEVELOPER_DIR",
         "SSL_CERT_FILE", "SSL_CERT_DIR",
     }
+    if docker:
+        # Select the same daemon as the owner service (e.g. Docker Desktop).
+        # These settings go to the Docker CLI, never to the command container.
+        allowed.update({"DOCKER_CONTEXT", "DOCKER_HOST", "DOCKER_CONFIG"})
     result = {key: value for key, value in os.environ.items() if key in allowed}
     result.update({"NO_COLOR": "1", "TERM": "dumb", "CI": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"})
     return result
@@ -117,7 +121,7 @@ class CommandRunner:
         try:
             self.observe("command_start", {"command": command, "cwd": cwd, "required": trusted,
                                              "timeout": timeout, "environment": self.config.execution})
-            process = subprocess.Popen(args, shell=shell, cwd=path, env=child_environment(),
+            process = subprocess.Popen(args, shell=shell, cwd=path, env=child_environment(docker=bool(container)),
                                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT, start_new_session=os.name == "posix",
                                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
@@ -162,7 +166,7 @@ class CommandRunner:
             if container:
                 try:
                     subprocess.run(["docker", "rm", "-f", container], capture_output=True,
-                                   timeout=10, check=False,
+                                   timeout=10, check=False, env=child_environment(docker=True),
                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
                 except (OSError, subprocess.TimeoutExpired):
                     pass

@@ -80,6 +80,18 @@ and persists account data in `HOSTED_DATA`. Keep it running under your host's
 service manager for continuous availability. Stop and restart it to load future
 source updates; saved projects and sessions remain on disk.
 
+If the owner uses Docker Desktop on Linux, start its existing user service and
+set `DOCKER_CONTEXT=desktop-linux` for both the image build and engine service.
+The command runner preserves the selected context for the Docker CLI and cleanup;
+it does not send Docker connection settings or owner secrets into command containers.
+Do not disable AppArmor to make an unrelated rootless Docker installation work.
+
+The web **Project files** screen opens cloud projects. Its **Open files from this
+computer** link opens the browser editor for local folders and earlier scratch
+files. A task's **Open project folder** action opens the cloud file browser.
+Offline/account-required states explain the blocker and provide the appropriate
+account or workspace refresh action. Failed file reads clear stale file previews.
+
 Publish that loopback service through an HTTPS reverse proxy or tunnel at an
 origin you control, such as `https://engine.your-domain.example`. Pass request
 headers/body through unchanged and allow imports up to 30 MiB. Do not add a

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sparkle_coder.config import Config
 from sparkle_coder.demo import python_command
-from sparkle_coder.execution import CommandRunner
+from sparkle_coder.execution import CommandRunner, child_environment
 from sparkle_coder.workspace import Workspace
 
 
@@ -36,6 +36,17 @@ class ExecutionTests(unittest.TestCase):
         with patch.dict(os.environ, {"NVIDIA_API_KEY": "do-not-send-this-to-child"}):
             result = self.runner.run(python_command("-c", "import os; print(os.environ.get('NVIDIA_API_KEY', 'MISSING'))"))
         self.assertEqual(result["output"].strip(), "MISSING")
+
+    def test_docker_connection_is_preserved_only_for_docker_cli(self):
+        with patch.dict(os.environ, {"DOCKER_CONTEXT": "desktop-linux", "DOCKER_HOST": "unix:///test.sock",
+                                     "SPARKLE_RUNNER_SECRET": "relay-secret", "NVIDIA_API_KEY": "model-secret"}):
+            docker = child_environment(docker=True)
+            self.assertEqual(docker["DOCKER_CONTEXT"], "desktop-linux")
+            self.assertEqual(docker["DOCKER_HOST"], "unix:///test.sock")
+            self.assertNotIn("DOCKER_CONTEXT", child_environment())
+            self.assertNotIn("DOCKER_HOST", child_environment())
+            self.assertNotIn("SPARKLE_RUNNER_SECRET", docker)
+            self.assertNotIn("NVIDIA_API_KEY", docker)
 
     def test_large_command_output_is_bounded(self):
         result = self.runner.run(python_command("-c", "print('x' * 200000)"))

@@ -115,7 +115,9 @@ id("app").innerHTML = `
           <div class="composer-note"><span id="taskNote">Files stay in your project. Commands need your approval.</span><span class="keyboard-hint">Ctrl / ⌘ + Enter</span></div>
         </div>
         <div id="filesView" class="page-view files-view" hidden>
-          <div class="view-heading"><div><span class="eyebrow">ON YOUR DEVICE</span><h1>Project files</h1></div><button id="openProjectFolder" class="button secondary">Open folder ↗</button></div>
+          <div class="view-heading"><div><span class="eyebrow" id="fileLocation">ON YOUR DEVICE</span><h1>Project files</h1></div><button id="openProjectFolder" class="button secondary">Open folder ↗</button></div>
+          <div id="filesState" class="transfer-status" role="status" hidden><strong id="filesStateTitle"></strong><p id="filesStateMessage"></p><button id="filesStateAction" class="button secondary">Refresh workspace</button></div>
+          <p id="localFilesLink" hidden><a href="/scratch.html">Open files from this computer</a> · Local folders and previous browser files open in the browser editor.</p>
           <div class="file-actions"><button id="newFile" class="button secondary">New file</button><button id="importFiles" class="button primary">Import files</button><button id="importFolder" class="button secondary">Import folder</button><button id="downloadProject" class="button secondary">Download ZIP</button><button id="exportFolder" class="button secondary">Copy to folder</button><button id="refreshFiles" class="text-button">Refresh</button></div>
           <input id="uploadFiles" type="file" multiple hidden><input id="uploadFolder" type="file" webkitdirectory multiple hidden>
           <div id="dropZone" class="drop-zone" tabindex="0">Drop files here, or paste copied files. Existing files are kept; duplicates get a new name.</div>
@@ -245,7 +247,7 @@ id("themeToggle").onclick = () => {
 let appState = null, projectId = null, currentSession = null, currentRun = null;
 let accountTimer = null;
 let files = [], historyItems = [], changes = [], runEvents = [], view = "build", tab = "activity";
-let fileData=null, transferBusy=false, cancelTransfer=false, lastConsoleKey="";
+let fileData=null, transferBusy=false, cancelTransfer=false, lastConsoleKey="", fileLoadError="";
 let pollTimer = null, lastMessageKey = "", lastChangeKey = "", selectedFile = "", toastTimer = null;
 let briefRevision = null, briefProjectId = null, setupProjectId = null;
 const isCloud=document.documentElement.dataset.runtime==="cloud";
@@ -305,6 +307,7 @@ function setTab(name) { tab = name; ["activity","changes","checks"].forEach(t =>
 
 function renderProjects() {
   id("projectSelect").replaceChildren();
+  if(!appState.projects.length){const option=node("option","",isCloud?"Cloud projects unavailable":"No project selected");option.value="";id("projectSelect").append(option);}
   appState.projects.forEach(p => { const option = node("option","",p.name+(p.migration_pending?" (waiting to move)":p.available===false?" (folder not found)":"")); option.value=p.id; option.selected=p.id===projectId; id("projectSelect").append(option); });
   const project = appState.projects.find(p=>p.id===projectId);
   id("projectPath").textContent = project ? project.path : "";
@@ -472,7 +475,7 @@ function renderDelivery(session) {
   if(proof?.note)panel.append(node("p","proof-note",proof.note));
   if(delivery.how_to_use?.length){panel.append(node("h3","","How to use it"));const steps=node("ol","usage-steps");delivery.how_to_use.forEach(step=>steps.append(node("li","",step)));panel.append(steps);}
   if(delivery.limitations?.length){panel.append(node("h3","","Still to check or finish"));const list=node("ul","usage-steps");delivery.limitations.forEach(item=>list.append(node("li","",item)));panel.append(list);}
-  if(!busy()){const controls=node("div","recovery-actions"),how=node("button","button secondary","Explain how to use it"),folder=node("button","button secondary","Open project folder");how.onclick=()=>followup("Explain how to open and use this project, step by step, for someone who does not program. State any missing setup clearly.","ask");folder.onclick=()=>action(()=>api("/open-folder",{project_id:projectId}));controls.append(how,folder);panel.append(controls);}
+  if(!busy()){const controls=node("div","recovery-actions"),how=node("button","button secondary","Explain how to use it"),folder=node("button","button secondary","Open project folder");how.onclick=()=>followup("Explain how to open and use this project, step by step, for someone who does not program. State any missing setup clearly.","ask");folder.onclick=()=>action(openProjectFiles);controls.append(how,folder);panel.append(controls);}
 }
 function checkCard(c) {
   const box=node("details","check-card "+(c.superseded?"superseded":c.ok?"passed":"failed"));
@@ -508,17 +511,40 @@ async function loadChanges() {
   changes.forEach(c=> { const box=node("details","change-card"), summary=node("summary"); summary.append(node("span","changed-path",c.path),node("span","diff-add","+"+c.added),node("span","diff-remove","−"+c.removed)); box.append(summary); const pre=node("pre","diff"); c.diff.split("\n").forEach(line=>pre.append(node("span",line.startsWith("+")?"addition":line.startsWith("-")?"deletion":"",line+"\n"))); box.append(pre); id("changesList").append(box); });
 }
 async function loadFiles() {
-  if(!projectId)return;
-  const requestedProject=projectId,result=await api("/projects/"+projectId+"/files");
+  if(!projectId||(isCloud&&!appState?.engine?.available)){clearFileSelection();renderFilesState();return;}
+  const requestedProject=projectId;let result;
+  try{result=await api("/projects/"+projectId+"/files");}
+  catch(error){if(requestedProject!==projectId)return;clearFileSelection();fileLoadError=error.message;renderFilesState();throw error;}
   if(requestedProject!==projectId)return;
-  files=result.files; id("fileCount").textContent=files.length+(result.truncated?"+":""); renderFileList();
+  fileLoadError="";files=result.files; id("fileCount").textContent=files.length+(result.truncated?"+":""); renderFileList();renderFilesState();
   if(selectedFile&&!files.includes(selectedFile)){selectedFile="";fileData=null;id("filePreview").textContent="Select a file to preview it.";}
   renderFileButtons();
+}
+function clearFileSelection(){
+  files=[];selectedFile="";fileData=null;fileLoadError="";
+  id("fileCount").textContent="0";id("fileName").textContent="Select a file";id("fileMeta").textContent="";
+  id("filePreview").textContent="Select a project to open its files.";
+  renderFileList();renderFileButtons();
+}
+function renderFilesState(){
+  const unavailable=isCloud&&!appState?.engine?.available;
+  const needsAccount=isCloud&&!appState?.account?.ready;
+  id("filesState").hidden=!!projectId&&!unavailable&&!fileLoadError;
+  id("filesStateTitle").textContent=fileLoadError?"Could not open project files":needsAccount?"Account access required":unavailable?"Cloud projects are offline":"Choose a project";
+  id("filesStateMessage").textContent=fileLoadError||(unavailable?appState?.engine?.message:"")||"Select a project above, or create a project before importing files.";
+  id("filesStateAction").textContent=needsAccount?"Open account":unavailable||fileLoadError?"Refresh workspace":"Create a project";
+  id("dropZone").hidden=!projectId||unavailable||!!fileLoadError;
+  id("fileSearch").disabled=!projectId||unavailable||!!fileLoadError;
+  renderFileButtons();
+}
+async function openProjectFiles(){
+  if(isCloud){changeView("files");return;}
+  return api("/open-folder",{project_id:projectId});
 }
 function renderFileList() {
   id("fileList").replaceChildren();
   const query=id("fileSearch").value.toLowerCase(),shown=files.filter(path=>path.toLowerCase().includes(query));
-  if(!shown.length)id("fileList").append(node("p","empty-file-list",files.length?"No matching files.":"Import files or start a task to add code."));
+  if(!shown.length)id("fileList").append(node("p","empty-file-list",files.length?"No matching files.":!projectId?"No project is open.":"Import files or start a task to add code."));
   shown.forEach(path=>{const button=node("button","file-row"+(selectedFile===path?" selected":""),path);const mark=node("span");mark.innerHTML=icon("file");button.prepend(mark);button.title=path;button.onclick=()=>action(()=>openFile(path));id("fileList").append(button);});
 }
 async function openFile(path) {
@@ -681,7 +707,7 @@ async function saveDownload(path,name) {
   setTimeout(()=>URL.revokeObjectURL(url),30000);toast("Download sent to your browser. Check its Downloads list.");
 }
 function renderFileButtons() {
-  const chosen=!!selectedFile,working=!!busy()||transferBusy||!projectId||(isCloud&&!appState?.engine?.available);
+  const chosen=!!selectedFile,working=!!busy()||transferBusy||!projectId||!!fileLoadError||(isCloud&&!appState?.engine?.available);
   id("copyFileText").disabled=!chosen||!fileData||fileData.binary;
   id("copyFilePath").disabled=!chosen;id("downloadFile").disabled=!chosen;
   id("duplicateFile").disabled=!chosen||working;
@@ -851,9 +877,10 @@ id("monitorStop").onclick=()=>id("stopButton").click();
 id("copyConsole").onclick=()=>action(()=>copyText(id("liveConsole").textContent));
 id("downloadReport").onclick=()=>action(()=>saveDownload("/projects/"+projectId+"/sessions/"+currentSession.id+"/report","task-report-"+currentSession.id+".md"));
 id("downloadLog").onclick=()=>action(()=>saveDownload("/projects/"+projectId+"/sessions/"+currentSession.id+"/logs","task-log-"+currentSession.id+".jsonl"));
-id("openProjectFolder").onclick=()=>action(()=>api("/open-folder",{project_id:projectId}));
+id("openProjectFolder").onclick=()=>action(openProjectFiles);
+id("filesStateAction").onclick=()=>action(async()=>{if(isCloud&&!appState?.account?.ready)return openAccount();if(fileLoadError||(isCloud&&!appState?.engine?.available))return openWorkspace();id("addProject").click();});
 id("fileSearch").oninput=renderFileList;
-id("copyFilePath").onclick=()=>action(()=>copyText(appState.projects.find(p=>p.id===projectId).path+"/"+selectedFile));
+id("copyFilePath").onclick=()=>action(()=>copyText(isCloud?selectedFile:appState.projects.find(p=>p.id===projectId).path+"/"+selectedFile));
 id("copyFileText").onclick=()=>action(async()=>copyText(await (await downloadBlob("/projects/"+projectId+"/download?path="+encodeURIComponent(selectedFile))).text()));
 id("downloadFile").onclick=()=>action(()=>saveDownload("/projects/"+projectId+"/download?path="+encodeURIComponent(selectedFile),selectedFile.split("/").pop()));
 id("downloadProject").onclick=()=>action(async()=>{id("downloadProject").disabled=true;try{await saveDownload("/projects/"+projectId+"/download-project","project-"+projectId+".zip");}finally{renderFileButtons();}});
@@ -935,7 +962,7 @@ id("projectSelect").onchange=()=>action(()=>selectProject(id("projectSelect").va
 id("addProject").onclick=()=>{id("projectForm").reset();id("projectError").hidden=true;id("projectDialog").showModal();};
 id("browseFolder").onclick=()=>action(async()=>{id("browseFolder").disabled=true;try{const result=await api("/select-folder",{});if(result.path){id("projectFolder").value=result.path;if(!id("projectName").value)id("projectName").value=result.path.split(/[\\/]/).pop();}}finally{id("browseFolder").disabled=false;}});
 id("projectForm").onsubmit=e=>{e.preventDefault();action(async()=>{id("saveProject").disabled=true;try{const project=await api("/projects",{name:id("projectName").value,path:id("projectFolder").value});await refreshState();await selectProject(project.id);id("projectDialog").close();}catch(error){id("projectError").hidden=false;id("projectError").textContent=error.message;}finally{id("saveProject").disabled=false;}});};
-id("refreshFiles").onclick=()=>action(loadFiles);
+id("refreshFiles").onclick=()=>action(isCloud?openWorkspace:loadFiles);
 id("undoButton").onclick=()=>action(async()=>{const result=await api("/projects/"+projectId+"/sessions/"+currentSession.id+"/undo");id("undoFiles").replaceChildren(...result.paths.map(p=>node("li","",p)));id("undoDialog").showModal();});
 id("confirmUndo").onclick=()=>action(async()=>{await api("/projects/"+projectId+"/sessions/"+currentSession.id+"/undo",{confirm:true});id("undoDialog").close();await loadSession(currentSession.id);await loadFiles();await loadChanges();toast("File-tool edits were undone.");});
 id("menuButton").onclick=()=>document.body.classList.toggle("sidebar-open"); id("navBackdrop").onclick=()=>document.body.classList.remove("sidebar-open");
@@ -988,6 +1015,7 @@ function renderCloudState(){
   id("projectPath").textContent=appState.projects.find(p=>p.id===projectId)?.name||"Cloud workspace";
   id("projectPath").title="Your account's cloud project";
   for(const name of ["briefButton","setupButton","importFiles","importFolder","downloadProject"])id(name).disabled=!appState.engine?.available||!!busy();
+  renderFilesState();
 }
 if(isCloud){
   document.body.classList.add("cloud-mode");
@@ -995,6 +1023,8 @@ if(isCloud){
   document.querySelector('label[for="projectFolder"]').hidden=true;
   document.querySelector('.local-label').childNodes.forEach(n=>{if(n.nodeType===3)n.textContent="Cloud engine";});
   document.querySelector('.brand .personal').textContent="Cloud";
+  id("fileLocation").textContent="IN YOUR CLOUD PROJECT";id("localFilesLink").hidden=false;
+  document.querySelector('.file-limit-note').textContent="Import files or a folder from your computer. Downloads save a copy to your computer. Transfers: 20 MiB per file, 100 MiB per project export. Credentials, dependencies, Git internals, and agent history are excluded from exports.";
   id("projectDialog").querySelector('.settings-note').textContent="Create a project, then import files or ask the agent to build it.";
   id("briefDialog").querySelector('.settings-note').textContent="Saved with this cloud project. Keep credentials out of the brief.";
   id("retryCloud").onclick=()=>action(openWorkspace);
