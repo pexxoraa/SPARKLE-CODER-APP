@@ -287,4 +287,13 @@ class SettingsMigrationTests(unittest.TestCase):
             self.addCleanup(app.close)
             self.assertIsNone(app.config().command_timeout)
             self.assertEqual(app.config().max_steps, 40)
-            self.assertEqual(json.loads(app.settings_path.read_text())["settings_version"], 4)
+            self.assertEqual(json.loads(app.settings_path.read_text())["settings_version"], 5)
+
+    def test_v4_output_migration_preserves_custom_limits(self):
+        for saved,expected in [(4096,16000),(1024,1024),(8192,8192),(24000,24000)]:
+            with self.subTest(saved=saved),tempfile.TemporaryDirectory() as folder:
+                path=Path(folder)
+                (path/'settings.json').write_text(json.dumps({'settings_version':4,'settings':{'max_tokens':saved}}))
+                app=AppService(path)
+                try:self.assertEqual(app.config().max_tokens,expected)
+                finally:app.close()

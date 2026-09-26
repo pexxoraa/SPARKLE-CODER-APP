@@ -22,6 +22,7 @@ launcher.log
 .DS_Store
 Thumbs.db
 APP_DATA/
+HOSTED_DATA/
 PROJECTS/*
 !PROJECTS/README.md
 web-dist/

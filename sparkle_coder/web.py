@@ -172,7 +172,9 @@ class Handler(BaseHTTPRequestHandler):
                 elif operation == "file":
                     relative = query.get("path", [""])[0]
                     result = user_files.preview(relative)
-                    result["content"] = Redactor(tuple(app.keys.values())).text(result["content"])
+                    visible = Redactor(tuple(app.keys.values())).text(result["content"])
+                    result["redacted"] = visible != result["content"]
+                    result["content"] = visible
                 elif operation == "download":
                     relative = query.get("path", [""])[0]
                     self.download(user_files.bytes(relative), Path(relative).name)
@@ -291,7 +293,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = app.start(body["project_id"], body.get("goal", ""), body.get("verify"),
                                    body.get("session_id"), review_edits=body.get("review_edits", False),
                                    task_mode=body.get("task_mode"))
-            elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] in ("import", "duplicate", "export-folder"):
+            elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] in ("import", "duplicate", "export-folder", "save-file", "delete-file"):
                 result = app.file_action(parts[2], parts[3], body)
             elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "brief":
                 result = app.project_context(parts[2], body)

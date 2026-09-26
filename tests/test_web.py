@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from sparkle_coder.agent import Agent
+from sparkle_coder import __version__
 from sparkle_coder.config import Config
 from sparkle_coder.demo import calls, python_command
 from sparkle_coder.execution import CommandRunner
@@ -328,7 +329,7 @@ class LauncherTests(unittest.TestCase):
                     connection.request("GET", "/api/state", headers={"X-Sparkle-Token": info["token"]})
                     response = connection.getresponse()
                     self.assertEqual(response.status, 200)
-                    self.assertEqual(json.loads(response.read())["version"], "0.7.0")
+                    self.assertEqual(json.loads(response.read())["version"], __version__)
                     connection.request("POST", "/api/quit", body="{}", headers={
                         "X-Sparkle-Token": info["token"], "Content-Type": "application/json"})
                     response = connection.getresponse()

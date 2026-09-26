@@ -43,6 +43,7 @@ class UserFiles(Workspace):
         except UnicodeDecodeError:
             content, binary = "", True
         return {"path": relative, "content": "" if binary else content, "binary": binary,
+                "sha256": sha256(data) if len(data)<=200000 else None,
                 "bytes": path.stat().st_size, "truncated": len(data) > 200000,
                 "mime_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream"}
 

@@ -24,7 +24,7 @@ from .storage import resolve_storage, relocate, migrate_legacy, retry_migration,
 from .state import Session, now
 from .explanations import check_title, explain_failure, simple_recovery
 from .verification import proof_summary, replacements, active_checks
-from .workspace import Redactor, Workspace, clean_terminal, write_json
+from .workspace import Redactor, Workspace, clean_terminal, write_json, sha256
 
 
 def application_root() -> Path:
@@ -124,8 +124,8 @@ class AppService:
                 # complete file in one response. A truncated response is discarded and
                 # retried, resending the whole growing context each time and multiplying
                 # prompt-token usage. Restore a working ceiling for anyone left on the old
-                # low value; leave any intentionally higher value the user set alone.
-                if (self.data['settings'].get('max_tokens') or 0) <= 4096:
+                # default value; preserve other user-selected output limits.
+                if self.data['settings'].get('max_tokens') == 4096:
                     self.data['settings']['max_tokens'] = 16000
             migrated = migrated or saved_version < SETTINGS_SCHEMA_VERSION
         self.lock = threading.RLock()
@@ -172,7 +172,9 @@ class AppService:
                 config._runtime_api_key = self.account.secret
                 config._runtime_cloud = True
                 config.extra_body = {}
-                config.max_tokens = min(config.max_tokens, 16000)
+                # The shared gateway validates an 8192-token maximum independently
+                # of the personal NVIDIA endpoint's larger output setting.
+                config.max_tokens = min(config.max_tokens, 8192)
                 config.context_chars = min(config.context_chars, 30000)
             config.validate()
             return config
@@ -527,6 +529,25 @@ class AppService:
             project, workspace = self.project(project_id)
             files = UserFiles(workspace.root)
             with workspace.lock():
+                if operation in {'save-file','delete-file'}:
+                    path=body.get('path')
+                    content=body.get('content','')
+                    if not isinstance(content,str) or len(content.encode('utf-8'))>200000:
+                        raise ValueError('Manual text edits support complete files up to 200 KB.')
+                    target=workspace.path(path)
+                    expected=body.get('expected_sha256')
+                    if target.exists():
+                        if target.stat().st_size>200000:
+                            raise ValueError('Manual text edits support complete files up to 200 KB.')
+                        if expected is None or expected!=sha256(target.read_bytes()):
+                            raise ValueError('File changed or hash was omitted. Reopen the latest file before saving.')
+                    elif expected is not None or operation=='delete-file':
+                        raise ValueError('The expected file no longer exists.')
+                    session=Session.create(workspace,'Manual '+('edit: ' if operation=='save-file' else 'delete: ')+path,[],self.config(workspace).public_info())
+                    result=session.mutate(path,content.encode('utf-8') if operation=='save-file' else None,expected)
+                    session.state.update({'status':'unverified','summary':'Manual file change saved. Review or undo it in run history.'})
+                    session.save()
+                    return {**result,'path':path,'session_id':session.id}
                 if operation == "import":
                     return files.import_file(body.get("path"), body.get("data"))
                 if operation == "duplicate":

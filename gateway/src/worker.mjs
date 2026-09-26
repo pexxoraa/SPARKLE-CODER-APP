@@ -1,3 +1,4 @@
+import {engineConfigured,proxyEngine} from './engine.mjs';
 const enc = new TextEncoder();
 const now = () => Math.floor(Date.now() / 1000);
 const uid = () => crypto.randomUUID();
@@ -51,7 +52,7 @@ async function rate(env, request, key, maximum, seconds=3600) {
 }
 async function device(request, env, active=false) {
   const digest=await hash(bearer(request));
-  const record=await one(env,`SELECT d.id AS device_id,d.status AS device_status,d.kind,d.claimed_name,a.* FROM devices d
+  const record=await one(env,`SELECT d.id AS device_id,d.status AS device_status,d.kind,d.claimed_name,d.created AS device_created,a.* FROM devices d
     JOIN accounts a ON a.id=d.account_id WHERE d.secret_hash=?`,digest);
   if(!record || record.device_status==='revoked')fail(401,'This device is not connected. Request access again.');
   if(active && (record.device_status!=='active'||record.status!=='active'))fail(403,'Your account is waiting for admin approval or is suspended.');
@@ -79,7 +80,8 @@ async function crypt(env,value,decrypt=false) {
 }
 async function me(record,env) {
   const permitted=record.device_status==='active';
-  return {id:record.id, name:permitted?record.name:record.claimed_name, email:record.email, status:record.status, kind:record.kind,
+  return {id:record.id, request_id:record.device_id, requested_at:record.device_created,
+    name:permitted?record.name:record.claimed_name, email:record.email, status:record.status, kind:record.kind,
     device_status:record.device_status, ready:permitted&&record.status==='active',
     balance_tokens:permitted?record.balance:0, held_tokens:permitted?record.held:0,
     available_tokens:permitted?record.balance-record.held:0,
@@ -103,13 +105,23 @@ async function enroll(request,env) {
   if(account){
     if((await one(env,"SELECT COUNT(*) AS n FROM devices WHERE account_id=? AND status='pending'",account.id)).n>=3)
       fail(409,'A device request is already waiting. Contact the admin.');
-    await sql(env,"INSERT INTO devices VALUES (?,?,?,'pending','recovery',?,?,?)",deviceId,account.id,secret_hash,name,phone,stamp).run();
+    await env.DB.batch([
+      sql(env,"INSERT INTO devices VALUES (?,?,?,'pending','recovery',?,?,?)",deviceId,account.id,secret_hash,name,phone,stamp),
+      sql(env,'INSERT INTO audit VALUES (?,?,?,?,?)',uid(),'device-requested',deviceId,stamp,'Account reconnection requested')
+    ]);
   }else{
     if(data.recovery===true)fail(400,'Request a new account first.');
     try{await env.DB.batch([
       sql(env,"INSERT INTO accounts(id,email,name,phone,created) SELECT ?,?,?,?,? WHERE (SELECT COUNT(*) FROM accounts)<?",id,email,name,phone,stamp,Number(env.MAX_MEMBERS||50)),
-      sql(env,"INSERT INTO devices VALUES (?,?,?,'pending','signup',?,?,?)",deviceId,id,secret_hash,name,phone,stamp)
-    ]);}catch{fail(409,'Registration is full or this email was just registered. Contact the admin.');}
+      sql(env,"INSERT INTO devices VALUES (?,?,?,'pending','signup',?,?,?)",deviceId,id,secret_hash,name,phone,stamp),
+      sql(env,'INSERT INTO audit VALUES (?,?,?,?,?)',uid(),'account-requested',deviceId,stamp,'New tester account requested')
+    ]);}catch(error){
+      if(await one(env,'SELECT id FROM accounts WHERE email=?',email))
+        fail(409,'This email is registered. Choose Reconnect this device for admin review.');
+      if((await one(env,'SELECT COUNT(*) AS n FROM accounts')).n>=Number(env.MAX_MEMBERS||50))
+        fail(409,'Registration is full. Contact the admin.');
+      throw error;
+    }
   }
   return json(await me(await device(request,env),env),201);
 }
@@ -214,7 +226,7 @@ async function adminRoutes(request,env,path) {
     accounts:await rows(env,'SELECT * FROM accounts ORDER BY created DESC LIMIT 100'),
     payments:await rows(env,`SELECT p.*,a.name,a.email,d.claimed_name,d.claimed_phone,d.kind AS device_kind
       FROM payments p JOIN accounts a ON a.id=p.account_id JOIN devices d ON d.id=p.device_id ORDER BY (p.status='pending') DESC,p.created DESC LIMIT 150`),
-    devices:await rows(env,`SELECT d.id,d.account_id,d.kind,d.claimed_name,d.claimed_phone,d.created,a.email
+    devices:await rows(env,`SELECT d.id,d.account_id,d.kind,d.claimed_name,d.claimed_phone,d.created,a.email,a.status AS account_status
       FROM devices d JOIN accounts a ON a.id=d.account_id WHERE d.status='pending' ORDER BY d.created`),
     requests:await rows(env,`SELECT r.id,r.account_id,r.state,r.reserve,r.charged,r.prompt_tokens,r.completion_tokens,r.created,r.note,a.email
       FROM requests r JOIN accounts a ON a.id=r.account_id ORDER BY (r.state IN ('uncertain','inflight')) DESC,r.created DESC LIMIT 100`),
@@ -262,13 +274,14 @@ async function adminRoutes(request,env,path) {
 }
 export async function route(request,env) {
   const url=new URL(request.url),path=url.pathname;
-  if(path==='/healthz')return json({ok:true,service:'sparkle-pilot',version:'0.7.0'});
-  if(path==='/api/info')return json({price_paise:PRICE,credit_tokens:CREDITS,upi_id:env.UPI_ID||'',payee_name:env.PAYEE_NAME||'',support_email:env.SUPPORT_EMAIL||''});
+  if(path==='/healthz')return json({ok:true,service:'sparkle-pilot',version:'0.8.0',engine_configured:engineConfigured(env)});
+  if(path==='/api/info')return json({price_paise:PRICE,credit_tokens:CREDITS,upi_id:env.UPI_ID||'',payee_name:env.PAYEE_NAME||'',support_email:env.SUPPORT_EMAIL||'',engine_configured:engineConfigured(env)});
   if(path.startsWith('/api/')||path.startsWith('/v1/')){
     if(!env.DB||!env.ADMIN_SECRET||env.ADMIN_SECRET.length<43||!env.CACHE_SECRET||env.CACHE_SECRET.length<43)
       fail(503,'The admin must finish server setup before the pilot opens.');
     const origin=request.headers.get('origin');if(origin&&origin!==url.origin)fail(403,'Use the desktop app or open the admin panel directly.');
     if(path.startsWith('/api/admin/'))return adminRoutes(request,env,path);
+    if(path.startsWith('/api/engine/'))return proxyEngine(request,env,await device(request,env,true));
     if(path==='/api/enroll'&&request.method==='POST')return enroll(request,env);
     if(path==='/api/me'&&request.method==='GET')return json(await me(await device(request,env),env));
     if(path==='/api/payments'&&request.method==='POST'){

@@ -11,7 +11,7 @@ for(const value of ["https://attacker.example","http://192.168.1.2:1234","http:/
   assert.throws(()=>engineAddress(value));
 const cloudSource=source.slice(source.indexOf("function cloudAccessUrl("),source.indexOf("const icons"));
 const cloudAccessUrl=new Function(cloudSource+";return cloudAccessUrl;")();
-assert.equal(cloudAccessUrl("https://changed-gateway.example/v1"),"https://changed-gateway.example/request");
+assert.equal(cloudAccessUrl("https://changed-gateway.example/v1"),"https://changed-gateway.example/");
 
 async function check(){
   const calls=[];

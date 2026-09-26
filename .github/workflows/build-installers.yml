@@ -31,10 +31,7 @@ jobs:
           npm run test:migrations --prefix gateway
       - name: Verify browser helpers
         run: |
-          node tests/test_ui_client.js
-          node tests/test_ui_hosted.js
-          node tests/test_ui_explanations.js
-          node tests/test_ui_project_recovery.js
+          npm test
   build:
     needs: verify
     strategy:

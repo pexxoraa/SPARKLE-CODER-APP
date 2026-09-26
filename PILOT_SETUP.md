@@ -1,4 +1,4 @@
-# SPARKLE CODER tester pilot — 0.7.0
+# SPARKLE CODER tester pilot — 0.7.1
 
 The hosted web/PWA client, shared gateway and admin panel are implemented. A live
 server address, the owner's NVIDIA credential and UPI details are required before
@@ -177,3 +177,14 @@ Official references: [Workers pricing](https://developers.cloudflare.com/workers
 [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/),
 [D1 transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/),
 [Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
+
+## Browser signup repair (0.7.1)
+
+For the browser/PWA edition, follow [WEB_APP_DEPLOY.md](WEB_APP_DEPLOY.md).
+Signups appear under **Account requests** before payment. Match the request ID
+with the browser receipt, then verify and approve a submitted ₹15 payment to
+activate the account and issue its credit pack. Both pages refresh automatically.
+Keep the existing `gateway/.owner` and D1 database when updating; this release
+requires no schema reset. Run `bash Deploy_Web_App.sh` from the updated, configured
+project folder. Interrupted first-time setup can be resumed with
+`python scripts/setup_cloud.py`, which now exposes deployment errors and prompts.

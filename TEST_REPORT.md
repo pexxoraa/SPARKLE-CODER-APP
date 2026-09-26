@@ -1,4 +1,61 @@
-# Validation report — SPARKLE CODER 0.7.0
+# Release 0.8.0 verification — 2026-09-26
+
+The full cloud update was built against SPARKLE-CODER-APP main
+`bc295a8348a0e76cbed8e44ab57c97d0ae04f3bf` and compared with SPARKLE-CODER main
+`0605ff1e80da28a5ccb9152038e0a126e9ef3045`.
+
+- 211 Python tests pass, including account-scoped HTTP access, real multi-file
+  agent edits, edit approvals, pause/resume/stop, history, reports, downloads,
+  restart persistence, undo and concurrent-edit protection.
+- 40 gateway/admin/browser-controller tests pass. The full integration test uses
+  the browser transport, real Worker routing, transactional SQLite, real Python
+  HTTP service, Nemotron client, agent and files. Only the upstream model replies
+  are scripted; two model requests settle exactly 240 fixture tokens once.
+- Five JavaScript UI suites pass, including failed-save draft retention and
+  binding each manual edit to its captured project/path/hash.
+- The Worker deployment dry run passes with Wrangler 4.138.0. The legacy static
+  desktop-pairing site also builds. Generated full web assets match the shared UI.
+- Owner setup tests preserve database and payment configuration, keep the relay
+  secret off stdout/command arguments, and stop before cloud changes if the
+  authenticated engine health check fails.
+
+Docker is not installed in the test workspace. Container invocation restrictions
+and missing-Docker behavior are tested with process doubles; actual container
+execution is not verified here. The new local UI could not be inspected in the
+cloud browser because its loopback access is blocked. Controller/API tests are
+not a substitute for the final browser smoke check on the owner's deployment.
+No live NVIDIA request, payment, owner-host provisioning or production deployment
+was performed. Follow the final live checklist in HOSTED_ENGINE.md.
+
+---
+
+## Earlier release evidence
+
+# Validation report — SPARKLE CODER 0.7.1
+
+## Browser/account repair — 2026-09-25
+
+Validated this repository locally with Node 24 and Python 3.12:
+
+- 200 Python tests passed, including desktop signup → admin visibility → payment
+  approval → real HTTP gateway inference with a scripted provider → restart.
+- 35 gateway tests passed: transactional SQLite/Worker handlers, actual admin
+  and browser scripts executed with DOM/storage test adapters, and service-worker
+  cache isolation. Coverage includes signup before payment, lost signup response,
+  rejected malformed receipts, polling, preserved review fields, exact-once credits,
+  recovery before first payment, failed saves, directory-read races, imports,
+  file-bound AI review, conversation context and same-ID inference replay.
+- Four existing JavaScript UI suites passed (`npm test` at the repository root).
+- Wrangler 4.138.0 `deploy --dry-run` built the Worker and all 11 public assets.
+- No schema changes or migration reset are included in this repair.
+
+The browser smoke attempt against the local preview was blocked by the cloud
+browser's loopback restriction. The controller tests use adapters, not a real
+browser. No production signup, payment, approval or NVIDIA inference was made,
+and no live Cloudflare deployment has been performed from this workspace.
+`Deploy_Web_App.sh` verifies the live version after the owner deploys.
+
+## Previous validation history
 
 Validated locally on Linux and through native GitHub runners on 2026-09-25. No real NVIDIA key or payment was used.
 

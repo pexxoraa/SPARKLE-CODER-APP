@@ -1,26 +1,24 @@
 # SPARKLE CODER
 
-> **Hosted web/PWA client:** the Cloudflare Worker root can now be used as the tester app with no ZIP or desktop installation. It includes browser file editing, account/payment flow and direct Nemotron access through the protected gateway. See [WEB_APP_DEPLOY.md](WEB_APP_DEPLOY.md). The legacy desktop/local-engine client remains in the repository for advanced local execution features.
+Version **0.8.0** connects the full Python agent interface to the web app:
+projects, Build/Ask, multi-file changes, approvals, plans, checks, history,
+pause/resume/stop, reports and undo. The shared interface also has a manual file
+editor. Testers use the Worker URL without installing Python or entering API keys.
 
-A local coding workspace with a managed tester edition and a personal edition.
-Version **0.7.0** adds account signup, manual UPI approval, protected token
-balances, a shared NVIDIA gateway, a simpler interface and efficient prompts.
+**Start with [HOSTED_ENGINE.md](HOSTED_ENGINE.md).** The existing Worker + D1 handles
+accounts, manual UPI approval and metered NVIDIA requests. Full agent execution
+requires an owner-hosted Python/Docker service with persistent project storage.
+The code does not create a server or imply that a backend is already deployed.
 
-**Tester rollout starts with [PILOT_SETUP.md](PILOT_SETUP.md).** The owner deploys
-Cloudflare Workers + D1 and configures the server origin in the installer.
-Testers enter their details, submit a ₹15 UPI reference and receive 1,000,000
-input/output tokens after admin approval. They do not enter model API keys.
+Signup requests appear in admin before payment. An owner-verified ₹15 payment
+activates the account and adds 1,000,000 tokens once. The old browser scratch
+editor remains at `/scratch.html`, preserving its stored files. Existing desktop
+projects and cloud projects are separate; use import/download to transfer them.
 
-Windows Setup includes Python, creates shortcuts and preserves user projects.
-The build workflow verifies installation and updates on Windows. Fast mode uses
-4,096 output tokens per request, compacted history and reasoning disabled by
-default. Existing explicit run limits are preserved. Command approvals remain on.
-
-The gateway code and installer pipeline are implemented. Live hosting, real
-payments and model performance require owner configuration and a live pilot.
-See [TEST_REPORT.md](TEST_REPORT.md) for verified results and remaining limits.
-The previous Vercel static interface is optional; it is not the shared credit
-server. Use the Cloudflare pilot guide for this release.
+The personal desktop edition and Windows installer remain supported. Managed
+cloud model requests use up to 8,192 output tokens, compacted context and reasoning
+disabled by default. See [WEB_APP_DEPLOY.md](WEB_APP_DEPLOY.md) for the existing
+Worker update and [PILOT_SETUP.md](PILOT_SETUP.md) for first-time account setup.
 
 Personal/source setup: open **OPEN_FIRST.html** or [START_HERE.md](START_HERE.md).
 Source runs need Python 3.11+ and no third-party Python runtime packages.
@@ -67,9 +65,9 @@ keep working. The app never silently recreates a missing registered folder.
 - **Simple view** is the default. Activity, changes, and checks remain available
   through the details button and Run monitor. Switch to advanced view in the sidebar.
 
-This is the first release of the staged expansion. Live previews, browser
-automation, a code editor, parallel agents, a GitHub panel, document tools,
-plugins, scheduling, and remote access are **not implemented in this release**.
+The earlier staged release did not include a code editor or a shared cloud engine;
+0.8.0 adds both. Live app previews, browser automation, parallel agents, a GitHub
+panel, document tools, plugins and scheduling remain future roadmap items.
 See [ROADMAP.md](ROADMAP.md) for the remaining stages and acceptance criteria.
 
 ## Simple explanations and project folders retained from 0.5.0

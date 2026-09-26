@@ -1,12 +1,12 @@
-SPARKLE CODER WEB/PWA UPDATE
+SPARKLE CODER 0.8.0 — FULL WEB WORKSPACE
 
-1. Keep your existing ~/SPARKLE-CODER/gateway/.owner directory. Do not replace or share it.
-2. Extract this ZIP over your existing ~/SPARKLE-CODER folder, preserving paths.
-3. From ~/SPARKLE-CODER run:
+Keep your existing gateway/.owner, PROJECTS, APP_DATA and HOSTED_DATA.
+Use APPLY_UPDATE.sh from the outer update package to check and apply a matching
+patch. Do not blindly extract application files over a modified checkout.
 
-   ./Deploy_Web_App.sh
-
-4. When Wrangler finishes, open your existing workers.dev root URL.
-5. The root URL is now the tester coding app. /admin remains the private owner panel.
-
-This update ZIP contains no Cloudflare, NVIDIA, admin, or cache secret values.
+After applying, run: bash Deploy_Web_App.sh
+Then follow HOSTED_ENGINE.md to connect an owner Python/Docker host.
+The Worker alone cannot execute the Python agent or project commands.
+Testers use the Worker URL; they do not need installers or API keys.
+Existing scratch files remain available at /scratch.html.
+No production deployment or owner host provisioning is included in this archive.

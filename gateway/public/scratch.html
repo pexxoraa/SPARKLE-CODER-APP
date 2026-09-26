@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <meta name="color-scheme" content="dark">
+  <title>SPARKLE CODER</title>
+  <meta name="description" content="SPARKLE CODER — a browser coding workspace powered by NVIDIA Nemotron.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="SPARKLE CODER home"><img src="/favicon.svg" alt=""><span>SPARKLE <b>CODER</b></span></a>
+      <div class="top-actions">
+        <a class="button secondary" href="/">Cloud projects</a>
+        <span id="connectionPill" class="pill muted">Checking account…</span>
+        <button id="accountButton" class="button secondary">Account</button>
+        <button id="installButton" class="button secondary" hidden>Install app</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="explorer panel">
+        <div class="panel-head"><div><span class="eyebrow">PROJECT</span><strong id="projectName">Scratch workspace</strong></div><button id="newFileButton" class="icon-button" title="New file" aria-label="New file">＋</button></div>
+        <div class="project-actions">
+          <button id="openFolderButton" class="button primary">Open local folder</button>
+          <label class="button secondary file-label">Import folder<input id="folderInput" type="file" webkitdirectory multiple hidden></label>
+        </div>
+        <p id="folderHint" class="hint">Chrome/Edge can edit a folder directly. Other browsers can use the persistent scratch workspace.</p>
+        <div id="fileList" class="file-list" role="tree" aria-label="Project files"></div>
+      </aside>
+
+      <section class="editor panel">
+        <div class="editor-tabs"><span id="activeFileLabel">README.md</span><div><button id="saveButton" class="button secondary">Save</button><button id="downloadButton" class="button secondary">Download</button></div></div>
+        <textarea id="editor" spellcheck="false" aria-label="Code editor" placeholder="Open or create a file to start coding."></textarea>
+        <div class="statusbar"><span id="saveStatus">Ready</span><span id="cursorStatus">Ln 1, Col 1</span></div>
+      </section>
+
+      <aside class="assistant panel">
+        <div class="panel-head"><div><span class="eyebrow">NEMOTRON</span><strong>AI coding assistant</strong></div><button id="clearChatButton" class="text-button">Clear</button></div>
+        <div id="chat" class="chat" aria-live="polite"><div class="message assistant-message"><p>Open a file, then tell me what you want to build or change. I can use the active file as context.</p></div></div>
+        <form id="promptForm" class="composer">
+          <textarea id="prompt" rows="4" maxlength="12000" placeholder="Example: Add form validation and explain the changes…" required></textarea>
+          <label class="context-toggle"><input id="includeFile" type="checkbox" checked> Include active file as context</label>
+          <div class="composer-actions"><span id="tokenBalance" class="balance">— tokens</span><button id="sendButton" class="button primary">Send</button></div>
+        </form>
+      </aside>
+    </main>
+  </div>
+
+  <dialog id="accountDialog">
+    <div class="dialog-head"><div><span class="eyebrow">SPARKLE ACCOUNT</span><h2>Access & credits</h2></div><button class="icon-button" data-close="accountDialog" aria-label="Close">×</button></div>
+    <p id="accountMessage" class="notice">Checking your account…</p>
+    <p id="requestReceipt" class="hint"></p>
+    <p id="accountSyncStatus" class="hint" role="status"></p>
+    <div class="dialog-actions"><button id="refreshAccountButton" class="button secondary">Refresh account</button><button id="reconnectButton" class="text-button">Reconnect / switch account</button></div>
+    <section id="registerSection">
+      <form id="registerForm">
+        <label>Name<input id="memberName" autocomplete="name" required minlength="2" maxlength="80"></label>
+        <label>Email<input id="memberEmail" type="email" autocomplete="email" required maxlength="200"></label>
+        <label>Phone <span>(optional)</span><input id="memberPhone" autocomplete="tel" maxlength="32"></label>
+        <label class="check"><input id="memberConsent" type="checkbox" required> I agree that prompts and selected code may be sent to the shared server and NVIDIA for processing.</label>
+        <label class="check"><input id="recoveryMode" type="checkbox"> Reconnect an existing account on this browser/device.</label>
+        <button id="registerButton" class="button primary" type="submit">Request access</button>
+      </form>
+    </section>
+    <section id="memberSection" hidden>
+      <div class="balance-card"><span>Available credits</span><strong id="accountBalance">0</strong><small id="heldBalance"></small></div>
+      <div id="paymentSection" hidden>
+        <h3>Add 1,000,000 tokens · ₹15</h3>
+        <p>Pay only after checking the recipient details below. Credits appear after the admin verifies the payment.</p>
+        <div class="pay-grid"><span>UPI ID</span><strong id="upiId">—</strong><span>Recipient</span><strong id="payeeName">—</strong></div>
+        <form id="paymentForm"><label>UPI transaction reference / UTR<input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"></label><button id="paymentButton" class="button primary" type="submit">Submit payment</button></form>
+      </div>
+      <div><h3>Recent payments</h3><div id="paymentHistory" class="history-list"></div></div>
+      <p id="supportLine" class="hint"></p>
+    </section>
+  </dialog>
+
+  <dialog id="applyDialog">
+    <div class="dialog-head"><div><span class="eyebrow">AI CHANGE</span><h2>Apply generated code?</h2></div><button class="icon-button" data-close="applyDialog" aria-label="Close">×</button></div>
+    <p id="applyTarget"></p>
+    <p>This block will replace the entire file in the editor. Apply only if it is a complete replacement, then review before saving.</p>
+    <pre id="applyPreview" class="code-preview"></pre>
+    <div class="dialog-actions"><button class="button secondary" data-close="applyDialog">Cancel</button><button id="confirmApply" class="button primary">Apply to editor</button></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
