@@ -37,7 +37,9 @@ url=deploy_worker(lambda *args,**kwargs:run_wrangler(command,*args,**kwargs),con
 save(OWNER/'deployment.json',{'gateway_url':url,'admin_url':url+'/admin'})
 print('\nPublished: '+url+'\nAdmin: '+url+'/admin',flush=True)
 try:
-    with urllib.request.urlopen(url+'/healthz',timeout=30) as response:
+    request=urllib.request.Request(url+'/healthz',headers={
+        'User-Agent':'SPARKLE-CODER/0.8.0','Accept':'application/json'})
+    with urllib.request.urlopen(request,timeout=30) as response:
         health=json.loads(response.read())
     if health.get('version')!='0.8.0' or health.get('ok') is not True:
         raise ValueError('The expected release was not returned by /healthz.')

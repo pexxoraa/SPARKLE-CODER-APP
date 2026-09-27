@@ -47,8 +47,11 @@ class HostedSetupTests(unittest.TestCase):
         with patch.object(setup,'check_engine') as check,patch.object(setup,'run_wrangler') as cli,\
                 patch.object(setup.subprocess,'run') as command,\
                 patch.object(setup,'deploy_worker',return_value='https://worker.example'),\
-                patch.object(setup.urllib.request,'urlopen',return_value=response):
+                patch.object(setup.urllib.request,'urlopen',return_value=response) as health:
             setup.connect('https://engine.example')
+        request=health.call_args.args[0]
+        self.assertEqual(request.get_header('User-agent'),'SPARKLE-CODER/0.8.0')
+        self.assertEqual(request.get_header('Accept'),'application/json')
         value=json.loads((self.owner/'wrangler.json').read_text())
         self.assertEqual(value['d1_databases'][0]['database_id'],old['d1_databases'][0]['database_id'])
         self.assertEqual(value['vars']['UPI_ID'],'keep@bank')

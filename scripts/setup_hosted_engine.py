@@ -95,7 +95,9 @@ def connect(origin):
     # Record the successful publish separately from a client-specific health failure.
     save(OWNER/'engine-deployment.json',{'gateway_url':url,'engine_origin':origin,'deployed':True,'health_verified':False})
     try:
-        with urllib.request.urlopen(url+'/healthz',timeout=20) as response:
+        request=urllib.request.Request(url+'/healthz',headers={
+            'User-Agent':'SPARKLE-CODER/0.8.0','Accept':'application/json'})
+        with urllib.request.urlopen(request,timeout=20) as response:
             health=json.loads(response.read(8192))
     except (urllib.error.URLError,TimeoutError) as error:
         print('Worker deployed and HTTPS engine verified. The public Worker health check could not be confirmed ('+type(error).__name__+'). Verify the app in your browser.')

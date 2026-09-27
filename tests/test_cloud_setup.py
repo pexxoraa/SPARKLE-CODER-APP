@@ -276,8 +276,11 @@ class CloudSetupTests(unittest.TestCase):
         with patch.dict(sys.modules,{'setup_cloud':setup_cloud}), \
              patch.object(sys,'path',sys.path[:]), \
              patch.object(setup_cloud,'deploy_worker',return_value=url) as deploy, \
-             patch.object(setup_cloud.urllib.request,'urlopen',return_value=io.BytesIO(b'{"ok":true,"version":"0.8.0"}')):
+             patch.object(setup_cloud.urllib.request,'urlopen',return_value=io.BytesIO(b'{"ok":true,"version":"0.8.0"}')) as health:
             exec(compile(script,str(source),'exec'),{})
+        request=health.call_args.args[0]
+        self.assertEqual(request.get_header('User-agent'),'SPARKLE-CODER/0.8.0')
+        self.assertEqual(request.get_header('Accept'),'application/json')
         saved=json.loads((self.owner/'wrangler.json').read_text())
         self.assertEqual(saved['name'],previous['name'])
         self.assertEqual(saved['vars'],previous['vars'])
