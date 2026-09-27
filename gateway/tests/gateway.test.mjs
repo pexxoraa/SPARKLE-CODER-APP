@@ -120,6 +120,14 @@ test('rejected provider calls release holds and shared NVIDIA key never reaches 
  const result=await f.infer();assert.equal(result.status,502);assert.ok(!JSON.stringify(result).includes(f.env.NVIDIA_API_KEY));
  const me=(await f.api('/api/me')).body;assert.equal(me.balance_tokens,1000000);assert.equal(me.held_tokens,0);
 });
+test('explicit provider 5xx releases the hold and permits a fresh safe retry',async()=>{
+ const f=fixture();await f.approve();f.env.UPSTREAM.fetch=async()=>new Response('temporary failure',{status:500});
+ const result=await f.infer();assert.equal(result.status,502);
+ assert.equal(result.headers.get('X-Sparkle-Safe-Retry'),'true');assert.equal(result.headers.get('Retry-After'),'2');
+ const me=(await f.api('/api/me')).body;assert.equal(me.balance_tokens,1000000);assert.equal(me.held_tokens,0);
+ const row=f.env.DB.db.prepare('SELECT state,charged,note FROM requests').get();
+ assert.equal(row.state,'failed');assert.equal(row.charged,0);assert.match(row.note,/HTTP 500/);
+});
 test('no cross-account response, payment or admin access; CSRF and logout protection',async()=>{
  const f=fixture();await f.approve();assert.equal((await f.api('/api/admin/overview')).status,401);
  assert.equal((await f.api('/api/admin/overview',undefined,{admin:true,origin:'https://evil.example'})).status,403);

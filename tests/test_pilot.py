@@ -107,6 +107,24 @@ class EfficiencyTests(unittest.TestCase):
         self.assertFalse(json.loads(requests[0].data)['chat_template_kwargs']['enable_thinking'])
         self.assertEqual(response.usage,{'prompt_tokens':0,'completion_tokens':3})
 
+    def test_safe_gateway_5xx_uses_fresh_ids_and_stops_after_two_retries(self):
+        config=Config();config._runtime_cloud=True;client=NemotronClient(config)
+        failures=[urllib.error.HTTPError(config.base_url,502,'temporary',
+                  {'Retry-After':'2','X-Sparkle-Safe-Retry':'true'},None) for _ in range(3)]
+        with patch.object(client,'_read',side_effect=failures) as read,patch.object(client,'wait_retry') as wait:
+            with self.assertRaisesRegex(ModelError,'HTTP 502'):
+                client.complete([{'role':'user','content':'Hello'}],[])
+        ids=[call.args[0].get_header('Idempotency-key') for call in read.call_args_list]
+        self.assertEqual(len(ids),3);self.assertEqual(len(set(ids)),3);self.assertEqual(wait.call_count,2)
+
+    def test_ambiguous_gateway_502_is_not_replayed_into_a_409(self):
+        config=Config();config._runtime_cloud=True;client=NemotronClient(config)
+        failure=urllib.error.HTTPError(config.base_url,502,'uncertain',{},None)
+        with patch.object(client,'_read',side_effect=failure) as read,patch.object(client,'wait_retry') as wait:
+            with self.assertRaisesRegex(ModelError,'HTTP 502'):
+                client.complete([{'role':'user','content':'Hello'}],[])
+        self.assertEqual(read.call_count,1);wait.assert_not_called()
+
 
 class AccountReceiptTests(unittest.TestCase):
     def setUp(self):

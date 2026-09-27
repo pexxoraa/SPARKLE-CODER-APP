@@ -142,6 +142,7 @@ class NemotronClient:
         attempts = 100 if self.config._runtime_cloud else 3
         recovery_deadline = time.monotonic() + max(300, self.config.request_timeout)
         retry_transport = body is None or self.config._runtime_cloud
+        safe_service_retries = 0
         for attempt in range(attempts):
             if self.should_stop():
                 raise ModelError("Stopped by the user before the model request.")
@@ -154,9 +155,20 @@ class NemotronClient:
                 return json.loads(raw)
             except urllib.error.HTTPError as exc:
                 exc.close()
-                if (exc.code == 429 or retry_transport and exc.code in (500, 502, 503, 504) or
-                        self.config._runtime_cloud and exc.code == 409 and exc.headers.get("Retry-After")) and attempt < attempts - 1 and time.monotonic() < recovery_deadline:
-                    if self.config._runtime_cloud and exc.code == 429 and exc.headers.get('X-Sparkle-Safe-Retry') == 'true':
+                safe_retry = (self.config._runtime_cloud
+                              and exc.headers.get('X-Sparkle-Safe-Retry') == 'true')
+                service_failure = safe_retry and exc.code in (500, 502, 503, 504)
+                retryable = (
+                    exc.code == 429
+                    or (retry_transport and exc.code in (500, 502, 503, 504)
+                        and (not self.config._runtime_cloud or safe_retry or exc.code in (503, 504)))
+                    or (self.config._runtime_cloud and exc.code == 409 and exc.headers.get("Retry-After"))
+                )
+                within_service_retry_cap = not service_failure or safe_service_retries < 2
+                if retryable and within_service_retry_cap and attempt < attempts - 1 and time.monotonic() < recovery_deadline:
+                    if service_failure:
+                        safe_service_retries += 1
+                    if safe_retry:
                         # The gateway confirmed no inference charge for this ID.
                         headers['Idempotency-Key'] = uuid.uuid4().hex
                     try:

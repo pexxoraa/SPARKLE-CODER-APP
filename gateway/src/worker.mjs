@@ -187,13 +187,17 @@ async function inference(request,env) {
       method:'POST',redirect:'manual',signal:AbortSignal.timeout(240000),
       headers:{'Authorization':'Bearer '+env.NVIDIA_API_KEY,'Content-Type':'application/json'},body:payload});
     if(!upstream.ok){
-      const definite=[400,401,403,404,422,429].includes(upstream.status);
+      // An explicit provider HTTP response is a confirmed failed request, including 5xx.
+      // Only transport/parse ambiguity belongs in reconciliation.
+      const provider5xx=upstream.status>=500&&upstream.status<=599;
+      const definite=[400,401,403,404,422,429].includes(upstream.status)||provider5xx;
+      const safeRetry=upstream.status===429||provider5xx;
       const status=upstream.status===429?429:502, note='Model service returned HTTP '+upstream.status+'.';
       await sql(env,'UPDATE requests SET state=?,http_status=?,note=?,completed=? WHERE id=? AND state=\'inflight\'',
         definite?'failed':'uncertain',status,note,now(),key).run();
       await upstream.body?.cancel();
       return json({error:note+(definite?' No tokens were charged.':' Credits are held for admin reconciliation.')},status,
-        upstream.status===429?{'X-Sparkle-Safe-Retry':'true','Retry-After':'10'}:{});
+        safeRetry?{'X-Sparkle-Safe-Retry':'true','Retry-After':upstream.status===429?'10':'2'}:{});
     }
     stage='reading model response';
     const raw=await upstream.text();if(raw.length>250000){stage='response size limit';throw new Error('Oversized provider response');}
