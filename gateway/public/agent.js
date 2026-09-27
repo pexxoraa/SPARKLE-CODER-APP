@@ -84,7 +84,6 @@ id("app").innerHTML = `
       <span class="topbar-divider"></span><span class="project-path" id="projectPath"></span>
       <div class="topbar-actions"><div id="workspaceModeSwitch" class="workspace-mode-switch" hidden><button id="cloudWorkspaceMode" class="text-button active" type="button">Cloud</button><button id="browserWorkspaceMode" class="text-button" type="button">Browser files</button></div><button id="topAccountButton" class="text-button" type="button" hidden>Account</button><button id="trackTask" class="text-button" title="Open live run monitor">Monitor <span id="headerRunStatus">Ready</span></button><button class="icon-button details-toggle" id="detailsButton" aria-label="Show activity panel"><span data-icon="panel"></span></button></div>
     </header>
-    <div id="cloudNotice" class="missing-projects-notice" role="status" hidden><span id="cloudNoticeText"></span><button id="retryCloud" class="button secondary">Retry cloud</button><button id="useBrowserWorkspace" class="text-button" type="button">Use browser files here</button></div>
     <div id="missingProjectsNotice" class="missing-projects-notice" role="status" hidden><span id="missingProjectsText"></span><button id="findProjectFolder" class="button secondary">Find folder</button></div>
     <div id="pendingMigrationNotice" class="missing-projects-notice" role="status" hidden><span>Some projects are waiting to move. You can keep working in another project.</span><button id="showProjectMigration" class="button secondary">Review project move</button></div>
     <section id="browserWorkspacePanel" class="browser-workspace-panel" hidden aria-label="Browser files workspace"><iframe id="browserWorkspaceFrame" src="/scratch.html?embedded=1" title="Browser files workspace"></iframe></section>
@@ -279,7 +278,6 @@ function setWorkspaceSurface(mode,{remember=true}={}) {
   id("browserWorkspaceMode").classList.toggle("active",browser);
   id("cloudWorkspaceMode").setAttribute("aria-pressed",String(!browser));
   id("browserWorkspaceMode").setAttribute("aria-pressed",String(browser));
-  if(browser)id("cloudNotice").hidden=true;
 }
 function engineAddress(value) {
   const url=new URL(value);
@@ -1050,7 +1048,7 @@ function showEngineWelcome(message="") {
 async function openWorkspace() {
   if(isHosted&&(!engineOrigin||!accessToken)){showEngineWelcome(connectionError);return;}
   try {await refreshState();await Promise.all([loadFiles(),loadHistory()]);renderSession(null);id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;if(currentRun)schedulePoll(20);if(appState.account?.enabled){if(!appState.account.enrolled)openAccount();else refreshAccount().catch(()=>{});}}
-  catch(error){if(isCloud){id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;id("cloudNoticeText").textContent=error.message;id("runButton").disabled=true;setWorkspaceSurface("browser",{remember:false});}else showEngineWelcome(error.message);}
+  catch(error){if(isCloud){id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;id("runButton").disabled=true;setWorkspaceSurface("browser",{remember:false});}else showEngineWelcome(error.message);}
 }
 id("websiteButtonLabel").textContent=isHosted?"Website connection":"Connect website";
 id("websiteButton").onclick=()=>{
@@ -1083,8 +1081,6 @@ function renderCloudState(){
   id("workspaceModeSwitch").hidden=false;id("topAccountButton").hidden=false;
   const available=Boolean(appState.account?.ready&&appState.engine?.available);
   if(!available)setWorkspaceSurface("browser",{remember:false});else setWorkspaceSurface(workspacePreference,{remember:false});
-  id("cloudNotice").hidden=!available||document.body.classList.contains("browser-workspace-mode");
-  id("cloudNoticeText").textContent="Cloud workspace · files and saved tasks stay with your account.";
   id("projectPath").textContent=appState.projects.find(p=>p.id===projectId)?.name||"Cloud workspace";
   id("projectPath").title="Your account's cloud project";
   for(const name of ["briefButton","setupButton","importFiles","importFolder","downloadProject"])id(name).disabled=!available||!!busy();
@@ -1100,8 +1096,6 @@ if(isCloud){
   document.querySelector('.file-limit-note').textContent="Import files or a folder from your computer. Downloads save a copy to your computer. Transfers: 20 MiB per file, 100 MiB per project export. Credentials, dependencies, Git internals, and agent history are excluded from exports.";
   id("projectDialog").querySelector('.settings-note').textContent="Create a project, then import files or ask the agent to build it.";
   id("briefDialog").querySelector('.settings-note').textContent="Saved with this cloud project. Keep credentials out of the brief.";
-  id("retryCloud").onclick=()=>action(async()=>{workspacePreference="cloud";try{sessionStorage.setItem("sparkleWorkspaceMode","cloud");}catch(_){}await openWorkspace();});
-  id("useBrowserWorkspace").onclick=()=>setWorkspaceSurface("browser");
   id("openBrowserFilesInline").onclick=()=>setWorkspaceSurface("browser");
   id("cloudWorkspaceMode").onclick=()=>{setWorkspaceSurface("cloud");if(!appState?.engine?.available)action(openWorkspace);};
   id("browserWorkspaceMode").onclick=()=>setWorkspaceSurface("browser");
