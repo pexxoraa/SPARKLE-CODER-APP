@@ -10,7 +10,7 @@ import sys
 import time
 
 from .provider import ModelError
-from .efficiency import compact_group
+from .efficiency import SIMPLE_TOOL_NAMES, compact_group, task_profile
 from .explanations import check_title, explain_checks, simple_recovery
 from .verification import active_checks, proof_summary
 from .state import now
@@ -95,8 +95,32 @@ class Agent:
         self.tools = ToolSet(workspace, session, config, approve, self.should_stop,
                              self.observe, self.checkpoint, approve_edit)
         self.failures = {}
-        self.schemas = [s for s in SCHEMAS if session.state.get("task_mode") != "ask"
-                        or s["function"]["name"] in READ_ONLY_TOOLS]
+        profile = session.state.get("task_profile")
+        if not isinstance(profile, dict) or "name" not in profile:
+            brief = session.state.get("project_brief") or {}
+            requests = session.state.get("user_requests", [session.state.get("goal", "")])
+            has_brief = bool(session.state.get("requirements") or brief.get("purpose") or brief.get("constraints")
+                             or len(requests) > 1)
+            profile = (task_profile(requests[-1], has_project_brief=has_brief)
+                       if config.efficiency == "efficient" and session.state.get("task_mode") != "ask"
+                       else {"name": "standard"})
+            session.state["task_profile"] = profile
+            session.save()
+        self.task_profile = profile
+        if profile.get("name") != "standard":
+            for field in ("max_steps", "max_total_tokens"):
+                limit = profile[field]
+                current = getattr(config, field)
+                setattr(config, field, min(current, limit) if current is not None else limit)
+            config.max_tokens = min(config.max_tokens, profile["max_tokens"])
+            config.context_chars = min(config.context_chars, profile["context_chars"])
+        if session.state.get("task_mode") == "ask":
+            allowed = READ_ONLY_TOOLS
+        elif profile.get("name") != "standard":
+            allowed = SIMPLE_TOOL_NAMES
+        else:
+            allowed = None
+        self.schemas = [s for s in SCHEMAS if allowed is None or s["function"]["name"] in allowed]
         if callable(getattr(provider, "bind_runtime", None)):
             provider.bind_runtime(self.tools.observe, self.should_stop)
         self.required_cache = {}
@@ -131,6 +155,17 @@ class Agent:
                        "run the smallest meaningful checks, then finish. Avoid repeatedly rewriting complete files. "
                        "Use inspect_static_site for structural checks of plain HTML/CSS sites without installing tools; "
                        "it does not establish browser behavior. Use concise narration and one modest file per write call.")
+        if self.task_profile.get("name") == "micro":
+            system += ("\nMICRO TASK MODE: Implement exactly the small behavior requested with the smallest clear solution. "
+                       "Do not invent command-line arguments, fallback modes, frameworks, README files, extra features, "
+                       "or broad error handling unless the user asked for them. Batch necessary edits. Run one focused "
+                       "verification, then finish. If a Python program uses input(), test that interface by piping input "
+                       "to python3; never redesign the program merely to make your test command easier. Do not narrate "
+                       "before tool calls, and do not repeatedly rewrite a file that already implements the request.")
+        elif self.task_profile.get("name") == "simple_web":
+            system += ("\nSIMPLE WEB TASK MODE: Build only the requested static page. Batch the HTML/CSS edits, avoid "
+                       "unrequested JavaScript or frameworks, run one structural site check, then finish. Do not add "
+                       "extra sections or repeatedly rewrite complete files.")
         guidance = self.workspace.instructions()
         if guidance:
             system += "\n\nPROJECT GUIDANCE:\n" + guidance
@@ -139,26 +174,38 @@ class Agent:
                        '{"tool": "tool_name", "arguments": {...}} to use a tool, or '
                        '{"final": "summary and verification"} when finished.\nTools:\n'
                        + json.dumps(self.schemas))
-        checkpoint = {
-            "user_project_brief": state.get("project_brief", {}),
-            "user_requirements": state.get("requirements", []),
-            "requirement_evidence": proof_summary(state)["requirements"],
-            "project_overview": {key: value[:16] if isinstance(value, list) else value
-                                 for key, value in state.get("setup", {}).get("overview", {}).items()},
-            "setup_attention": [item for item in state.get("setup", {}).get("items", [])
-                                if item["status"] == "attention"][:8],
-            "recent_repair_reviews": state.get("repair_history", [])[-2:],
-            "plan": state["plan"],
-            "recent_user_requests": state.get("user_requests", [state["goal"]])[-4:],
-            "required_acceptance_commands": state["required_checks"],
-            "recent_actions": [{k: (v[:220] if isinstance(v, str) else v) for k, v in a.items() if k in ("tool", "ok", "path", "command")} for a in state["actions"][-6:]],
-            "recent_checks": [{k: c.get(k) for k in ("id", "label", "command", "ok", "exit_code", "fingerprint")}
-                              for c in active_checks(state)[-8:]],
-            "check_corrections": state.get("check_revisions", [])[-4:],
-            "delivery": state.get("delivery", {}),
-            "file_tool_changes": sorted({r["path"] for r in state["journal"]}),
-            "project_memory": self.tools.memory(),
-        }
+        if self.task_profile.get("name") != "standard":
+            checkpoint = {
+                "task_profile": self.task_profile,
+                "recent_user_requests": state.get("user_requests", [state["goal"]])[-2:],
+                "required_acceptance_commands": state["required_checks"],
+                "recent_actions": [{k: (v[:180] if isinstance(v, str) else v) for k, v in a.items()
+                                    if k in ("tool", "ok", "path", "command")} for a in state["actions"][-4:]],
+                "recent_checks": [{k: c.get(k) for k in ("id", "label", "command", "ok", "exit_code")}
+                                  for c in active_checks(state)[-4:]],
+                "file_tool_changes": sorted({r["path"] for r in state["journal"]})[-20:],
+            }
+        else:
+            checkpoint = {
+                "user_project_brief": state.get("project_brief", {}),
+                "user_requirements": state.get("requirements", []),
+                "requirement_evidence": proof_summary(state)["requirements"],
+                "project_overview": {key: value[:16] if isinstance(value, list) else value
+                                     for key, value in state.get("setup", {}).get("overview", {}).items()},
+                "setup_attention": [item for item in state.get("setup", {}).get("items", [])
+                                    if item["status"] == "attention"][:8],
+                "recent_repair_reviews": state.get("repair_history", [])[-2:],
+                "plan": state["plan"],
+                "recent_user_requests": state.get("user_requests", [state["goal"]])[-4:],
+                "required_acceptance_commands": state["required_checks"],
+                "recent_actions": [{k: (v[:220] if isinstance(v, str) else v) for k, v in a.items() if k in ("tool", "ok", "path", "command")} for a in state["actions"][-6:]],
+                "recent_checks": [{k: c.get(k) for k in ("id", "label", "command", "ok", "exit_code", "fingerprint")}
+                                  for c in active_checks(state)[-8:]],
+                "check_corrections": state.get("check_revisions", [])[-4:],
+                "delivery": state.get("delivery", {}),
+                "file_tool_changes": sorted({r["path"] for r in state["journal"]}),
+                "project_memory": self.tools.memory(),
+            }
         # Explicit state survives trimming; only complete assistant/tool exchanges are removed.
         prefix = [{"role": "system", "content": self.tools.redactor.text(system)},
                   state["messages"][0],
@@ -486,14 +533,18 @@ class Agent:
                 if response.finish_reason in ("content_filter", "error"):
                     return self.finish("needs_input", "The provider did not complete the response: " + response.finish_reason,
                                        {"action": "connection", "message": "Review the model endpoint response, then resume."})
-                assistant = {"role": "assistant", "content": self.tools.redactor.text(response.content)}
+                assistant_content = self.tools.redactor.text(response.content)
+                if response.calls and self.task_profile.get("name") != "standard":
+                    # Tool-call narration adds little value on tiny tasks and gets resent on the next call.
+                    assistant_content = ""
+                assistant = {"role": "assistant", "content": assistant_content}
                 if response.calls:
                     review_needed = False
                     assistant["tool_calls"] = self.tools.redactor.value(response.calls)
                 state["messages"].append(assistant)
                 self.session.save()  # Save intent before side effects; interrupted actions are never replayed.
                 if response.calls:
-                    if response.content:
+                    if response.content and self.task_profile.get("name") == "standard":
                         self.say(response.content[:1500])
                     for call in response.calls:
                         name = call["function"]["name"]

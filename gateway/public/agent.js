@@ -5,6 +5,12 @@ let sparkleGatewayUrl = "";
 function endpointHost(value) { try { return new URL(value).hostname; } catch (_) { return ""; } }
 function hostedNoKey(baseUrl) { const host=endpointHost(baseUrl); return host==="integrate.api.nvidia.com" || Boolean(host&&host===endpointHost(sparkleGatewayUrl)); }
 function cloudAccessUrl(baseUrl) { return new URL("/", baseUrl).href; }
+const modelAliases = {
+  "SPARKLE Core":"nvidia/nemotron-3-super-120b-a12b",
+  "SPARKLE Fast":"nvidia/nemotron-3-nano-30b-a3b",
+  "SPARKLE Advanced":"nvidia/nemotron-3-ultra-550b-a55b",
+};
+function wireModel(value) { return modelAliases[value] || value; }
 
 const icons = {
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -168,7 +174,7 @@ id("app").innerHTML = `
     <p class="dialog-intro" id="connectionIntro">Use your SPARKLE account, a provider API key, or a compatible server on your own hardware.</p>
     <label for="connectionType">Connection</label><select id="connectionType"><option value="nvidia">Hosted AI (your own key)</option><option value="sparkle">Sparkle Cloud</option><option value="local">Local or custom server</option></select>
     <label for="baseUrl">API base URL</label><input id="baseUrl" type="url" required autocomplete="off">
-    <label for="modelId">Model ID</label><input id="modelId" list="modelOptions" required autocomplete="off"><datalist id="modelOptions"><option value="nvidia/nemotron-3-super-120b-a12b"><option value="nvidia/nemotron-3-nano-30b-a3b"><option value="nvidia/nemotron-3-ultra-550b-a55b"></datalist>
+    <label for="modelId">AI model</label><input id="modelId" list="modelOptions" required autocomplete="off"><datalist id="modelOptions"><option value="SPARKLE Core"><option value="SPARKLE Fast"><option value="SPARKLE Advanced"></datalist>
     <label for="apiKey">API key <span id="keyHint">Paste it here; it is never written to disk</span></label><div class="folder-input"><input id="apiKey" type="password" autocomplete="new-password" placeholder="Paste your Sparkle access key here"><button type="button" id="showApiKey" class="button secondary" aria-pressed="false">Show</button></div><button type="button" id="clearApiKey" class="text-button key-clear">Remove configured key</button>
     <p class="settings-note" id="connectionNote">Use the access key from your gateway operator. <a id="cloudAccessLink" target="_blank" rel="noreferrer">Open the gateway access page</a>. Your key stays in memory and is cleared when SPARKLE CODER quits.</p>
     <div class="settings-row"><div><label for="executionMode">Run commands in</label><select id="executionMode"><option value="local">This computer</option><option value="docker">Docker container</option></select></div><div><label for="toolFormat">Tool format</label><select id="toolFormat"><option value="native">Native tool calls</option><option value="json">JSON fallback</option></select></div></div>
@@ -300,7 +306,7 @@ async function api(path, body) {
 function toast(message) { id("toast").textContent = message; id("toast").classList.add("visible"); clearTimeout(toastTimer); toastTimer = setTimeout(() => id("toast").classList.remove("visible"), 5000); }
 function busy() { return currentRun && ["queued", "running", "approval", "pausing", "paused_by_user", "stopping"].includes(currentRun.status); }
 function friendly(status) { return ({checked:"Checks passed",answered:"Answer ready",needs_input:"Your input needed",running:"Working",queued:"Starting",approval:"Needs approval",stopping:"Stopping",pausing:"Pausing",paused_by_user:"Paused by you",blocked:"Needs attention",unverified:"Checks pending",paused:"Paused",interrupted:"Stopped",undone:"Undone"})[status] || "Ready"; }
-function shortModel(model) { if (model.includes("super")) return "SPARKLE Core"; if (model.includes("ultra")) return "SPARKLE Advanced"; if (model.includes("nano")) return "SPARKLE Fast"; return model.split("/").pop() || "SPARKLE AI"; }
+function shortModel(model) { if (model.includes("super")) return "SPARKLE Core"; if (model.includes("ultra")) return "SPARKLE Advanced"; if (model.includes("nano")) return "SPARKLE Fast"; if (/nvidia|nemotron/i.test(model)) return "SPARKLE AI"; return model.split("/").pop() || "SPARKLE AI"; }
 async function action(fn) { try { await fn(); } catch (error) { toast(error.message); } }
 function emptyPanel(text, description) { const e = node("div", "empty-detail"); const symbol = node("span"); symbol.innerHTML = icon("code"); e.append(symbol, node("strong", "", text), node("p", "", description)); return e; }
 function changeView(name) { view = name; ["build","files","history","monitor"].forEach(v => id(v + "View").hidden = v !== name); document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === name)); document.body.classList.remove("sidebar-open"); if(name==="files") action(loadFiles); if(name==="history") action(loadHistory); if(name==="monitor")renderMonitor(); }
@@ -610,7 +616,7 @@ async function answerApproval(allow) { if(!currentRun?.approval)return; id("allo
 
 function openSettings() {
   if(appState?.account?.enabled){openAccount();return;}
-  const s=appState.settings; id("baseUrl").value=s.base_url; id("modelId").value=s.model; id("apiKey").value="";
+  const s=appState.settings; id("baseUrl").value=s.base_url; id("modelId").value=shortModel(s.model); id("apiKey").value="";
   id("apiKey").placeholder=s.key_configured?"Key is set. Leave blank to keep it.":"Paste your key here";
   id("apiKey").type="password";id("showApiKey").textContent="Show";id("showApiKey").setAttribute("aria-pressed","false");
   id("keyHint").textContent=s.key_configured?(s.key_source==="environment"?"Loaded from your environment":"Key ready for this app session"):"Paste your provider API key below";
@@ -627,7 +633,7 @@ function openSettings() {
 }
 async function saveSettings(test=false) {
   const optionalNumber=(name)=>{const raw=id(name).value.trim(); if(!raw)return null; const value=Number(raw); return Number.isInteger(value)?value:raw;};
-  const body={base_url:id("baseUrl").value.trim(),model:id("modelId").value.trim(),api_key:id("apiKey").value.trim(),execution:id("executionMode").value,tool_format:id("toolFormat").value,max_steps:optionalNumber("maxSteps"),max_seconds:optionalNumber("maxSeconds"),max_total_tokens:optionalNumber("maxTotalTokens"),command_timeout:optionalNumber("commandTimeout"),request_timeout:Number(id("requestTimeout").value),max_tokens:Number(id("maxTokens").value)};
+  const body={base_url:id("baseUrl").value.trim(),model:wireModel(id("modelId").value.trim()),api_key:id("apiKey").value.trim(),execution:id("executionMode").value,tool_format:id("toolFormat").value,max_steps:optionalNumber("maxSteps"),max_seconds:optionalNumber("maxSeconds"),max_total_tokens:optionalNumber("maxTotalTokens"),command_timeout:optionalNumber("commandTimeout"),request_timeout:Number(id("requestTimeout").value),max_tokens:Number(id("maxTokens").value)};
   id("saveSettings").disabled=true; id("testConnection").disabled=true;
   try {
     await api("/settings",body); id("apiKey").value=""; await refreshState(); id("clearApiKey").disabled=!appState.settings.key_configured; id("keyHint").textContent=appState.settings.key_configured?"Key ready for this connection":"No API key configured";
@@ -637,7 +643,7 @@ async function saveSettings(test=false) {
       let message=result.message;
       if(typeof result.balance_tokens==="number") message+=` Balance: ${result.balance_tokens.toLocaleString()} tokens remaining.`;
       id("connectionResult").textContent=message; id("connectionResult").className="inline-result "+(result.connected?"success":"");
-      if(result.models?.length) { id("modelOptions").replaceChildren(); result.models.filter(x=>x.toLowerCase().includes("nemotron")).forEach(x=>{const option=node("option");option.value=x;id("modelOptions").append(option);}); }
+      if(result.models?.length) { id("modelOptions").replaceChildren(); [...new Set(result.models.map(shortModel))].forEach(x=>{const option=node("option");option.value=x;id("modelOptions").append(option);}); }
       await refreshState();
     }
     else { id("settingsDialog").close(); toast("Connection saved. Your key stays in this app process."); }
@@ -956,8 +962,8 @@ id("settingsForm").onsubmit=e=>{e.preventDefault();action(()=>saveSettings());};
 id("connectionType").onchange=()=>{
   const kind=id("connectionType").value;
   const presets={
-    sparkle:{url:sparkleGatewayUrl,model:"nvidia/nemotron-3-super-120b-a12b",placeholder:"Paste your Sparkle access key here"},
-    nvidia:{url:"https://integrate.api.nvidia.com/v1",model:"nvidia/nemotron-3-super-120b-a12b",placeholder:"Paste your provider key here"},
+    sparkle:{url:sparkleGatewayUrl,model:"SPARKLE Core",placeholder:"Paste your Sparkle access key here"},
+    nvidia:{url:"https://integrate.api.nvidia.com/v1",model:"SPARKLE Core",placeholder:"Paste your provider key here"},
     local:{url:"http://127.0.0.1:8000/v1",model:"",placeholder:"Optional for an unauthenticated local server"},
   };
   const preset=presets[kind]||presets.local;

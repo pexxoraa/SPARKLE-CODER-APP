@@ -13,7 +13,7 @@ import urllib.request
 from sparkle_coder.agent import Agent
 from sparkle_coder.cloud import CloudAccount
 from sparkle_coder.config import Config
-from sparkle_coder.efficiency import compact_group
+from sparkle_coder.efficiency import compact_group, task_profile
 from sparkle_coder.provider import ModelError, NemotronClient
 from sparkle_coder.state import Session
 from sparkle_coder.webapp import AppService
@@ -41,6 +41,36 @@ class EfficiencyTests(unittest.TestCase):
         self.assertEqual(json.dumps(group), original)
         self.assertEqual(compact[0]['tool_calls'][0]['id'], compact[1]['tool_call_id'])
         self.assertIn('Historical edit body omitted', compact[0]['tool_calls'][0]['function']['arguments'])
+
+    def test_recent_file_write_keeps_exact_content_for_the_next_model_call(self):
+        code = 'print("small task")\n' * 80
+        group = [{'role':'assistant','content':'','tool_calls':[{'id':'write-1','type':'function','function':{'name':'write_file','arguments':json.dumps({'path':'app.py','content':code})}}]},
+                 {'role':'tool','tool_call_id':'write-1','content':json.dumps({'ok':True,'path':'app.py'})}]
+        compact = compact_group(group, recent=True)
+        arguments = json.loads(compact[0]['tool_calls'][0]['function']['arguments'])
+        self.assertEqual(arguments['content'], code)
+        self.assertNotIn('Historical edit body omitted', arguments['content'])
+
+    def test_tiny_prompts_get_hard_budgets_without_misclassifying_debug_work(self):
+        self.assertEqual(task_profile('addition program in python')['name'], 'micro')
+        self.assertEqual(task_profile('build a simple landing page')['name'], 'simple_web')
+        self.assertEqual(task_profile('fix all bugs and test the existing project')['name'], 'standard')
+        self.assertEqual(task_profile('simple landing page with authentication backend')['name'], 'standard')
+
+    def test_micro_agent_uses_small_context_budget_and_tool_set(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace=Workspace(Path(temporary));config=Config()
+            session=Session.create(workspace,'addition program in python',[],config.public_info())
+            agent=Agent(workspace,session,config,None,lambda _:True,emit=lambda _:None)
+            self.assertEqual(agent.task_profile['name'],'micro')
+            self.assertEqual(config.max_steps,5)
+            self.assertEqual(config.max_total_tokens,24000)
+            self.assertEqual(config.max_tokens,3072)
+            self.assertEqual(config.context_chars,12000)
+            names={item['function']['name'] for item in agent.schemas}
+            self.assertIn('verify',names)
+            self.assertNotIn('run_command',names)
+            self.assertNotIn('update_plan',names)
 
     def test_plain_site_verification_rechecks_edits_without_commands(self):
         with tempfile.TemporaryDirectory() as temporary:

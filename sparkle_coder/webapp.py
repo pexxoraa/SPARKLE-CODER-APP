@@ -466,6 +466,8 @@ class AppService:
                             if goal.strip():
                                 session.state["messages"].append({"role": "user", "content": goal})
                                 session.state.setdefault("user_requests", [session.state["goal"]]).append(goal)
+                                # A follow-up can widen a previously tiny task; recalculate its budget/tool profile.
+                                session.state.pop("task_profile", None)
                             session.state["required_checks"] = list(dict.fromkeys(session.state["required_checks"] + verify))
                             session.state["model"] = config.public_info()
                             session.save()

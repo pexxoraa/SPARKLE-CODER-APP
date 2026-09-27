@@ -1,6 +1,43 @@
 """Bound request copies while preserving exact, replayable local task history."""
 import copy
 import json
+import re
+
+
+SIMPLE_TOOL_NAMES = frozenset({
+    "inspect_static_site", "inspect_setup", "request_input", "list_files", "read_file",
+    "search_files", "write_file", "edit_file", "delete_file", "verify", "update_delivery",
+})
+
+_COMPLEX_TASK = re.compile(
+    r"\b(?:fix|debug|bug|refactor|migrat\w*|integrat\w*|deploy|database|backend|api|auth|security|"
+    r"production|multi[- ]?file|all\s+(?:bugs|issues|tests)|test\s+and\s+fix|existing\s+project)\b",
+    re.I,
+)
+_MICRO_TASK = re.compile(
+    r"\b(?:addition|add\s+two\s+numbers|hello\s+world|simple\s+(?:python\s+)?program|"
+    r"basic\s+(?:python\s+)?program|small\s+(?:python\s+)?program|simple\s+calculator)\b",
+    re.I,
+)
+_SIMPLE_WEB = re.compile(
+    r"(?:\b(?:simple|basic|small)\b.{0,80}\b(?:landing\s+page|web\s*page|static\s+(?:site|page))\b|"
+    r"\blanding\s+page\b)",
+    re.I | re.S,
+)
+
+
+def task_profile(goal, *, has_project_brief=False):
+    """Choose a conservative hard budget only for clearly small requests."""
+    text = " ".join(str(goal or "").split())
+    if not text or len(text) > 400 or has_project_brief or _COMPLEX_TASK.search(text):
+        return {"name": "standard"}
+    if _MICRO_TASK.search(text):
+        return {"name": "micro", "max_steps": 5, "max_total_tokens": 24000,
+                "max_tokens": 3072, "context_chars": 12000}
+    if _SIMPLE_WEB.search(text):
+        return {"name": "simple_web", "max_steps": 6, "max_total_tokens": 40000,
+                "max_tokens": 6144, "context_chars": 14000}
+    return {"name": "standard"}
 
 
 def preview(text, limit):
@@ -18,7 +55,8 @@ def compact_group(group, *, recent=False):
             if call.get('id') not in completed:
                 continue
             function = call.get('function', {})
-            fields = {'write_file': ('content',), 'edit_file': ('old_text', 'new_text')}.get(function.get('name'), ())
+            fields = (() if recent else
+                      {'write_file': ('content',), 'edit_file': ('old_text', 'new_text')}.get(function.get('name'), ()))
             if not fields:
                 continue
             try:
