@@ -136,9 +136,18 @@ test('admin can issue a one-time first-password code for a verified legacy accou
  await ui.refresh();
  const button=ui.elements.get('accountRows').querySelectorAll('button').find(n=>n.textContent==='Create setup code');
  assert.ok(button,'Legacy account setup button was not rendered.');
+ const original=ui.context.fetch;
+ ui.context.fetch=async(path,options)=>path==='/api/admin/overview'
+   ?Response.json({error:'Overview temporarily unavailable'},{status:503})
+   :original(path,options);
  await button.onclick();
- const notice=ui.elements.get('notice').textContent,match=notice.match(/: ([A-F0-9]{24}) · expires/);
- assert.ok(match,'Setup code was not shown once to the admin: '+notice);
+ const code=ui.elements.get('passwordSetupCode').value;
+ assert.match(code,/^[A-F0-9]{24}$/);
+ assert.equal(ui.elements.get('passwordSetupResult').hidden,false);
+ assert.match(ui.elements.get('notice').textContent,/Setup code created/);
  const stored=ui.env.DB.db.prepare('SELECT token_hash,expires FROM account_password_setups').get();
- assert.ok(stored);assert.notEqual(stored.token_hash,match[1]);assert.ok(stored.expires>Math.floor(Date.now()/1000));
+ assert.ok(stored);assert.notEqual(stored.token_hash,code);assert.ok(stored.expires>Math.floor(Date.now()/1000));
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.match(ui.elements.get('syncStatus').textContent,/Refresh failed, but the setup code above is valid/);
+ assert.equal(ui.elements.get('passwordSetupCode').value,code);
 });

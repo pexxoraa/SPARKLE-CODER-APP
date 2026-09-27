@@ -75,8 +75,13 @@ async function refresh(background=false){
     const tr=node('tr',''),member=node('td',a.name);member.append(node('small',a.email));
     const login=node('td',a.password_set?'Password set':a.password_setup_expires?'Setup code issued':'Needs first password');
     if(!a.password_set&&a.status==='active')button(login,a.password_setup_expires?'Replace setup code':'Create setup code',async()=>{
-      const result=await api('accounts/'+a.id+'/password-setup',{verified:true});await refresh();
-      el('notice').textContent='One-time password setup code for '+result.email+': '+result.code+' · expires '+new Date(result.expires*1000).toLocaleString()+'. Send it only to the verified account owner.';
+      const result=await api('accounts/'+a.id+'/password-setup',{verified:true});
+      el('passwordSetupCode').value=result.code;
+      el('passwordSetupRecipient').textContent='For '+result.email;
+      el('passwordSetupExpiry').textContent='Expires '+new Date(result.expires*1000).toLocaleString()+'. Send it only to the verified account owner.';
+      el('passwordSetupResult').hidden=false;
+      el('notice').textContent='Setup code created. Copy it now; SPARKLE stores only its hash.';
+      refresh().catch(error=>{el('syncStatus').textContent='Refresh failed, but the setup code above is valid. '+error.message;});
     },'secondary');
     tr.append(member,node('td',a.status),node('td',number(a.balance-a.held)),node('td',number(a.held)),login);
     const td=node('td','');tr.append(td);
@@ -108,6 +113,10 @@ async function refresh(background=false){
   } catch(error){if(version===refreshVersion)el('syncStatus').textContent='Refresh failed. Displayed requests may be out of date. '+error.message;throw error;}
   finally {refreshing--;}
 }
+el('copyPasswordSetupCode').onclick=()=>action(el('copyPasswordSetupCode'),async()=>{
+  const code=el('passwordSetupCode').value;if(!code)return;
+  await navigator.clipboard.writeText(code);el('notice').textContent='Setup code copied.';
+});
 el('couponForm').onsubmit=e=>{e.preventDefault();const submit=el('couponForm').querySelector('button');action(submit,async()=>{await api('coupons',{code:el('couponCode').value,discount_paise:Math.round(Number(el('couponDiscount').value)*100),bonus_tokens:Number(el('couponBonus').value),expires:expiryValue(el('couponExpiry').value),max_uses:Number(el('couponMaxUses').value),one_per_account:el('couponOnePerAccount').checked,note:el('couponNote').value});el('couponForm').reset();el('couponDiscount').value='0';el('couponBonus').value='0';el('couponMaxUses').value='1';el('couponOnePerAccount').checked=true;await refresh();el('notice').textContent='Coupon created.';});};
 el('loginForm').onsubmit=e=>{e.preventDefault();action(el('loginForm').querySelector('button'),async()=>{await api('login',{password:el('password').value});el('password').value='';await refresh();});};
 el('refresh').onclick=()=>action(el('refresh'),refresh);
