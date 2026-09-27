@@ -53,7 +53,7 @@ class Run:
             if "text" in event:
                 event["text"] = clean_terminal(event["text"])
             if kind == "model_start":
-                self.current_action = "Waiting for Nemotron response"
+                self.current_action = "Waiting for AI response"
             elif kind == "action_context":
                 self.action_context = data
                 self.current_action = data.get("purpose", "Preparing the next step")

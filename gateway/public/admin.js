@@ -5,12 +5,13 @@ let signedIn=false,busyActions=0,refreshVersion=0,refreshing=0;
 async function api(path,body){
   const response=await fetch('/api/admin/'+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',redirect:'error',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
   const result=await response.json();
-  if(!response.ok){if(response.status===401)show(false);throw Error(result.error||'Request failed.');}return result;
+  if(!response.ok){if(response.status===401)show(false);throw Error(result.error||result.message||'Request failed.');}return result;
 }
 function show(value){signedIn=value;if(!value)refreshVersion++;el('login').hidden=value;el('dashboard').hidden=!value;el('refresh').hidden=!value;el('logout').hidden=!value;}
 async function action(button,fn){busyActions++;button.disabled=true;el('notice').textContent='';try{await fn();}catch(e){el('notice').textContent=e.message;}finally{busyActions--;button.disabled=false;}}
 function field(parent,label,type='text',key=''){const l=node('label',label),input=node('input','');input.type=type;if(key)input.dataset.review=key;l.append(input);parent.append(l);return input;}
 function button(parent,label,fn,cls=''){const b=node('button',label,cls);b.type='button';b.onclick=()=>action(b,fn);parent.append(b);return b;}
+el('modelCheck').onclick=()=>action(el('modelCheck'),async()=>{el('modelCheckResult').textContent='Checking the AI service…';try{const result=await api('model-check',{});el('modelCheckResult').textContent=result.message+' '+number(result.prompt_tokens+result.completion_tokens)+' diagnostic tokens; member credits unchanged.';}catch(error){el('modelCheckResult').textContent=error.message;}});
 function card(parent,title,detail){const c=node('article','','card');c.append(node('h3',title),node('p',detail));parent.append(c);return c;}
 async function refresh(background=false){
   if(background&&(document.hidden||busyActions||refreshing||!signedIn))return;

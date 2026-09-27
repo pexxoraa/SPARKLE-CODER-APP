@@ -168,7 +168,7 @@ class NemotronClient:
                     self.wait_retry(delay)
                     continue
                 hints = {
-                    401: ("Open Account and reconnect this device." if self.config._runtime_cloud else "Open Connect Nemotron, replace the API key, test the connection, then resume this task."),
+                    401: ("Open Account and reconnect this device." if self.config._runtime_cloud else "Open Connect AI, replace the API key, test the connection, then resume this task."),
                     402: "Not enough available credits. Open Account to check the balance and request a top-up.",
                     409: "An earlier request is still running or needs admin review. Open Account; this request will not be charged twice.",
                     403: "Check model access and endpoint permissions.",
@@ -185,7 +185,7 @@ class NemotronClient:
                                                  "reason": f"Connection interrupted ({type(exc).__name__})"})
                     self.wait_retry(delay)
                     continue
-                hint = ("For a slow model, increase API response timeout under Connect Nemotron → Run and connection settings. "
+                hint = ("For a slow model, increase API response timeout under Connect AI → Run and connection settings. "
                         if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError)
                         else "Check the server address and network connection. ")
                 raise ModelError(f"Cannot reach the model endpoint ({type(exc).__name__}). " +

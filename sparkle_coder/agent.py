@@ -18,7 +18,7 @@ from .tools import READ_ONLY_TOOLS, SCHEMAS, ToolSet
 from .workspace import atomic_write, clean_terminal
 
 
-SYSTEM = """You are SPARKLE CODER, a personal coding agent powered by NVIDIA Nemotron.
+SYSTEM = """You are SPARKLE CODER, a personal coding assistant.
 Complete the user's software task using the available project tools. Work in any programming
 language supported by the user's toolchain. Inspect existing projects before changing them.
 For substantial tasks, maintain a short plan, implement, run meaningful checks, diagnose failures,
@@ -446,7 +446,7 @@ class Agent:
                 if self.config.max_total_tokens is not None and used >= self.config.max_total_tokens:
                     return self.finish("paused", "Run token budget reached. Resume to continue.")
                 progress = str(step) if self.config.max_steps is None else f"{step}/{self.config.max_steps}"
-                self.say(f"[{progress}] Asking Nemotron...")
+                self.say(f"[{progress}] Asking SPARKLE AI...")
                 messages = self.context()
                 state["usage"]["calls"] += 1
                 self.session.save()

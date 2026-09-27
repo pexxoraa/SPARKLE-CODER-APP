@@ -40,11 +40,11 @@ repository. This release does not pretend to implement them.
 The browser sends account and project requests to the Worker. The Worker authenticates
 project requests before forwarding them to the owner engine. The engine runs the
 agent and Docker commands, and sends model requests back through the Worker so
-they use that account's token balance. Only the Worker calls NVIDIA with the
+they use that account's token balance. Only the Worker calls the AI provider with the
 owner's provider key.
 
 The existing Workers + D1 deployment continues to handle accounts, UPI references,
-credit accounting and the protected NVIDIA key. A separate, continuously running
+credit accounting and the protected provider key. A separate, continuously running
 Linux host with Python 3.11+, Docker and persistent disk runs the Python engine.
 Workers alone cannot run this app's Python subprocess/Docker execution engine.
 No server is provisioned or purchased by these scripts. You may use an existing
@@ -112,7 +112,7 @@ interface, uploads only `ENGINE_SECRET` through stdin, and updates `ENGINE_ORIGI
 on the existing Worker. It preserves D1 identity, payment settings and existing
 secrets. It checks the deployed release/configuration before reporting success.
 Do not put `.owner`, `HOSTED_DATA`, account credentials or model keys in Git/ZIPs.
-The NVIDIA key stays on the Worker; the engine receives each user's own device
+The provider key stays on the Worker; the engine receives each user's own device
 credential to make metered calls on that account.
 
 ## Capacity and command behavior
@@ -150,7 +150,7 @@ Automated tests exercise the browser transport through the real Worker and SQLit
 adapter into the real Python HTTP service, filesystem, agent and session engine.
 They cover signup visibility, payment approval, isolation, multi-file edit approval,
 history, downloads, pause/resume/stop, restart persistence, conflict detection and
-undo. Test model replies are scripted; no live NVIDIA request or real payment is
+undo. Test model replies are scripted; no live provider request or real payment is
 part of these tests. Docker command construction and fail-closed behavior are
 tested; actual container execution must be checked on the owner host.
 
@@ -167,3 +167,31 @@ Use actual model usage and check output to verify the deployment before inviting
 testers. If the engine is offline, projects are shown as unavailable; no simulated
 success is presented. Reconnecting the same account through admin restores access
 to its existing cloud project directory.
+
+## Prompt and tunnel recovery update
+
+Prompt submission now locks while starting, preserves the prompt on transport failure,
+and reads the current run before allowing a retry. An accepted task with a lost response
+is reattached without automatically sending another model request. Errors remain visible
+under the prompt. Hosted model labels use SPARKLE branding.
+
+An uncertain model response keeps its reservation for manual usage reconciliation. It
+no longer freezes every later prompt: one in-flight request and at most three unresolved
+requests are allowed per account. Confirmed usage still determines every member charge;
+this update does not erase historical holds or invent usage.
+
+The admin dashboard's **Test AI connection** sends a small, fixed diagnostic prompt and
+checks the real response and exact usage. It requires the existing admin session, is
+rate limited, and does not change member credits. Provider usage still occurs.
+
+For an owner-managed temporary tunnel using `sparkle-engine-tunnel.service`, run
+`python3 scripts/recover_engine_tunnel.py` once per minute with a user timer. It checks
+loopback before checking the public tunnel, restarts only that app's tunnel after three
+failed checks, and reconnects the existing Worker to the new authenticated origin.
+Deployments are serialized and retries are bounded. Private deployment receipts
+separate successful publishing from an unavailable public health check. This helper
+requires the existing owner Wrangler login and configuration; it creates no new database.
+
+Temporary tunnel recovery cannot keep a sleeping or disconnected owner computer online.
+For continuous availability, use a persistent host and a stable HTTPS origin. Projects
+remain in `HOSTED_DATA` across tunnel and engine restarts.

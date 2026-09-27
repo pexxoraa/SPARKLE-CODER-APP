@@ -163,14 +163,15 @@ async function inference(request,env) {
   try{
     const result=await sql(env,`INSERT INTO requests(id,account_id,payload_hash,reserve,state,created)
       SELECT ?,?,?,?,'inflight',? FROM accounts WHERE id=? AND status='active' AND balance-held>=?
-      AND NOT EXISTS(SELECT 1 FROM requests WHERE account_id=? AND state IN ('inflight','uncertain'))
+      AND NOT EXISTS(SELECT 1 FROM requests WHERE account_id=? AND state='inflight')
+      AND (SELECT COUNT(*) FROM requests WHERE account_id=? AND state='uncertain')<3
       AND (SELECT COUNT(*) FROM requests WHERE state='inflight')<? RETURNING id`,
-      key,account.id,payloadHash,reserve,created,account.id,reserve,account.id,Number(env.MAX_INFLIGHT||3)).all();
+      key,account.id,payloadHash,reserve,created,account.id,reserve,account.id,account.id,Number(env.MAX_INFLIGHT||3)).all();
     if(!result.results.length){
       const current=await one(env,'SELECT balance,held FROM accounts WHERE id=?',account.id);
       if(current.balance-current.held<reserve)fail(402,'Not enough available tokens for this request. Add credits or reduce the request size.');
-      const uncertain=await one(env,"SELECT id FROM requests WHERE account_id=? AND state='uncertain'",account.id);
-      if(uncertain)fail(409,'A previous model request needs admin reconciliation. Your remaining credits are preserved.');
+      const uncertain=await one(env,"SELECT COUNT(*) AS n FROM requests WHERE account_id=? AND state='uncertain'",account.id);
+      if(uncertain.n>=3)fail(409,'Three model requests need admin review. Reserved credits are preserved; contact support before sending more prompts.');
       return json({error:'The shared model is busy. Waiting does not consume credits.'},429,{'Retry-After':'3'});
     }
   }catch(error){
@@ -179,7 +180,7 @@ async function inference(request,env) {
     if(previous)return existingResponse(env,previous,account,payloadHash);
     throw error;
   }
-  let upstream;
+  let upstream,stage='connecting to model service';
   try{
     const perform=env.UPSTREAM?.fetch?.bind(env.UPSTREAM)||fetch;
     upstream=await perform('https://integrate.api.nvidia.com/v1/chat/completions',{
@@ -194,17 +195,21 @@ async function inference(request,env) {
       return json({error:note+(definite?' No tokens were charged.':' Credits are held for admin reconciliation.')},status,
         upstream.status===429?{'X-Sparkle-Safe-Retry':'true','Retry-After':'10'}:{});
     }
-    const raw=await upstream.text();if(raw.length>250000)throw new Error('Oversized provider response');
+    stage='reading model response';
+    const raw=await upstream.text();if(raw.length>250000){stage='response size limit';throw new Error('Oversized provider response');}
+    stage='parsing model response';
     const value=JSON.parse(raw),p=value.usage?.prompt_tokens,c=value.usage?.completion_tokens;
+    stage='validating provider usage';
     if(!Number.isSafeInteger(p)||!Number.isSafeInteger(c)||p<0||c<0||p+c<1||p+c>reserve||!Array.isArray(value.choices))
       throw new Error('Missing or invalid provider usage');
+    stage='saving confirmed model response';
     const cipher=await crypt(env,raw);
     await sql(env,`UPDATE requests SET state='succeeded',prompt_tokens=?,completion_tokens=?,charged=?,
       response_cipher=?,http_status=200,completed=?,note='Provider-reported input + output tokens'
       WHERE id=? AND state='inflight'`,p,c,p+c,cipher,now(),key).run();
     return new Response(raw,{headers:{'Content-Type':'application/json','X-Sparkle-Charged-Tokens':String(p+c)}});
   }catch{
-    await sql(env,"UPDATE requests SET state='uncertain',http_status=502,note='Provider outcome or usage could not be confirmed',completed=? WHERE id=? AND state='inflight'",now(),key).run();
+    await sql(env,"UPDATE requests SET state='uncertain',http_status=502,note=?,completed=? WHERE id=? AND state='inflight'",'Provider outcome could not be confirmed while '+stage,now(),key).run();
     return json({error:'The provider outcome could not be confirmed. No estimated charge was made; the reservation needs admin review.'},502);
   }
 }
@@ -221,6 +226,23 @@ async function adminRoutes(request,env,path) {
   if(path==='/api/admin/logout'&&request.method==='POST'){
     await sql(env,'DELETE FROM admin_sessions WHERE hash=?',session).run();
     return json({ok:true},200,{'Set-Cookie':'sparkle_admin=; Path=/api/admin; Secure; HttpOnly; SameSite=Strict; Max-Age=0'});
+  }
+  if(path==='/api/admin/model-check'&&request.method==='POST'){
+    await rate(env,request,'model-check',6);
+    if(!env.NVIDIA_API_KEY)fail(503,'The model credential is missing.');
+    const started=Date.now(),perform=env.UPSTREAM?.fetch?.bind(env.UPSTREAM)||fetch;
+    try{
+      const response=await perform('https://integrate.api.nvidia.com/v1/chat/completions',{
+        method:'POST',redirect:'error',signal:AbortSignal.timeout(45000),
+        headers:{Authorization:'Bearer '+env.NVIDIA_API_KEY,'Content-Type':'application/json'},
+        body:JSON.stringify(modelBody({messages:[{role:'user',content:'Reply with SPARKLE_READY only.'}],max_tokens:64},env))});
+      if(!response.ok){await response.body?.cancel();return json({ok:false,message:'Model service returned HTTP '+response.status+'.',http_status:response.status},502);}
+      const value=await response.json(),p=value.usage?.prompt_tokens,c=value.usage?.completion_tokens;
+      if(!Number.isSafeInteger(p)||!Number.isSafeInteger(c)||p<0||c<0||p+c<1||typeof value.choices?.[0]?.message?.content!=='string')
+        return json({ok:false,message:'Model response or exact usage was missing.'},502);
+      await audit(env,'model-check','owner',`Provider reported ${p+c} tokens. No member credits changed.`);
+      return json({ok:true,message:'AI response and token usage verified.',prompt_tokens:p,completion_tokens:c,milliseconds:Date.now()-started});
+    }catch{return json({ok:false,message:'Model connection check failed or timed out. No member credits changed.'},502);}
   }
   if(path==='/api/admin/overview'&&request.method==='GET')return json({
     accounts:await rows(env,'SELECT * FROM accounts ORDER BY created DESC LIMIT 100'),

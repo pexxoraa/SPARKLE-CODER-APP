@@ -43,7 +43,7 @@ async function check() {
     throw new Error("Unexpected request: "+route);
   };
   const ui=new Function("id","node","api","busy","toast","loadFiles","loadHistory","newTask","initial",
-    'let appState=initial,projectId="ready",transferBusy=false,selectedFile="",fileData=null;\n'+sections+
+    'let appState=initial,projectId="ready",startingRun=false,transferBusy=false,selectedFile="",fileData=null;\n'+sections+
     '\nasync function refreshState(){appState=await api("/state");renderProjects();}\n'+
     'return {renderProjects,openReconnect,reconnectProject,selectProject,retryProjectMigration,selected:()=>projectId};')(
       id,node,api,()=>working,message=>toasts.push(message),async()=>loads++,async()=>loads++,async()=>{},state);

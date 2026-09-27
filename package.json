@@ -5,7 +5,7 @@
   "description": "Shared desktop and cloud interface for the SPARKLE CODER engine",
   "scripts": {
     "build": "node scripts/build-web.mjs",
-    "test": "node tests/test_ui_client.js && node tests/test_ui_explanations.js && node tests/test_ui_project_recovery.js && node tests/test_ui_hosted.js && node tests/test_ui_editor.js && node tests/test_ui_files.js",
+    "test": "node tests/test_ui_client.js && node tests/test_ui_explanations.js && node tests/test_ui_project_recovery.js && node tests/test_ui_hosted.js && node tests/test_ui_editor.js && node tests/test_ui_files.js && node tests/test_ui_start.js",
     "build:gateway": "node scripts/build-gateway-ui.mjs"
   }
 }

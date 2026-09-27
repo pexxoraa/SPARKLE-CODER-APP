@@ -220,7 +220,7 @@ class AppService:
             return {"connected": False, "models": available,
                     "message": "Endpoint reached, but this model ID was not listed. Choose a served model."}
         self.connected_endpoint = (config.base_url, config.model)
-        result = {"connected": True, "models": available, "message": "Nemotron is connected."}
+        result = {"connected": True, "models": available, "message": "AI is connected."}
         balance = (client.balance() if config.base_url.rstrip("/") == SPARKLE_GATEWAY_URL
                    and callable(getattr(client, "balance", None)) else None)
         if balance is not None:

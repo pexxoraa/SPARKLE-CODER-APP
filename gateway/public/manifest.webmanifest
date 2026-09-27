@@ -1,7 +1,7 @@
 {
   "name": "SPARKLE CODER",
   "short_name": "SPARKLE",
-  "description": "Browser coding workspace powered by NVIDIA Nemotron.",
+  "description": "Browser coding workspace with SPARKLE AI.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

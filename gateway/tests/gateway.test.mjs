@@ -88,10 +88,32 @@ test('missing provider usage holds funds for reconciliation without inventing a 
  const f=fixture();await f.approve();f.env.UPSTREAM.fetch=async()=>Response.json({choices:[]});
  assert.equal((await f.infer()).status,502);let me=(await f.api('/api/me')).body;
  assert.equal(me.balance_tokens,1000000);assert.ok(me.held_tokens>0);assert.equal(me.ledger.length,1);
- assert.equal((await f.infer('another_request_12345')).status,409);
+ const held=me.held_tokens;
+ f.env.UPSTREAM.fetch=async()=>Response.json({choices:[{message:{role:'assistant',content:'OK'}}],usage:{prompt_tokens:10,completion_tokens:5}});
+ assert.equal((await f.infer('another_request_12345')).status,200);
+ me=(await f.api('/api/me')).body;assert.equal(me.balance_tokens,999985);assert.equal(me.held_tokens,held);
  const resolve=await f.api('/api/admin/requests/request_1234567890',{verified:true,charged_tokens:25,note:'Confirmed against provider usage record'},{admin:true});assert.equal(resolve.status,200);
- me=(await f.api('/api/me')).body;assert.equal(me.balance_tokens,999975);assert.equal(me.held_tokens,0);
+ me=(await f.api('/api/me')).body;assert.equal(me.balance_tokens,999960);assert.equal(me.held_tokens,0);
  assert.equal((await f.api('/api/admin/requests/request_1234567890',{verified:true,charged_tokens:25,note:'Try duplicate charge'},{admin:true})).status,409);
+});
+test('uncertain holds cannot accumulate without limit or be charged by retrying',async()=>{
+ const f=fixture();await f.approve();let upstreamCalls=0;
+ f.env.UPSTREAM.fetch=async()=>{upstreamCalls++;return Response.json({choices:[]});};
+ for(let i=0;i<3;i++)assert.equal((await f.infer('uncertain_request_'+i)).status,502);
+ const before=(await f.api('/api/me')).body;
+ assert.equal((await f.infer('uncertain_request_0')).status,409);
+ const blocked=await f.infer('fourth_uncertain_request');assert.equal(blocked.status,409);assert.match(blocked.body.error,/Three model requests/);
+ const after=(await f.api('/api/me')).body;
+ assert.equal(upstreamCalls,3);assert.equal(after.held_tokens,before.held_tokens);assert.equal(after.balance_tokens,1000000);
+});
+test('owner AI diagnostic requires admin access and does not change member billing',async()=>{
+ const f=fixture();await f.approve();const before=(await f.api('/api/me')).body;
+ assert.equal((await f.api('/api/admin/model-check',{})).status,401);
+ const result=await f.api('/api/admin/model-check',{}, {admin:true});
+ assert.equal(result.status,200);assert.equal(result.body.ok,true);assert.equal(result.body.prompt_tokens,120);
+ const after=(await f.api('/api/me')).body;assert.equal(after.balance_tokens,before.balance_tokens);assert.equal(after.held_tokens,0);
+ assert.equal(f.env.DB.db.prepare('SELECT COUNT(*) AS n FROM requests').get().n,0);
+ assert.ok(!JSON.stringify(result.body).includes(f.env.NVIDIA_API_KEY));
 });
 test('rejected provider calls release holds and shared NVIDIA key never reaches users',async()=>{
  const f=fixture();await f.approve();f.env.UPSTREAM.fetch=async()=>new Response('secret '+f.env.NVIDIA_API_KEY,{status:401});

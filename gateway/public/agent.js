@@ -62,7 +62,7 @@ id("app").innerHTML = `
     </nav>
     <div class="recent-heading">RECENT TASKS</div><div id="recentTasks" class="recent-tasks"><p class="muted">Your tasks will appear here.</p></div>
     <div class="sidebar-bottom">
-      <button id="settingsButton" class="connection-card"><span class="connection-symbol" data-icon="bolt"></span><span class="connection-label"><strong id="connectionLabel">Connect Nemotron</strong><span id="connectionSub">Add your model connection</span></span><span data-icon="settings"></span></button>
+      <button id="settingsButton" class="connection-card"><span class="connection-symbol" data-icon="bolt"></span><span class="connection-label"><strong id="connectionLabel">Connect AI</strong><span id="connectionSub">Add your model connection</span></span><span data-icon="settings"></span></button>
       <div class="local-label"><span data-icon="shield"></span>Engine on your device<div class="local-actions"><button id="themeToggle" type="button" class="theme-toggle" aria-label="Switch to light theme" title="Switch to light theme"><span data-icon="sun"></span></button><button id="quitButton" aria-label="Quit application" title="Quit application"><span data-icon="power"></span></button></div></div>
       <button id="experienceButton" class="text-button experience-button" aria-pressed="false">Switch to advanced view</button>
       <div class="app-version" id="appVersion">PERSONAL EDITION</div>
@@ -107,11 +107,12 @@ id("app").innerHTML = `
           </div>
           <form id="taskForm" class="composer">
             <div class="task-mode-row"><label for="taskMode">Mode</label><select id="taskMode"><option value="build">Build</option><option value="ask">Ask</option></select><label for="efficiencyMode">Effort</label><select id="efficiencyMode"><option value="efficient">Fast</option><option value="thorough">Thorough</option></select><span id="runBudgetLabel">Unlimited run</span></div>
-            <label class="sr-only" for="goal">Task for Nemotron</label>
+            <label class="sr-only" for="goal">Task for SPARKLE</label>
             <textarea id="goal" rows="3" maxlength="12000" placeholder="Describe what you want to build or change…"></textarea>
             <div id="verificationFields" class="verification-fields" hidden><label for="verifyCommands">Required checks <span>One command per line</span></label><textarea id="verifyCommands" rows="2" placeholder="For example: python3 -m unittest discover -s tests -v"></textarea><p>These checks run automatically when the agent proposes completion.</p></div>
-            <div class="supervision-choice"><label><input type="checkbox" id="reviewEdits"> Review each file edit</label><span>Command approvals remain on</span></div><div class="composer-toolbar"><button type="button" id="modelButton" class="model-button"><span data-icon="bolt"></span><span id="modelName">Nemotron Super</span><span class="chevron">⌄</span></button><button type="button" id="toggleChecks" class="text-button"><span data-icon="check"></span><span>Checks</span></button><span class="composer-spacer"></span><button type="button" id="pauseButton" class="button secondary" hidden>Pause</button><button type="button" id="stopButton" class="button danger" hidden><span data-icon="stop"></span>Stop</button><button type="submit" id="runButton" class="button primary">Run agent<span data-icon="arrow"></span></button></div>
+            <div class="supervision-choice"><label><input type="checkbox" id="reviewEdits"> Review each file edit</label><span>Command approvals remain on</span></div><div class="composer-toolbar"><button type="button" id="modelButton" class="model-button"><span data-icon="bolt"></span><span id="modelName">SPARKLE Core</span><span class="chevron">⌄</span></button><button type="button" id="toggleChecks" class="text-button"><span data-icon="check"></span><span>Checks</span></button><span class="composer-spacer"></span><button type="button" id="pauseButton" class="button secondary" hidden>Pause</button><button type="button" id="stopButton" class="button danger" hidden><span data-icon="stop"></span>Stop</button><button type="submit" id="runButton" class="button primary">Run agent<span data-icon="arrow"></span></button></div>
           </form>
+          <div id="taskError" class="inline-result" role="alert" hidden></div>
           <div class="composer-note"><span id="taskNote">Files stay in your project. Commands need your approval.</span><span class="keyboard-hint">Ctrl / ⌘ + Enter</span></div>
         </div>
         <div id="filesView" class="page-view files-view" hidden>
@@ -154,7 +155,7 @@ id("app").innerHTML = `
   <p id="accountMessage" role="status">Loading account…</p>
   <div class="account-balance" id="accountBalance" hidden><strong id="creditAmount">0</strong><span>tokens available</span><p id="creditHeld"></p></div>
   <form id="accountForm"><div class="settings-row"><div><label for="memberName">Full name</label><input id="memberName" autocomplete="name" required minlength="2" maxlength="80"></div><div><label for="memberPhone">Phone <span>Optional</span></label><input id="memberPhone" type="tel" autocomplete="tel" maxlength="32"></div></div><label for="memberEmail">Email</label><input id="memberEmail" type="email" autocomplete="email" required maxlength="200">
-    <label class="check-label"><input id="memberConsent" type="checkbox" required> I agree to send selected project code and prompts to the shared server and NVIDIA to process my requests. My details and payment reference are shared with the admin.</label>
+    <label class="check-label"><input id="memberConsent" type="checkbox" required> I agree to send selected project code and prompts to the shared server and its external AI provider to process my requests. My details and payment reference are shared with the admin.</label>
     <label class="check-label"><input id="memberRecovery" type="checkbox"> Reconnect an existing account on this computer (admin review required).</label>
     <div class="dialog-actions"><button id="enrollAccount" class="button primary">Request access</button></div></form>
   <section id="paymentSection" hidden><h3>Add 1,000,000 tokens · ₹15</h3><p>Pay ₹15 using GPay, PhonePe or Paytm. Check the recipient before paying.</p><label for="payUpiId">UPI ID</label><div class="folder-input"><input id="payUpiId" readonly><button type="button" id="copyUpi" class="button secondary">Copy</button></div><p id="payeeName"></p><p>After paying, enter the transaction reference below. Credits appear after the admin checks and accepts your payment.</p>
@@ -162,10 +163,10 @@ id("app").innerHTML = `
   <div id="accountPayments"></div><p class="settings-note">Input and output tokens both count. A temporary reservation is released when a request finishes. Your connection is remembered on this computer.</p><p id="accountSupport" class="settings-note"></p><div class="dialog-actions"><button id="reconnectAccount" class="text-button">Reconnect account</button><button id="refreshAccount" class="button secondary">Refresh account</button></div>
 </dialog>
 <dialog id="settingsDialog">
-  <div class="dialog-header"><div><span class="eyebrow">YOUR ENGINE</span><h2>Connect Nemotron</h2></div><button class="icon-button" data-close="settingsDialog" aria-label="Close settings"><span data-icon="close"></span></button></div>
+  <div class="dialog-header"><div><span class="eyebrow">YOUR ENGINE</span><h2>Connect AI</h2></div><button class="icon-button" data-close="settingsDialog" aria-label="Close settings"><span data-icon="close"></span></button></div>
   <form id="settingsForm">
-    <p class="dialog-intro" id="connectionIntro">Use your Sparkle Cloud access key, your own NVIDIA API key, or a Nemotron server running on your own hardware.</p>
-    <label for="connectionType">Connection</label><select id="connectionType"><option value="nvidia">NVIDIA API (your own key)</option><option value="sparkle">Sparkle Cloud</option><option value="local">Local or custom server</option></select>
+    <p class="dialog-intro" id="connectionIntro">Use your SPARKLE account, a provider API key, or a compatible server on your own hardware.</p>
+    <label for="connectionType">Connection</label><select id="connectionType"><option value="nvidia">Hosted AI (your own key)</option><option value="sparkle">Sparkle Cloud</option><option value="local">Local or custom server</option></select>
     <label for="baseUrl">API base URL</label><input id="baseUrl" type="url" required autocomplete="off">
     <label for="modelId">Model ID</label><input id="modelId" list="modelOptions" required autocomplete="off"><datalist id="modelOptions"><option value="nvidia/nemotron-3-super-120b-a12b"><option value="nvidia/nemotron-3-nano-30b-a3b"><option value="nvidia/nemotron-3-ultra-550b-a55b"></datalist>
     <label for="apiKey">API key <span id="keyHint">Paste it here; it is never written to disk</span></label><div class="folder-input"><input id="apiKey" type="password" autocomplete="new-password" placeholder="Paste your Sparkle access key here"><button type="button" id="showApiKey" class="button secondary" aria-pressed="false">Show</button></div><button type="button" id="clearApiKey" class="text-button key-clear">Remove configured key</button>
@@ -192,7 +193,7 @@ id("app").innerHTML = `
   <form id="reconnectForm"><label for="missingProjectSelect">Project to reconnect</label><select id="missingProjectSelect"></select>
   <p class="settings-note">Last known location:</p><p id="missingProjectPath" class="missing-project-path"></p>
   <label for="reconnectPath">Where are its files now?</label><div class="folder-input"><input id="reconnectPath" required placeholder="Choose the existing project folder"><button type="button" id="browseReconnect" class="button secondary">Browse</button></div>
-  <p class="settings-note">Choose the folder containing your project files. Saved tasks appear if that folder still contains its .nemotron history. Reconnecting does not copy files or restore deleted files.</p>
+  <p class="settings-note">Choose the folder containing your project files. Saved tasks appear if that folder still contains its saved task history. Reconnecting does not copy files or restore deleted files.</p>
   <div id="reconnectResult" class="inline-result" role="status" hidden></div><div class="dialog-actions"><button type="submit" id="saveReconnect" class="button primary">Reconnect project</button></div></form></dialog>
 <dialog id="editorDialog"><div class="dialog-header"><h2>Edit project file</h2><button id="closeEditor" class="icon-button" aria-label="Close editor"><span data-icon="close"></span></button></div>
   <form id="editorForm"><label for="editorPath">Path inside this project</label><input id="editorPath" required placeholder="src/example.py"><label for="editorContent">File content</label><textarea id="editorContent" rows="18" spellcheck="false" autocomplete="off"></textarea><p class="settings-note">Changes are saved with an undo record in History. If another task changes this file, reopen its latest version before saving.</p><p id="editorError" class="inline-result" role="alert" hidden></p><div class="dialog-actions"><button id="saveEditor" type="submit" class="button primary">Save file</button></div></form></dialog>
@@ -208,7 +209,7 @@ id("app").innerHTML = `
 <dialog id="setupDialog"><div class="dialog-header"><h2>Project setup</h2><button class="icon-button" data-close="setupDialog" aria-label="Close setup report"><span data-icon="close"></span></button></div>
   <p id="setupSummary" class="dialog-intro" role="status">Reading project settings…</p><div id="setupItems" class="setup-items"></div><details class="technical-details"><summary>Project map and available checks</summary><pre id="setupMap"></pre></details>
   <p class="settings-note">This scan does not run commands or install software. Finding a tool does not prove its version or the project works.</p>
-  <div class="dialog-actions"><button id="setupConnection" class="button secondary">Connect Nemotron</button><button id="refreshSetup" class="button secondary">Check again</button><button id="investigateSetup" class="button primary">Help with setup</button></div></dialog>
+  <div class="dialog-actions"><button id="setupConnection" class="button secondary">Connect AI</button><button id="refreshSetup" class="button secondary">Check again</button><button id="investigateSetup" class="button primary">Help with setup</button></div></dialog>
 <dialog id="websiteDialog"><div class="dialog-header"><h2>Connect your website</h2><button class="icon-button" data-close="websiteDialog" aria-label="Close website connection"><span data-icon="close"></span></button></div>
   <p class="dialog-intro" id="websiteConnectionIntro">Connect the SPARKLE CODER website you deployed. It will be able to read projects and request the same actions as this local app. Command approvals remain enabled.</p>
   <form id="websiteForm"><label for="hostedWebsiteUrl">SPARKLE CODER website URL</label><input id="hostedWebsiteUrl" type="url" placeholder="https://your-project.vercel.app" required autocomplete="off"><div class="dialog-actions"><button id="pairWebsite" class="button primary">Connect and open website</button></div></form>
@@ -245,7 +246,7 @@ id("themeToggle").onclick = () => {
 };
 
 let appState = null, projectId = null, currentSession = null, currentRun = null;
-let accountTimer = null;
+let accountTimer = null, startingRun=false;
 let files = [], historyItems = [], changes = [], runEvents = [], view = "build", tab = "activity";
 let fileData=null, transferBusy=false, cancelTransfer=false, lastConsoleKey="", fileLoadError="";
 let pollTimer = null, lastMessageKey = "", lastChangeKey = "", selectedFile = "", toastTimer = null;
@@ -299,7 +300,7 @@ async function api(path, body) {
 function toast(message) { id("toast").textContent = message; id("toast").classList.add("visible"); clearTimeout(toastTimer); toastTimer = setTimeout(() => id("toast").classList.remove("visible"), 5000); }
 function busy() { return currentRun && ["queued", "running", "approval", "pausing", "paused_by_user", "stopping"].includes(currentRun.status); }
 function friendly(status) { return ({checked:"Checks passed",answered:"Answer ready",needs_input:"Your input needed",running:"Working",queued:"Starting",approval:"Needs approval",stopping:"Stopping",pausing:"Pausing",paused_by_user:"Paused by you",blocked:"Needs attention",unverified:"Checks pending",paused:"Paused",interrupted:"Stopped",undone:"Undone"})[status] || "Ready"; }
-function shortModel(model) { if (model.includes("super")) return "Nemotron Super"; if (model.includes("ultra")) return "Nemotron Ultra"; if (model.includes("nano")) return "Nemotron Nano"; return model.split("/").pop() || "Nemotron"; }
+function shortModel(model) { if (model.includes("super")) return "SPARKLE Core"; if (model.includes("ultra")) return "SPARKLE Advanced"; if (model.includes("nano")) return "SPARKLE Fast"; return model.split("/").pop() || "SPARKLE AI"; }
 async function action(fn) { try { await fn(); } catch (error) { toast(error.message); } }
 function emptyPanel(text, description) { const e = node("div", "empty-detail"); const symbol = node("span"); symbol.innerHTML = icon("code"); e.append(symbol, node("strong", "", text), node("p", "", description)); return e; }
 function changeView(name) { view = name; ["build","files","history","monitor"].forEach(v => id(v + "View").hidden = v !== name); document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === name)); document.body.classList.remove("sidebar-open"); if(name==="files") action(loadFiles); if(name==="history") action(loadHistory); if(name==="monitor")renderMonitor(); }
@@ -320,7 +321,7 @@ function renderProjects() {
 function renderProvider() {
   sparkleGatewayUrl=appState.settings.cloud_gateway_url||"";
   const s=appState.settings; id("modelName").textContent=shortModel(s.model);
-  id("connectionLabel").textContent=s.connected ? "Nemotron connected" : s.key_configured || !hostedNoKey(s.base_url) ? "Model configured" : "Connect Nemotron";
+  id("connectionLabel").textContent=s.connected ? "AI connected" : s.key_configured || !hostedNoKey(s.base_url) ? "Model configured" : "Connect AI";
   id("connectionSub").textContent=s.connected ? shortModel(s.model) : "Connection settings";
   id("settingsButton").classList.toggle("connected",s.connected);
   id("appVersion").textContent="PERSONAL EDITION · "+appState.version;
@@ -361,14 +362,14 @@ async function openAccount() {
   try {await refreshAccount();}catch(_){}
 }
 function renderControls() {
-  const working=busy(); id("runButton").disabled=!!working || transferBusy || (isCloud&&!appState.engine?.available); id("runButton").firstChild.textContent=working ? "Working " : currentSession ? "Continue " : "Run agent";
+  const working=busy(); id("runButton").disabled=startingRun || !!working || transferBusy || !projectId || (isCloud&&!appState.engine?.available); id("runButton").firstChild.textContent=startingRun ? "Starting " : working ? "Working " : currentSession ? "Continue " : "Run agent";
   id("taskMode").disabled=!!working;
   id('efficiencyMode').disabled=!!working;
   id("saveBrief").disabled=!!working;
   id("investigateSetup").disabled=!!working;
   id("reviewEdits").disabled=!!working||id("taskMode").value==="ask";
   id("stopButton").hidden=!working; id("stopButton").disabled=currentRun?.status==="stopping";
-  id("projectSelect").disabled=!!working || transferBusy; id("addProject").disabled=!!working||transferBusy||(isCloud&&!appState.engine?.available); id("newTask").disabled=!!working||transferBusy;
+  id("projectSelect").disabled=startingRun || !!working || transferBusy; id("addProject").disabled=startingRun||!!working||transferBusy||(isCloud&&!appState.engine?.available); id("newTask").disabled=startingRun||!!working||transferBusy;
   id("findProjectFolder").disabled=!!working||transferBusy;
   id("showProjectMigration").disabled=!!working||transferBusy;
   const status=working ? currentRun.status : currentSession?.status;
@@ -566,10 +567,10 @@ async function loadHistory() {
     if(index<6) { const recent=node("button","recent-item",s.goal); recent.title=s.goal; recent.onclick=()=>action(()=>loadSession(s.id)); id("recentTasks").append(recent); }
   });
 }
-async function loadSession(sessionId) { if(busy()) { toast("Finish or stop the current task first."); return; } currentRun=null; runEvents=[]; const data=await api("/projects/"+projectId+"/sessions/"+sessionId); runEvents=data.events||[]; id("taskMode").value=data.task_mode||"build"; renderSession(data); id("verifyCommands").value=(data.required_checks||[]).join("\n"); changeView("build"); if(tab==="changes")await loadChanges(); }
-async function newTask() { if(busy()||transferBusy)return; currentRun=null; runEvents=[]; id("taskMode").value="build"; renderSession(null); id("goal").value=""; id("verifyCommands").value=""; id("verificationFields").hidden=true; changeView("build"); setTab("activity"); id("goal").focus(); }
-async function selectProject(next) { if(busy()||transferBusy)return; const project=appState.projects.find(p=>p.id===next); if(project?.migration_pending){renderProjects();openMigration();return;} if(project?.available===false){renderProjects();openReconnect(next);return;} await api("/select-project",{project_id:next}); projectId=next; selectedFile=""; fileData=null; id("fileSearch").value=""; id("fileName").textContent="Select a file"; id("filePreview").textContent="Select a file to inspect its contents."; renderProjects(); await newTask(); await Promise.all([loadFiles(),loadHistory()]); }
-async function refreshState() { appState=await api("/state"); projectId=appState.projects.some(p=>p.id===projectId)?projectId:appState.selected_project; renderProjects(); renderProvider(); renderExperience();renderCloudState(); if(appState.active_run&&!currentRun) { currentRun=appState.active_run; projectId=currentRun.project_id; renderProjects(); schedulePoll(50); } }
+async function loadSession(sessionId) { if(startingRun||busy()) { toast("Finish or stop the current task first."); return; } currentRun=null; runEvents=[]; const data=await api("/projects/"+projectId+"/sessions/"+sessionId); runEvents=data.events||[]; id("taskMode").value=data.task_mode||"build"; renderSession(data); id("verifyCommands").value=(data.required_checks||[]).join("\n"); changeView("build"); if(tab==="changes")await loadChanges(); }
+async function newTask() { if(startingRun||busy()||transferBusy)return; currentRun=null; runEvents=[]; id("taskError").hidden=true; id("taskMode").value="build"; renderSession(null); id("goal").value=""; id("verifyCommands").value=""; id("verificationFields").hidden=true; changeView("build"); setTab("activity"); id("goal").focus(); }
+async function selectProject(next) { if(startingRun||busy()||transferBusy)return; const project=appState.projects.find(p=>p.id===next); if(project?.migration_pending){renderProjects();openMigration();return;} if(project?.available===false){renderProjects();openReconnect(next);return;} await api("/select-project",{project_id:next}); projectId=next; selectedFile=""; fileData=null; id("fileSearch").value=""; id("fileName").textContent="Select a file"; id("filePreview").textContent="Select a file to inspect its contents."; renderProjects(); await newTask(); await Promise.all([loadFiles(),loadHistory()]); }
+async function refreshState() { appState=await api("/state"); projectId=appState.projects.some(p=>p.id===projectId)?projectId:appState.selected_project; renderProjects(); renderProvider(); renderExperience();renderCloudState(); if(appState.active_run&&(!currentRun||currentRun.id!==appState.active_run.id)) { currentRun=appState.active_run; projectId=currentRun.project_id; renderProjects(); schedulePoll(50); } }
 
 function schedulePoll(ms=isCloud?2500:600) { clearTimeout(pollTimer); pollTimer=setTimeout(()=>action(pollRun),ms); }
 async function pollRun() {
@@ -588,17 +589,23 @@ async function pollRun() {
   } catch(error) { toast(error.message); id("monitorHeartbeat").textContent="Connection lost. Retrying; the engine may still be working."; if(busy())schedulePoll(2000); }
 }
 async function startTask(event) {
-  event.preventDefault(); if(busy()||transferBusy)return;
+  event.preventDefault(); if(startingRun||busy()||transferBusy)return;
   const goal=id("goal").value.trim(); if(!goal&&!currentSession) { id("goal").focus(); return; }
   if(appState.account?.enabled&&!appState.account.ready){await openAccount();return;}
+  if(!projectId||(isCloud&&!appState.engine?.available)){id("taskError").hidden=false;id("taskError").textContent=appState.engine?.message||"Select a project before starting a task.";return;}
   if(hostedNoKey(appState.settings.base_url)&&!appState.settings.key_configured) { openSettings(); toast("Add your API key to start a live task."); return; }
-  id("runButton").disabled=true;
+  startingRun=true;id("taskError").hidden=true;renderControls();
   try {
     const result=await api("/runs",{project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:currentSession?.undone?null:currentSession?.id,review_edits:id("reviewEdits").checked,task_mode:id("taskMode").value});
     currentRun=result; runEvents=[]; lastChangeKey=""; id("goal").value=""; changeView("build"); renderControls(); schedulePoll(50);
-  } finally { renderControls(); }
+  } catch(error) {
+    id("taskError").hidden=false;id("taskError").textContent=error.message+" Your prompt is kept. Refresh the workspace to check for a running task before retrying.";
+    // A lost response must not cause an automatic second model request.
+    await refreshState().catch(()=>{});
+    if(busy()){id("taskError").textContent="The task is running. Reconnected to its progress.";changeView("build");schedulePoll(50);}
+  } finally { startingRun=false;renderControls(); }
 }
-async function startDemo() { if(busy())return; id("demoButton").disabled=true; try { const result=await api("/demo",{}); currentRun=result.run; projectId=result.project.id; runEvents=[]; currentSession=null; await refreshState(); renderSession(null); changeView("monitor"); schedulePoll(50); } finally { id("demoButton").disabled=false; } }
+async function startDemo() { if(startingRun||busy())return; id("demoButton").disabled=true; try { const result=await api("/demo",{}); currentRun=result.run; projectId=result.project.id; runEvents=[]; currentSession=null; await refreshState(); renderSession(null); changeView("monitor"); schedulePoll(50); } finally { id("demoButton").disabled=false; } }
 async function answerApproval(allow) { if(!currentRun?.approval)return; id("allowCommand").disabled=true; id("denyCommand").disabled=true; try { await api("/runs/"+currentRun.id+"/approval",{approval_id:currentRun.approval.id,allow}); currentRun.approval=null; renderControls(); schedulePoll(10); } finally { id("allowCommand").disabled=false; id("denyCommand").disabled=false; } }
 
 function openSettings() {
@@ -606,7 +613,7 @@ function openSettings() {
   const s=appState.settings; id("baseUrl").value=s.base_url; id("modelId").value=s.model; id("apiKey").value="";
   id("apiKey").placeholder=s.key_configured?"Key is set. Leave blank to keep it.":"Paste your key here";
   id("apiKey").type="password";id("showApiKey").textContent="Show";id("showApiKey").setAttribute("aria-pressed","false");
-  id("keyHint").textContent=s.key_configured?(s.key_source==="environment"?"Loaded from your environment":"Key ready for this app session"):"Paste your NVIDIA API key below";
+  id("keyHint").textContent=s.key_configured?(s.key_source==="environment"?"Loaded from your environment":"Key ready for this app session"):"Paste your provider API key below";
   id("clearApiKey").disabled=!s.key_configured;
   id("executionMode").value=s.execution; id("toolFormat").value=s.tool_format;
   id("maxSteps").value=s.max_steps ?? ""; id("maxSeconds").value=s.max_seconds ?? "";
@@ -772,7 +779,7 @@ function renderMonitor() {
   id("monitorAction").textContent=currentRun?.current_action||(session?"Saved task: "+session.goal:"No active task");
   id("monitorStatus").textContent=friendly(currentRun?.status||session?.status);
   id("monitorStatus").className="status-badge "+(currentRun?.status||session?.status||"");
-  id("monitorHeartbeat").textContent=currentRun?"Last event "+new Date(currentRun.last_activity||currentRun.created).toLocaleTimeString()+" · "+(currentRun.mode==="demo"?"Scripted offline demo":appState?.settings.model||"Nemotron")+(currentRun.log_truncated?" · saved log reached its size limit":""):session?"Saved activity from this device. No task is running.":"Start a task to see every operation here.";
+  id("monitorHeartbeat").textContent=currentRun?"Last event "+new Date(currentRun.last_activity||currentRun.created).toLocaleTimeString()+" · "+(currentRun.mode==="demo"?"Scripted offline demo":shortModel(appState?.settings.model||""))+(currentRun.log_truncated?" · saved log reached its size limit":""):session?"Saved activity from this device. No task is running.":"Start a task to see every operation here.";
   id("monitorElapsed").textContent=currentRun?duration(currentRun.elapsed_seconds):events.length?duration(events[events.length-1].elapsed):"—";
   id("monitorCalls").textContent=session?.usage?.calls??"—";
   id("monitorFiles").textContent=session?.changed_files?.length||0;
@@ -831,11 +838,11 @@ function renderMigrationProjects() {
   id("retryProjectMigration").disabled=!!busy()||transferBusy||!pending.length;
 }
 function openMigration() {
-  if(busy()||transferBusy)return;
+  if(startingRun||busy()||transferBusy)return;
   renderMigrationProjects();id("migrationResult").hidden=true;id("migrationDialog").showModal();
 }
 async function retryProjectMigration() {
-  if(busy()||transferBusy)return;
+  if(startingRun||busy()||transferBusy)return;
   id("retryProjectMigration").disabled=true;id("migrationResult").hidden=false;id("migrationResult").textContent="Checking projects and copying the ones that are ready…";
   try {
     const result=await api("/retry-project-migration",{});
@@ -851,7 +858,7 @@ function updateReconnectSelection() {
   id("reconnectResult").hidden=true;
 }
 function openReconnect(selected) {
-  if(busy()||transferBusy)return;
+  if(startingRun||busy()||transferBusy)return;
   const missing=appState.projects.filter(p=>p.available===false&&!p.migration_pending);
   if(!missing.length)return;
   id("missingProjectSelect").replaceChildren(...missing.map(p=>{const option=node("option","",p.name);option.value=p.id;return option;}));
@@ -859,7 +866,7 @@ function openReconnect(selected) {
   updateReconnectSelection();id("reconnectDialog").showModal();
 }
 async function reconnectProject() {
-  if(busy()||transferBusy)return;
+  if(startingRun||busy()||transferBusy)return;
   const selected=id("missingProjectSelect").value;
   id("saveReconnect").disabled=true;id("missingProjectSelect").disabled=true;id("browseReconnect").disabled=true;
   id("reconnectResult").hidden=false;id("reconnectResult").textContent="Checking the folder…";
@@ -950,7 +957,7 @@ id("connectionType").onchange=()=>{
   const kind=id("connectionType").value;
   const presets={
     sparkle:{url:sparkleGatewayUrl,model:"nvidia/nemotron-3-super-120b-a12b",placeholder:"Paste your Sparkle access key here"},
-    nvidia:{url:"https://integrate.api.nvidia.com/v1",model:"nvidia/nemotron-3-super-120b-a12b",placeholder:"Paste your NVIDIA key here"},
+    nvidia:{url:"https://integrate.api.nvidia.com/v1",model:"nvidia/nemotron-3-super-120b-a12b",placeholder:"Paste your provider key here"},
     local:{url:"http://127.0.0.1:8000/v1",model:"",placeholder:"Optional for an unauthenticated local server"},
   };
   const preset=presets[kind]||presets.local;

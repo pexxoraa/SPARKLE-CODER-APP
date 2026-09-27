@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+import urllib.error
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -91,10 +92,18 @@ def connect(origin):
     save(path,config)
     url=deploy_worker(lambda *args,**kwargs:run_wrangler(command,*args,**kwargs),config['name'])
     save(OWNER/'deployment.json',{'gateway_url':url,'admin_url':url+'/admin'})
-    with urllib.request.urlopen(url+'/healthz',timeout=20) as response:
-        health=json.loads(response.read(8192))
+    # Record the successful publish separately from a client-specific health failure.
+    save(OWNER/'engine-deployment.json',{'gateway_url':url,'engine_origin':origin,'deployed':True,'health_verified':False})
+    try:
+        with urllib.request.urlopen(url+'/healthz',timeout=20) as response:
+            health=json.loads(response.read(8192))
+    except (urllib.error.URLError,TimeoutError) as error:
+        print('Worker deployed and HTTPS engine verified. The public Worker health check could not be confirmed ('+type(error).__name__+'). Verify the app in your browser.')
+        return
     if health.get('version')!='0.8.0' or health.get('engine_configured') is not True:
+        save(OWNER/'engine-deployment.json',{'gateway_url':url,'engine_origin':origin,'deployed':False,'health_verified':False})
         raise ValueError('Worker deployed but the engine binding was not confirmed. Keep this configuration and retry connect.')
+    save(OWNER/'engine-deployment.json',{'gateway_url':url,'engine_origin':origin,'deployed':True,'health_verified':True})
     print('Full cloud interface deployed: '+url)
     print('Engine health and Worker configuration verified. Open an approved account and run the smoke test in HOSTED_ENGINE.md.')
 
