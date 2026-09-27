@@ -82,12 +82,13 @@ id("app").innerHTML = `
       <select id="projectSelect" aria-label="Selected project"></select>
       <button class="icon-button" id="addProject" title="Add project" aria-label="Add project"><span data-icon="plus"></span></button>
       <span class="topbar-divider"></span><span class="project-path" id="projectPath"></span>
-      <div class="topbar-actions"><button id="trackTask" class="text-button" title="Open live run monitor">Monitor <span id="headerRunStatus">Ready</span></button><button class="icon-button details-toggle" id="detailsButton" aria-label="Show activity panel"><span data-icon="panel"></span></button></div>
+      <div class="topbar-actions"><div id="workspaceModeSwitch" class="workspace-mode-switch" hidden><button id="cloudWorkspaceMode" class="text-button active" type="button">Cloud</button><button id="browserWorkspaceMode" class="text-button" type="button">Browser files</button></div><button id="topAccountButton" class="text-button" type="button" hidden>Account</button><button id="trackTask" class="text-button" title="Open live run monitor">Monitor <span id="headerRunStatus">Ready</span></button><button class="icon-button details-toggle" id="detailsButton" aria-label="Show activity panel"><span data-icon="panel"></span></button></div>
     </header>
-    <div id="cloudNotice" class="missing-projects-notice" role="status" hidden><span id="cloudNoticeText"></span><button id="retryCloud" class="button secondary">Refresh workspace</button><a href="/scratch.html" class="text-button">Open browser scratch files</a></div>
+    <div id="cloudNotice" class="missing-projects-notice" role="status" hidden><span id="cloudNoticeText"></span><button id="retryCloud" class="button secondary">Retry cloud</button><button id="useBrowserWorkspace" class="text-button" type="button">Use browser files here</button></div>
     <div id="missingProjectsNotice" class="missing-projects-notice" role="status" hidden><span id="missingProjectsText"></span><button id="findProjectFolder" class="button secondary">Find folder</button></div>
     <div id="pendingMigrationNotice" class="missing-projects-notice" role="status" hidden><span>Some projects are waiting to move. You can keep working in another project.</span><button id="showProjectMigration" class="button secondary">Review project move</button></div>
-    <div class="work-area">
+    <section id="browserWorkspacePanel" class="browser-workspace-panel" hidden aria-label="Browser files workspace"><iframe id="browserWorkspaceFrame" src="/scratch.html?embedded=1" title="Browser files workspace"></iframe></section>
+    <div class="work-area" id="cloudWorkArea">
       <section class="main-column">
         <div id="buildView" class="page-view build-view">
           <div class="supervision-strip" id="supervisionStrip" hidden><span class="pulse-dot"></span><span id="currentAction">Ready</span><span id="elapsedTime">0s</span><button id="showMonitor" class="text-button">Details ↗</button></div><div class="conversation" id="conversation">
@@ -125,7 +126,7 @@ id("app").innerHTML = `
         <div id="filesView" class="page-view files-view" hidden>
           <div class="view-heading"><div><span class="eyebrow" id="fileLocation">ON YOUR DEVICE</span><h1>Project files</h1></div><button id="openProjectFolder" class="button secondary">Open folder ↗</button></div>
           <div id="filesState" class="transfer-status" role="status" hidden><strong id="filesStateTitle"></strong><p id="filesStateMessage"></p><button id="filesStateAction" class="button secondary">Refresh workspace</button></div>
-          <p id="localFilesLink" hidden><a href="/scratch.html">Open files from this computer</a> · Local folders and previous browser files open in the browser editor.</p>
+          <p id="localFilesLink" hidden><button id="openBrowserFilesInline" type="button" class="text-button">Browser files</button> · Local folders and persistent browser files open here without leaving SPARKLE.</p>
           <div class="file-actions"><button id="newFile" class="button secondary">New file</button><button id="importFiles" class="button primary">Import files</button><button id="importFolder" class="button secondary">Import folder</button><button id="downloadProject" class="button secondary">Download ZIP</button><button id="exportFolder" class="button secondary">Copy to folder</button><button id="refreshFiles" class="text-button">Refresh</button></div>
           <input id="uploadFiles" type="file" multiple hidden><input id="uploadFolder" type="file" webkitdirectory multiple hidden>
           <div id="dropZone" class="drop-zone" tabindex="0">Drop files here, or paste copied files. Existing files are kept; duplicates get a new name.</div>
@@ -264,7 +265,22 @@ let fileData=null, transferBusy=false, cancelTransfer=false, lastConsoleKey="", 
 let pollTimer = null, lastMessageKey = "", lastChangeKey = "", selectedFile = "", toastTimer = null;
 let briefRevision = null, briefProjectId = null, setupProjectId = null;
 const isCloud=document.documentElement.dataset.runtime==="cloud";
+let workspacePreference="cloud";
+try { if(isCloud&&sessionStorage.getItem("sparkleWorkspaceMode")==="browser")workspacePreference="browser"; } catch(_) {}
 let editTarget=null, editorSaving=false;
+function setWorkspaceSurface(mode,{remember=true}={}) {
+  if(!isCloud)return;
+  const browser=mode==="browser";
+  if(remember){workspacePreference=browser?"browser":"cloud";try{sessionStorage.setItem("sparkleWorkspaceMode",workspacePreference);}catch(_){}}
+  document.body.classList.toggle("browser-workspace-mode",browser);
+  id("browserWorkspacePanel").hidden=!browser;
+  id("cloudWorkArea").hidden=browser;
+  id("cloudWorkspaceMode").classList.toggle("active",!browser);
+  id("browserWorkspaceMode").classList.toggle("active",browser);
+  id("cloudWorkspaceMode").setAttribute("aria-pressed",String(!browser));
+  id("browserWorkspaceMode").setAttribute("aria-pressed",String(browser));
+  if(browser)id("cloudNotice").hidden=true;
+}
 function engineAddress(value) {
   const url=new URL(value);
   if(url.protocol!=="http:"||!["127.0.0.1","localhost"].includes(url.hostname)||!url.port||url.username||url.password||url.search||url.hash||!["","/"].includes(url.pathname))
@@ -1034,7 +1050,7 @@ function showEngineWelcome(message="") {
 async function openWorkspace() {
   if(isHosted&&(!engineOrigin||!accessToken)){showEngineWelcome(connectionError);return;}
   try {await refreshState();await Promise.all([loadFiles(),loadHistory()]);renderSession(null);id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;if(currentRun)schedulePoll(20);if(appState.account?.enabled){if(!appState.account.enrolled)openAccount();else refreshAccount().catch(()=>{});}}
-  catch(error){if(isCloud){id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;id("cloudNotice").hidden=false;id("cloudNoticeText").textContent=error.message;id("runButton").disabled=true;}else showEngineWelcome(error.message);}
+  catch(error){if(isCloud){id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;id("cloudNoticeText").textContent=error.message;id("runButton").disabled=true;setWorkspaceSurface("browser",{remember:false});}else showEngineWelcome(error.message);}
 }
 id("websiteButtonLabel").textContent=isHosted?"Website connection":"Connect website";
 id("websiteButton").onclick=()=>{
@@ -1064,11 +1080,14 @@ id("copyWebsiteAddress").onclick=()=>action(()=>copyText(location.origin));
 id("retryEngine").onclick=()=>action(openWorkspace);
 function renderCloudState(){
   if(!isCloud)return;
-  id("cloudNotice").hidden=false;
-  id("cloudNoticeText").textContent=appState.engine?.available?"Cloud workspace · files and saved tasks stay with your account.":appState.engine?.message||"Checking cloud workspace…";
+  id("workspaceModeSwitch").hidden=false;id("topAccountButton").hidden=false;
+  const available=Boolean(appState.account?.ready&&appState.engine?.available);
+  if(!available)setWorkspaceSurface("browser",{remember:false});else setWorkspaceSurface(workspacePreference,{remember:false});
+  id("cloudNotice").hidden=!available||document.body.classList.contains("browser-workspace-mode");
+  id("cloudNoticeText").textContent="Cloud workspace · files and saved tasks stay with your account.";
   id("projectPath").textContent=appState.projects.find(p=>p.id===projectId)?.name||"Cloud workspace";
   id("projectPath").title="Your account's cloud project";
-  for(const name of ["briefButton","setupButton","importFiles","importFolder","downloadProject"])id(name).disabled=!appState.engine?.available||!!busy();
+  for(const name of ["briefButton","setupButton","importFiles","importFolder","downloadProject"])id(name).disabled=!available||!!busy();
   renderFilesState();
 }
 if(isCloud){
@@ -1081,7 +1100,12 @@ if(isCloud){
   document.querySelector('.file-limit-note').textContent="Import files or a folder from your computer. Downloads save a copy to your computer. Transfers: 20 MiB per file, 100 MiB per project export. Credentials, dependencies, Git internals, and agent history are excluded from exports.";
   id("projectDialog").querySelector('.settings-note').textContent="Create a project, then import files or ask the agent to build it.";
   id("briefDialog").querySelector('.settings-note').textContent="Saved with this cloud project. Keep credentials out of the brief.";
-  id("retryCloud").onclick=()=>action(openWorkspace);
+  id("retryCloud").onclick=()=>action(async()=>{workspacePreference="cloud";try{sessionStorage.setItem("sparkleWorkspaceMode","cloud");}catch(_){}await openWorkspace();});
+  id("useBrowserWorkspace").onclick=()=>setWorkspaceSurface("browser");
+  id("openBrowserFilesInline").onclick=()=>setWorkspaceSurface("browser");
+  id("cloudWorkspaceMode").onclick=()=>{setWorkspaceSurface("cloud");if(!appState?.engine?.available)action(openWorkspace);};
+  id("browserWorkspaceMode").onclick=()=>setWorkspaceSurface("browser");
+  id("topAccountButton").onclick=openAccount;
   if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
   window.addEventListener('storage',event=>{if(event.key==='sparkle_device_secret')location.reload();});
 }

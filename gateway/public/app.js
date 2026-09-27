@@ -1,5 +1,6 @@
 "use strict";
 
+if(typeof location!=="undefined"&&/(?:^|[?&])embedded=1(?:&|$)/.test(location.search||""))document.documentElement.classList.add("embedded");
 const $=id=>document.getElementById(id);
 const enc=new TextEncoder();
 const textExtensions=new Set(["txt","md","markdown","js","mjs","cjs","ts","tsx","jsx","json","html","htm","css","scss","sass","less","py","java","c","h","cpp","hpp","cs","go","rs","php","rb","sh","bash","zsh","ps1","sql","xml","yaml","yml","toml","ini","cfg","conf","env","gitignore","dockerfile","vue","svelte","kt","kts","swift","dart","r","lua"]);

@@ -11,10 +11,11 @@ function passwordValue(value) {
   if(password.length<8||password.length>128)fail(400,'Use a password with 8–128 characters.');
   return password;
 }
-async function passwordHash(password,saltHex) {
-  const salt=Uint8Array.from((saltHex.match(/../g)||[]),pair=>parseInt(pair,16));
-  const key=await crypto.subtle.importKey('raw',enc.encode(password),'PBKDF2',false,['deriveBits']);
-  return hex(await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt,iterations:120000},key,256));
+async function passwordHash(password,saltHex,env) {
+  const pepper=String(env.CACHE_SECRET||'');
+  if(pepper.length<32)fail(503,'Account login is temporarily unavailable.');
+  const key=await crypto.subtle.importKey('raw',enc.encode(pepper),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  return hex(await crypto.subtle.sign('HMAC',key,enc.encode(saltHex+'|'+password)));
 }
 function equalText(left,right) {
   if(typeof left!=='string'||typeof right!=='string'||left.length!==right.length)return false;
@@ -132,7 +133,7 @@ async function enroll(request,env) {
     ]);
   }else{
     if(data.recovery===true)fail(400,'Create a new account first.');
-    const password=passwordValue(data.password),salt=randomHex(16),password_hash=await passwordHash(password,salt);
+    const password=passwordValue(data.password),salt=randomHex(16),password_hash=await passwordHash(password,salt,env);
     try{await env.DB.batch([
       sql(env,"INSERT INTO accounts(id,email,name,phone,created) SELECT ?,?,?,?,? WHERE (SELECT COUNT(*) FROM accounts)<?",id,email,name,phone,stamp,Number(env.MAX_MEMBERS||50)),
       sql(env,'INSERT INTO account_credentials(account_id,salt,password_hash,updated) VALUES (?,?,?,?)',id,salt,password_hash,stamp),
@@ -156,7 +157,7 @@ async function loginAccount(request,env) {
     LEFT JOIN account_credentials c ON c.account_id=a.id WHERE a.email=?`,email);
   if(!account)fail(401,'Email or password is incorrect.');
   if(!account.password_hash)fail(409,'This older account needs a first-time password. Ask the admin for a one-time setup code, then use First-time password setup.');
-  const candidate=await passwordHash(password,account.salt);
+  const candidate=await passwordHash(password,account.salt,env);
   if(!equalText(candidate,account.password_hash))fail(401,'Email or password is incorrect.');
   const secret_hash=await hash(bearer(request)),stamp=now(),existing=await one(env,'SELECT id,account_id FROM devices WHERE secret_hash=?',secret_hash);
   if(existing&&existing.account_id!==account.id)fail(409,'This browser identity is already linked to another account.');
@@ -167,7 +168,7 @@ async function loginAccount(request,env) {
 }
 async function setAccountPassword(request,env) {
   const account=await device(request,env,true,false),data=await body(request),password=passwordValue(data.password);
-  const salt=randomHex(16),password_hash=await passwordHash(password,salt),stamp=now();
+  const salt=randomHex(16),password_hash=await passwordHash(password,salt,env),stamp=now();
   await sql(env,`INSERT INTO account_credentials(account_id,salt,password_hash,updated) VALUES (?,?,?,?)
     ON CONFLICT(account_id) DO UPDATE SET salt=excluded.salt,password_hash=excluded.password_hash,updated=excluded.updated`,
     account.id,salt,password_hash,stamp).run();
@@ -191,7 +192,7 @@ async function setupLegacyPassword(request,env) {
   if(!account.token_hash||account.expires<=now()||!equalText(digest,account.token_hash))fail(401,'Setup code is invalid or expired.');
   const secret_hash=await hash(bearer(request)),existing=await one(env,'SELECT id,account_id FROM devices WHERE secret_hash=?',secret_hash);
   if(existing&&existing.account_id!==account.id)fail(409,'This browser identity is already linked to another account.');
-  const salt=randomHex(16),password_hash=await passwordHash(password,salt),stamp=now(),deviceId=existing?.id||uid();
+  const salt=randomHex(16),password_hash=await passwordHash(password,salt,env),stamp=now(),deviceId=existing?.id||uid();
   await env.DB.batch([
     sql(env,'INSERT INTO account_credentials(account_id,salt,password_hash,updated) VALUES (?,?,?,?)',account.id,salt,password_hash,stamp),
     sql(env,'DELETE FROM account_password_setups WHERE account_id=? AND token_hash=?',account.id,digest),
