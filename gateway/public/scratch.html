@@ -62,21 +62,35 @@
     <div class="dialog-actions"><button id="refreshAccountButton" class="button secondary">Refresh account</button><button id="reconnectButton" class="text-button">Reconnect / switch account</button></div>
     <section id="registerSection">
       <form id="registerForm">
-        <label>Name<input id="memberName" autocomplete="name" required minlength="2" maxlength="80"></label>
+        <label class="check"><input id="loginMode" type="checkbox"> I already have an account — sign in without admin approval.</label>
+        <div id="newAccountFields">
+          <label>Name<input id="memberName" autocomplete="name" required minlength="2" maxlength="80"></label>
+          <label>Phone <span>(optional)</span><input id="memberPhone" autocomplete="tel" maxlength="32"></label>
+          <label class="check"><input id="memberConsent" type="checkbox" required> I agree that prompts and selected code may be sent to the shared server and its external AI provider for processing.</label>
+        </div>
         <label>Email<input id="memberEmail" type="email" autocomplete="email" required maxlength="200"></label>
-        <label>Phone <span>(optional)</span><input id="memberPhone" autocomplete="tel" maxlength="32"></label>
-        <label class="check"><input id="memberConsent" type="checkbox" required> I agree that prompts and selected code may be sent to the shared server and its external AI provider for processing.</label>
-        <label class="check"><input id="recoveryMode" type="checkbox"> Reconnect an existing account on this browser/device.</label>
-        <button id="registerButton" class="button primary" type="submit">Request access</button>
+        <label>Password<input id="memberPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
+        <button id="registerButton" class="button primary" type="submit">Request new account</button>
       </form>
     </section>
     <section id="memberSection" hidden>
       <div class="balance-card"><span>Available credits</span><strong id="accountBalance">0</strong><small id="heldBalance"></small></div>
+      <div id="passwordSection" hidden>
+        <h3>Login password</h3>
+        <p class="hint">Set a password once, then use the same email/password on another browser without admin approval.</p>
+        <form id="passwordForm"><label>Set or change password<input id="newAccountPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label><button id="passwordButton" class="button secondary" type="submit">Save password</button></form>
+      </div>
       <div id="paymentSection" hidden>
         <h3>Add 1,000,000 tokens · ₹15</h3>
         <p>Pay only after checking the recipient details below. Credits appear after the admin verifies the payment.</p>
         <div class="pay-grid"><span>UPI ID</span><strong id="upiId">—</strong><span>Recipient</span><strong id="payeeName">—</strong></div>
-        <form id="paymentForm"><label>UPI transaction reference / UTR<input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"></label><button id="paymentButton" class="button primary" type="submit">Submit payment</button></form>
+        <form id="paymentForm">
+          <label>Coupon code <span>(optional)</span><input id="paymentCoupon" maxlength="32" autocomplete="off"></label>
+          <div class="dialog-actions"><button id="applyCoupon" class="button secondary" type="button">Apply coupon</button></div>
+          <p id="couponStatus" class="hint"></p>
+          <label>UPI transaction reference / UTR<input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"></label>
+          <button id="paymentButton" class="button primary" type="submit">Submit payment</button>
+        </form>
       </div>
       <div><h3>Recent payments</h3><div id="paymentHistory" class="history-list"></div></div>
       <p id="supportLine" class="hint"></p>

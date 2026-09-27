@@ -1,6 +1,8 @@
 'use strict';
 const el=id=>document.getElementById(id), number=value=>Number(value||0).toLocaleString('en-IN');
 const node=(tag,text,cls='')=>{const n=document.createElement(tag);n.textContent=text;n.className=cls;return n;};
+const localDateInput=seconds=>seconds?new Date(seconds*1000-new Date(seconds*1000).getTimezoneOffset()*60000).toISOString().slice(0,16):'';
+const expiryValue=value=>value?Math.floor(new Date(value).getTime()/1000):null;
 let signedIn=false,busyActions=0,refreshVersion=0,refreshing=0;
 async function api(path,body){
   const response=await fetch('/api/admin/'+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',redirect:'error',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
@@ -40,14 +42,30 @@ async function refresh(background=false){
   if(!signups.length)el('signupList').append(node('p','No new account requests.'));
   el('paymentList').replaceChildren();
   for(const p of data.payments.filter(p=>p.status==='pending')){
-    const c=card(el('paymentList'),p.name,'₹15 → 10,00,000 tokens · '+p.email);c.id='payment-'+p.id;
+    const bonus=Number(p.bonus_tokens||0),total=1000000+bonus;
+    const c=card(el('paymentList'),p.name,'₹15 → '+number(total)+' tokens · '+p.email);c.id='payment-'+p.id;
     c.append(node('p','UPI reference: '+p.utr,'reference'),node('p','Phone: '+(p.claimed_phone||'Not provided')+' · '+new Date(p.created*1000).toLocaleString(),'muted'));
+    if(p.coupon_code)c.append(node('p','Coupon '+p.coupon_code+' · +'+number(bonus)+' bonus tokens','muted'));
     const verified=field(c,'I matched this ₹15 payment in my bank / UPI account.','checkbox','payment:'+p.id+':verified'),note=field(c,'Review note (required for rejection)','text','payment:'+p.id+':note');note.maxLength=300;
     const actions=node('div','','actions');c.append(actions);
-    button(actions,'Accept + 1M tokens',async()=>{if(!verified.checked)throw Error('Verify the payment in your bank app first.');await api('payments/'+p.id,{action:'approve',verified:true,note:note.value});await refresh();el('notice').textContent='Payment accepted. Credits are available in the member account.';});
+    button(actions,'Accept + '+number(total)+' tokens',async()=>{if(!verified.checked)throw Error('Verify the payment in your bank app first.');await api('payments/'+p.id,{action:'approve',verified:true,note:note.value});await refresh();el('notice').textContent='Payment accepted. Credits are available in the member account.';});
     button(actions,'Reject',async()=>{if(!note.value.trim())throw Error('Enter a rejection reason.');await api('payments/'+p.id,{action:'reject',note:note.value});await refresh();},'danger');
   }
   if(!el('paymentList').children.length)el('paymentList').append(node('p','No payments waiting.'));
+  el('couponList').replaceChildren();
+  for(const coupon of data.coupons||[]){
+    const c=card(el('couponList'),coupon.code,'+'+number(coupon.bonus_tokens)+' tokens · '+number(coupon.reserved_uses)+' / '+number(coupon.max_uses)+' used/reserved');
+    const bonus=field(c,'Bonus tokens','number','coupon:'+coupon.id+':bonus');bonus.min='1';bonus.max='10000000';bonus.value=coupon.bonus_tokens;
+    const expiry=field(c,'Expiry date/time','datetime-local','coupon:'+coupon.id+':expiry');expiry.value=localDateInput(coupon.expires);
+    const maxUses=field(c,'Maximum uses','number','coupon:'+coupon.id+':max');maxUses.min=String(coupon.reserved_uses||1);maxUses.max='100000';maxUses.value=coupon.max_uses;
+    const onePer=field(c,'One use per account','checkbox','coupon:'+coupon.id+':one');onePer.checked=Boolean(coupon.one_per_account);
+    const note=field(c,'Admin note','text','coupon:'+coupon.id+':note');note.maxLength=200;note.value=coupon.note||'';
+    const actions=node('div','','actions');c.append(actions);
+    button(actions,'Save',async()=>{await api('coupons/'+coupon.id,{bonus_tokens:Number(bonus.value),expires:expiryValue(expiry.value),max_uses:Number(maxUses.value),one_per_account:onePer.checked,active:Boolean(coupon.active),note:note.value});await refresh();});
+    button(actions,coupon.active?'Disable':'Enable',async()=>{await api('coupons/'+coupon.id,{bonus_tokens:Number(bonus.value),expires:expiryValue(expiry.value),max_uses:Number(maxUses.value),one_per_account:onePer.checked,active:!coupon.active,note:note.value});await refresh();},coupon.active?'danger':'secondary');
+    if(coupon.expires)c.append(node('p','Expires '+new Date(coupon.expires*1000).toLocaleString(),'muted'));
+  }
+  if(!el('couponList').children.length)el('couponList').append(node('p','No coupons created yet.'));
   el('accountRows').replaceChildren();
   for(const a of data.accounts){const tr=node('tr',''),member=node('td',a.name);member.append(node('small',a.email));tr.append(member,node('td',a.status),node('td',number(a.balance-a.held)),node('td',number(a.held)));const td=node('td','');tr.append(td);if(a.status!=='pending')button(td,a.status==='suspended'?'Reactivate':'Suspend',async()=>{await api('accounts/'+a.id,{status:a.status==='suspended'?'active':'suspended'});await refresh();},'secondary');el('accountRows').append(tr);}
   el('deviceList').replaceChildren();
@@ -75,9 +93,10 @@ async function refresh(background=false){
   } catch(error){if(version===refreshVersion)el('syncStatus').textContent='Refresh failed. Displayed requests may be out of date. '+error.message;throw error;}
   finally {refreshing--;}
 }
+el('couponForm').onsubmit=e=>{e.preventDefault();const submit=el('couponForm').querySelector('button');action(submit,async()=>{await api('coupons',{code:el('couponCode').value,bonus_tokens:Number(el('couponBonus').value),expires:expiryValue(el('couponExpiry').value),max_uses:Number(el('couponMaxUses').value),one_per_account:el('couponOnePerAccount').checked,note:el('couponNote').value});el('couponForm').reset();el('couponMaxUses').value='1';el('couponOnePerAccount').checked=true;await refresh();el('notice').textContent='Coupon created.';});};
 el('loginForm').onsubmit=e=>{e.preventDefault();action(el('loginForm').querySelector('button'),async()=>{await api('login',{password:el('password').value});el('password').value='';await refresh();});};
 el('refresh').onclick=()=>action(el('refresh'),refresh);
-el('logout').onclick=()=>action(el('logout'),async()=>{await api('logout',{});show(false);el('dashboard').querySelectorAll('tbody, #signupList, #paymentList, #deviceList, #requestList, #auditList').forEach(n=>n.replaceChildren());});
+el('logout').onclick=()=>action(el('logout'),async()=>{await api('logout',{});show(false);el('dashboard').querySelectorAll('tbody, #signupList, #paymentList, #couponList, #deviceList, #requestList, #auditList').forEach(n=>n.replaceChildren());});
 setInterval(()=>refresh(true).catch(()=>{}),30000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh(true).catch(()=>{});});
 refresh().catch(e=>{el('notice').textContent=e.message;});

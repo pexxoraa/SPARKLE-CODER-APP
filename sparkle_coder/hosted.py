@@ -180,7 +180,7 @@ class HostedHandler(Handler):
             self.send(403,{'error':'Use the SPARKLE account gateway.'});return False
         # Device/OS operations are never forwarded to a shared host.
         forbidden={'/api/quit','/api/open-folder','/api/select-folder','/api/storage','/api/retry-project-migration',
-                   '/api/hosted-ui','/api/disconnect-hosted-ui','/api/demo','/api/account','/api/account/enroll','/api/account/payment','/api/account/reconnect'}
+                   '/api/hosted-ui','/api/disconnect-hosted-ui','/api/demo','/api/account','/api/account/enroll','/api/account/login','/api/account/password','/api/account/coupon','/api/account/payment','/api/account/reconnect'}
         if path in forbidden or path.endswith(('/export-folder','/reconnect')):
             self.send(400,{'error':'Use browser import/download for files. The owner manages the cloud host.'});return False
         try:

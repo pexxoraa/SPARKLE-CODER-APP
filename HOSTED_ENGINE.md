@@ -165,8 +165,9 @@ After connecting the host, open your existing approved account on the Worker URL
 
 Use actual model usage and check output to verify the deployment before inviting
 testers. If the engine is offline, projects are shown as unavailable; no simulated
-success is presented. Reconnecting the same account through admin restores access
-to its existing cloud project directory.
+success is presented. Returning members sign in with their account email/password
+without a new admin approval. Existing pre-password accounts can set a login password
+from an already approved device; manual admin recovery remains only as a legacy/lost-access fallback.
 
 ## Prompt and tunnel recovery update
 

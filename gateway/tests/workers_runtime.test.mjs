@@ -19,10 +19,12 @@ test('Workers runtime sends model/engine requests, settles exact usage, and refu
   const mf=new runtime.Miniflare(runtime.convertV4MiniflareOptions?runtime.convertV4MiniflareOptions(options):options);
   try{
     const db=await mf.getD1Database('DB');
-    let statement='';
-    for(const line of readFileSync(new URL('../migrations/0001_pilot.sql',import.meta.url),'utf8').split('\n')){
-      if(!line.trim()||line.startsWith('--'))continue;statement+=line+' ';
-      if(line.trim().endsWith(';')){await db.exec(statement);statement='';}
+    for(const migration of ['0001_pilot.sql','0002_login_coupons.sql']){
+      let statement='';
+      for(const line of readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8').split('\n')){
+        if(!line.trim()||line.startsWith('--'))continue;statement+=line+' ';
+        if(line.trim().endsWith(';')){await db.exec(statement);statement='';}
+      }
     }
     await db.prepare("INSERT INTO accounts(id,email,name,status,balance,created) VALUES ('test','runtime@example.test','Runtime','active',1000000,1)").run();
     const digest=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(device))).toString('hex');

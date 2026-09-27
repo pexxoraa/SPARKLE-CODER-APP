@@ -183,7 +183,7 @@ class DesktopGatewayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory,patch('sparkle_coder.webapp.distribution',return_value=url):
             app=AppService(Path(directory));self.addCleanup(app.close)
             self.assertTrue(app.state()['account']['enabled'])
-            account=app.account.enroll({'name':'Pilot Tester','email':'pilot@example.com','phone':'','consent':True})
+            account=app.account.enroll({'name':'Pilot Tester','email':'pilot@example.com','phone':'','password':'PilotPass123!','consent':True})
             self.assertFalse(account['ready']);self.assertTrue(account['enrolled'])
             token=app.account.secret
             self.assertGreater(len(token),43)

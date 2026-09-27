@@ -40,7 +40,8 @@ imports, file downloads, code-block review and model request retry remain intact
 The brand link or Cloud projects link returns to the full workspace. Scratch
 files are not automatically uploaded to the engine; download/import them when
 needed. Clearing browser storage removes scratch files and the device credential;
-cloud files can be recovered by reconnecting the same account through admin.
+cloud files can be recovered by signing back into the same account with its email
+and password.
 
 PWA installation remains available through the browser's install menu. Offline
 support covers the public shell and browser scratch data. Account/admin/model
@@ -53,6 +54,6 @@ New signups now appear immediately under **Account requests** in `/admin`, inclu
 
 After registration, the tester submits a ₹15 UPI reference. The owner verifies the payment in the bank/UPI app and approves it in `/admin`. Approval activates the signup device and adds 1,000,000 tokens exactly once; the browser's next account refresh shows the balance. Seeing a signup request by itself does not issue credits.
 
-A reconnect request for an existing email is handled through the existing device-approval section in `/admin`.
+Returning approved users sign in with their email/password and receive an active browser connection immediately; normal sign-in does not create an admin approval request. New accounts still require the normal signup/payment review. Existing accounts created before password login can set a password from an already approved browser; manual recovery remains available for exceptional legacy/lost-access cases.
 
-Access is tied to the saved browser/device secret, not an email/password login. On another browser, choose **Reconnect an existing account**. If this browser's access was revoked, **Reconnect / switch account** clears its local connection so it can request manual reconnection. Project files are retained.
+Token purchases can optionally include a coupon code. Coupons add bonus tokens to the normal ₹15 pack only after the payment is verified and approved. `/admin` includes a coupon manager for bonus amount, expiry, maximum uses, one-use-per-account policy, active/disabled state and notes. Rejected payments release their coupon reservation.

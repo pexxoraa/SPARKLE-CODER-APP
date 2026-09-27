@@ -118,7 +118,7 @@ def apply_migrations(run,name):
         # Wrangler's documented file import path only for a confirmed empty DB.
         # Never reset a database, bypass history, or replay schema over accounts.
         paths=sorted((ROOT/'gateway/migrations').glob('*.sql'))
-        if [path.name for path in paths]!=['0001_pilot.sql']:raise
+        if not paths or paths[0].name!='0001_pilot.sql':raise
         objects=database_rows(run,name,'SELECT type,name FROM sqlite_master')
         existing=[row for row in objects if not row['name'].startswith('sqlite_')
                   and row['name'] not in {'d1_migrations','_cf_METADATA'}]
@@ -137,10 +137,16 @@ def apply_migrations(run,name):
             run('d1','execute',name,'--remote','--file',str(migration),'--yes')
         history=database_rows(run,name,'SELECT name FROM d1_migrations')
         if [row['name'] for row in history]!=['0001_pilot.sql']:
-            raise SystemExit('Could not confirm migration completion. Keep the existing database and rerun setup.')
+            raise SystemExit('Could not confirm initial migration completion. Keep the existing database and rerun setup.')
+        if len(paths)>1:
+            print(run('d1','migrations','apply',name,'--remote',capture=True))
+        applied={row['name'] for row in database_rows(run,name,'SELECT name FROM d1_migrations')}
+        required={path.name for path in paths}
+        if not required.issubset(applied):
+            raise SystemExit('Could not confirm all migrations. Keep the existing database and rerun setup.')
         database=sqlite3.connect(':memory:')
         try:
-            database.executescript(paths[0].read_text(encoding='utf-8'))
+            for path in paths:database.executescript(path.read_text(encoding='utf-8'))
             expected={(kind,object_name) for kind,object_name in database.execute('SELECT type,name FROM sqlite_master')
                       if not object_name.startswith('sqlite_')}
         finally:database.close()

@@ -173,7 +173,7 @@ function accountReady(){return Boolean(state.account?.ready);}
 function renderAccount(){
   const a=state.account,info=state.info||{};
   $("registerSection").hidden=Boolean(a);$("memberSection").hidden=!a;$("requestReceipt").textContent="";
-  if(!a){$("connectionPill").textContent="Access required";$("connectionPill").className="pill warn";$("tokenBalance").textContent="No account";$("accountMessage").textContent="Request a new account, or choose Reconnect for an existing email. This browser remembers your access; no password is needed.";return;}
+  if(!a){$("connectionPill").textContent="Access required";$("connectionPill").className="pill warn";$("tokenBalance").textContent="No account";$("accountMessage").textContent="Sign in to an existing account, or create a new account.";return;}
   const available=Number(a.available_tokens||0),pending=(a.payments||[]).some(p=>p.status==="pending");
   const recovering=a.kind==="recovery"&&a.device_status!=="active";
   const upi=a.upi_id||info.upi_id,payee=a.payee_name||info.payee_name,configured=Boolean(upi&&payee);
@@ -181,16 +181,23 @@ function renderAccount(){
   $("heldBalance").textContent=a.held_tokens?`${Number(a.held_tokens).toLocaleString()} tokens temporarily reserved`:"";
   $("upiId").textContent=upi||"Not configured";$("payeeName").textContent=payee||"Not configured";
   $("supportLine").textContent=(a.support_email||info.support_email)?`Support: ${a.support_email||info.support_email}`:"";
+  $("passwordSection").hidden=a.device_status!=="active";
   $("paymentSection").hidden=pending||a.status==="suspended"||!configured||recovering;
   if(a.request_id)$("requestReceipt").textContent=`Request ID: ${a.request_id}${a.requested_at?" · Received "+new Date(a.requested_at*1000).toLocaleString():""}`;
   const history=$("paymentHistory");history.replaceChildren();
-  for(const payment of a.payments||[]){const row=document.createElement("div");row.className="history-row";row.textContent=`₹15 · ${payment.utr} · ${payment.status}${payment.note?" — "+payment.note:""}`;history.append(row);}
+  for(const payment of a.payments||[]){const row=document.createElement("div");row.className="history-row";row.textContent=`₹15 · ${payment.utr} · ${payment.status}${payment.coupon_code?" · "+payment.coupon_code+" +"+Number(payment.bonus_tokens||0).toLocaleString()+" bonus tokens":""}${payment.note?" — "+payment.note:""}`;history.append(row);}
   if(!history.children.length){const row=document.createElement("div");row.className="history-row";row.textContent="No payments submitted yet.";history.append(row);}
   $("connectionPill").className=a.ready?"pill":"pill warn";
   if(a.status==="suspended"){$("connectionPill").textContent="Suspended";$("accountMessage").textContent="This account is suspended. Contact support.";}
-  else if(a.ready){$("connectionPill").textContent=`Ready · ${available.toLocaleString()} tokens`;$("accountMessage").textContent=`Connected as ${a.name}. Your model access is active.`;}
-  else if(recovering){$("connectionPill").textContent="Reconnect pending";$("accountMessage").textContent="Your reconnection request was received. The admin must verify your identity before this browser can use the account.";}
-  else{$("connectionPill").textContent=pending?"Payment pending":"Account requested";$("accountMessage").textContent=pending?"Your payment is waiting for admin verification. This page checks automatically.":configured?"Your account request was received and is visible to the admin. Submit a ₹15 payment reference below; credits activate after payment verification.":"Your account request was received. Payment details are not configured yet; contact support before paying.";}
+  else if(a.ready){$("connectionPill").textContent=`Ready · ${available.toLocaleString()} tokens`;$("accountMessage").textContent=`Connected as ${a.name}. Your model access is active.`+(a.password_set?"":" Set a login password below before using another browser.");}
+  else if(recovering){$("connectionPill").textContent="Recovery pending";$("accountMessage").textContent="Manual account recovery is waiting for admin verification.";}
+  else{$("connectionPill").textContent=pending?"Payment pending":"Account requested";$("accountMessage").textContent=pending?"Your payment is waiting for admin verification. This page checks automatically.":configured?"Your new account request was received. Submit a ₹15 payment reference below; credits activate after payment verification.":"Your account request was received. Payment details are not configured yet; contact support before paying.";}
+}
+function updateAccountMode(){
+  const login=$("loginMode").checked;$("newAccountFields").hidden=login;
+  $("memberName").required=!login;$("memberConsent").required=!login;
+  $("memberPassword").autocomplete=login?"current-password":"new-password";
+  $("registerButton").textContent=login?"Sign in":"Request new account";
 }
 async function refreshAccount(){
   if(state.registering)return state.account;
@@ -212,20 +219,31 @@ async function refreshAccount(){
 }
 async function registerAccount(event){
   event.preventDefault();if(state.registering)return;
-  const payload={name:$("memberName").value.trim(),email:$("memberEmail").value.trim(),phone:$("memberPhone").value.trim(),consent:$("memberConsent").checked,recovery:$("recoveryMode").checked};
+  const login=$("loginMode").checked,email=$("memberEmail").value.trim(),password=$("memberPassword").value;
+  const payload=login?{email,password}:{name:$("memberName").value.trim(),email,phone:$("memberPhone").value.trim(),password,consent:$("memberConsent").checked,recovery:false};
   state.registering=true;state.accountVersion++;state.accountSync=null;$("registerButton").disabled=true;
   try{
-    state.account=accountReceipt(await authApi("/api/enroll",{method:"POST",body:JSON.stringify(payload)}));
-    renderAccount();$("accountSyncStatus").textContent="Request confirmed by the server. Updates every 30 seconds.";toast(payload.recovery?"Reconnect request received":"Account request received");
+    state.account=accountReceipt(await authApi(login?"/api/login":"/api/enroll",{method:"POST",body:JSON.stringify(payload)}));
+    $("memberPassword").value="";renderAccount();$("accountSyncStatus").textContent=login?"Signed in. No admin approval was required.":"New account request confirmed by the server.";toast(login?"Signed in":"Account request received");
   }catch(error){$("accountMessage").textContent=safeError(error);}
   finally{state.registering=false;$("registerButton").disabled=false;}
+}
+async function saveAccountPassword(event){
+  event.preventDefault();
+  try{await authApi("/api/account/password",{method:"POST",body:JSON.stringify({password:$("newAccountPassword").value})});$("newAccountPassword").value="";await refreshAccount();toast("Login password saved");}
+  catch(error){$("accountMessage").textContent=safeError(error);}
+}
+async function applyCoupon(){
+  const code=$("paymentCoupon").value.trim();if(!code){$("couponStatus").textContent="Enter a coupon code first.";return;}
+  try{const quote=await authApi("/api/coupons/quote",{method:"POST",body:JSON.stringify({code})});$("paymentCoupon").value=quote.code;$("couponStatus").textContent=`Coupon applied: +${Number(quote.bonus_tokens).toLocaleString()} bonus tokens${quote.expires?" · expires "+new Date(quote.expires*1000).toLocaleString():""}.`;}
+  catch(error){$("couponStatus").textContent=safeError(error);}
 }
 async function submitPayment(event){
   event.preventDefault();if(state.paying)return;state.paying=true;$("paymentButton").disabled=true;
   try{
-    const receipt=await authApi("/api/payments",{method:"POST",body:JSON.stringify({utr:$("paymentReference").value.trim()})});
+    const receipt=await authApi("/api/payments",{method:"POST",body:JSON.stringify({utr:$("paymentReference").value.trim(),coupon_code:$("paymentCoupon").value.trim()})});
     if(typeof receipt.id!=="string"||!['pending','approved','rejected'].includes(receipt.status))throw new Error("Server did not confirm the payment reference. Retry the same reference.");
-    $("paymentReference").value="";
+    $("paymentReference").value="";$("paymentCoupon").value="";$("couponStatus").textContent="";
     const message=`Payment reference received (${receipt.status}). Receipt: ${receipt.id}`;
     toast(message);$("accountMessage").textContent=message;
     await refreshAccount().catch(()=>{});
@@ -234,11 +252,11 @@ async function submitPayment(event){
 }
 function reconnectAccount(){
   if(state.registering||state.paying||state.sending)return;
-  if(!confirm("Disconnect this browser? Existing accounts must be reconnected by the admin. Your project files stay in this browser."))return;
+  if(!confirm("Sign out on this browser? Your account, credits and project files are kept."))return;
   const a=state.account;
   localStorage.removeItem("sparkle_device_secret");state.accountVersion++;state.accountSync=null;state.account=null;state.history=[];
-  if(a){$("memberName").value=a.name||"";$("memberEmail").value=a.email||"";}
-  $("recoveryMode").checked=true;renderAccount();$("accountSyncStatus").textContent="Enter the existing account email and submit a reconnection request. Uncheck Reconnect to request a new account.";
+  if(a)$("memberEmail").value=a.email||"";
+  $("loginMode").checked=true;updateAccountMode();renderAccount();$("accountSyncStatus").textContent="Enter your existing account email and password. Normal sign-in does not need admin approval.";
 }
 
 function appendUserMessage(text){const box=document.createElement("div");box.className="message user-message";const p=document.createElement("p");p.textContent=text;box.append(p);$("chat").append(box);scrollChat();}
@@ -348,7 +366,9 @@ $("folderInput").onchange=event=>{const files=[...event.target.files];if(files.l
 $("accountButton").onclick=()=>{renderAccount();$("accountDialog").showModal();refreshAccount().catch(()=>{});};
 $("refreshAccountButton").onclick=()=>refreshAccount().catch(error=>toast(safeError(error)));
 $("reconnectButton").onclick=reconnectAccount;
-$("registerForm").onsubmit=registerAccount;$("paymentForm").onsubmit=submitPayment;$("promptForm").onsubmit=sendPrompt;$("clearChatButton").onclick=clearChat;
+$("loginMode").onchange=updateAccountMode;updateAccountMode();
+$("applyCoupon").onclick=applyCoupon;
+$("registerForm").onsubmit=registerAccount;$("passwordForm").onsubmit=saveAccountPassword;$("paymentForm").onsubmit=submitPayment;$("promptForm").onsubmit=sendPrompt;$("clearChatButton").onclick=clearChat;
 $("confirmApply").onclick=confirmApply;
 document.querySelectorAll("[data-close]").forEach(button=>button.addEventListener("click",()=>closeDialog(button)));
 window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();state.installPrompt=event;$("installButton").hidden=false;});

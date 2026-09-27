@@ -50,7 +50,7 @@ async function fixture(t){
   const run=code=>vm.runInContext(code,context),el=id=>ui.elements.get(id);
   el('includeFile').checked=true;
   await run('init()');
-  const signup=async()=>{el('memberName').value='Browser tester';el('memberEmail').value='browser@example.test';el('memberConsent').checked=true;await el('registerForm').onsubmit({preventDefault(){}});};
+  const signup=async()=>{el('loginMode').checked=false;el('loginMode').onchange();el('memberName').value='Browser tester';el('memberEmail').value='browser@example.test';el('memberPassword').value='BrowserPass123!';el('memberConsent').checked=true;await el('registerForm').onsubmit({preventDefault(){}});};
   const login=async()=>{assert.equal((await call('/api/admin/login',{password:env.ADMIN_SECRET},null,true)).status,200);};
   const approve=async()=>{
     await signup();await login();el('paymentReference').value='WEBTEST12345678';await el('paymentForm').onsubmit({preventDefault(){}});
@@ -66,7 +66,7 @@ test('browser signup receipt is in admin before payment; polling shows approved 
   const f=await fixture(t);await f.signup();await f.login();
   const receipt=f.run('state.account'),overview=await (await f.call('/api/admin/overview',undefined,null,true)).json();
   assert.equal(overview.devices[0].id,receipt.request_id);assert.equal(overview.payments.length,0);
-  assert.match(f.el('requestReceipt').textContent,new RegExp(receipt.request_id));assert.match(f.el('accountMessage').textContent,/visible to the admin/);
+  assert.match(f.el('requestReceipt').textContent,new RegExp(receipt.request_id));assert.match(f.el('accountMessage').textContent,/new account request/i);
   f.el('paymentReference').value='BROWSER12345678';await f.el('paymentForm').onsubmit({preventDefault(){}});
   const id=f.env.DB.db.prepare('SELECT id FROM payments').get().id;
   await f.call('/api/admin/payments/'+id,{action:'approve',verified:true},null,true);
@@ -98,11 +98,14 @@ test('late account lookup cannot erase the receipt; duplicate signup submits are
   const pending=f.signup();await f.signup();assert.equal(enrolls,1);finish();await pending;assert.equal(f.el('registerButton').disabled,false);
 });
 
-test('recovering an unpaid account allows payment after device approval',async t=>{
-  const f=await fixture(t);await f.signup();await f.login();f.run('reconnectAccount()');await f.signup();
-  assert.equal(f.run('state.account.kind'),'recovery');assert.equal(f.el('paymentSection').hidden,true);
-  const id=f.run('state.account.request_id');await f.call('/api/admin/devices/'+id,{action:'approve',verified:true},null,true);
-  await f.run('refreshAccount()');assert.equal(f.run('state.account.ready'),false);assert.equal(f.el('paymentSection').hidden,false);
+test('approved user signs back in with password without a new admin request',async t=>{
+  const f=await fixture(t);await f.approve();f.run('reconnectAccount()');
+  assert.equal(f.run('state.account'),null);assert.equal(f.el('loginMode').checked,true);
+  f.el('memberEmail').value='browser@example.test';f.el('memberPassword').value='BrowserPass123!';
+  await f.el('registerForm').onsubmit({preventDefault(){}});
+  assert.equal(f.run('state.account.ready'),true);assert.equal(f.run('state.account.device_status'),'active');
+  const pending=f.env.DB.db.prepare("SELECT COUNT(*) AS n FROM devices WHERE kind='recovery' AND status='pending'").get().n;
+  assert.equal(pending,0);
 });
 
 test('new file saves the edited file first; a failed save prevents switching and stays dirty',async t=>{

@@ -248,13 +248,19 @@ class Handler(BaseHTTPRequestHandler):
                 result = app.configure(body)
             elif path == '/api/account/enroll':
                 result = app.account.enroll(body)
+            elif path == '/api/account/login':
+                result = app.account.login(body)
+            elif path == '/api/account/password':
+                result = app.account.set_password(body)
+            elif path == '/api/account/coupon':
+                result = app.account.coupon(body)
             elif path == '/api/account/payment':
                 result = app.account.payment(body)
             elif path == '/api/account/reconnect':
                 if app.active():
                     raise ValueError('Stop the running task before reconnecting the account.')
                 if body.get('confirm') is not True:
-                    raise ValueError('Confirm that this device will need admin approval again.')
+                    raise ValueError('Confirm sign-out on this device.')
                 result = app.account.reconnect()
             elif path == "/api/experience":
                 result = app.experience(body.get("experience"))

@@ -50,7 +50,7 @@ class CloudAccount:
         if not self.url:
             raise ValueError('Account access is available in the tester installer.')
         headers = {'Accept': 'application/json'}
-        secret = self.credentials.get('device_secret', '') if path == '/api/enroll' else self.secret
+        secret = self.credentials.get('device_secret', '') if path in {'/api/enroll','/api/login'} else self.secret
         if secret:
             headers['Authorization'] = 'Bearer ' + secret
         raw = None
@@ -80,7 +80,7 @@ class CloudAccount:
             return dict(self.cached)
 
     def enroll(self, payload):
-        if set(payload) - {'name', 'email', 'phone', 'consent', 'recovery'}:
+        if set(payload) - {'name', 'email', 'phone', 'password', 'consent', 'recovery'}:
             raise ValueError('Invalid account details.')
         with self.lock:
             if not self.credentials:
@@ -98,8 +98,36 @@ class CloudAccount:
             # enrollment into an apparent signup failure.
             return dict(self.cached)
 
+    def login(self, payload):
+        if set(payload) != {'email', 'password'}:
+            raise ValueError('Enter your email and password.')
+        with self.lock:
+            if not self.credentials:
+                self.credentials = {'server': self.url, 'device_secret': secrets.token_urlsafe(48), 'registered': False}
+                write_json(self.path, self.credentials)
+            result = self.request('/api/login', payload)
+            if result.get('device_status') != 'active':
+                raise ValueError('The server did not confirm this sign-in.')
+            self.credentials['registered'] = True
+            write_json(self.path, self.credentials)
+            self.cached = {**result, 'enabled': True, 'enrolled': True}
+            return dict(self.cached)
+
+    def set_password(self, payload):
+        if set(payload) != {'password'}:
+            raise ValueError('Enter a new password.')
+        with self.lock:
+            self.request('/api/account/password', payload)
+            return self.status()
+
+    def coupon(self, payload):
+        if set(payload) != {'code'}:
+            raise ValueError('Enter a coupon code.')
+        with self.lock:
+            return self.request('/api/coupons/quote', payload)
+
     def payment(self, payload):
-        if set(payload) != {'utr'}:
+        if set(payload) - {'utr', 'coupon_code'} or 'utr' not in payload:
             raise ValueError('Enter the UPI transaction reference.')
         with self.lock:
             self.request('/api/payments', payload)

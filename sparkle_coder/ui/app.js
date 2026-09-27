@@ -160,13 +160,17 @@ id("app").innerHTML = `
   <div class="dialog-header"><h2>Your account</h2><button class="icon-button" data-close="accountDialog" aria-label="Close account"><span data-icon="close"></span></button></div>
   <p id="accountMessage" role="status">Loading account…</p>
   <div class="account-balance" id="accountBalance" hidden><strong id="creditAmount">0</strong><span>tokens available</span><p id="creditHeld"></p></div>
-  <form id="accountForm"><div class="settings-row"><div><label for="memberName">Full name</label><input id="memberName" autocomplete="name" required minlength="2" maxlength="80"></div><div><label for="memberPhone">Phone <span>Optional</span></label><input id="memberPhone" type="tel" autocomplete="tel" maxlength="32"></div></div><label for="memberEmail">Email</label><input id="memberEmail" type="email" autocomplete="email" required maxlength="200">
-    <label class="check-label"><input id="memberConsent" type="checkbox" required> I agree to send selected project code and prompts to the shared server and its external AI provider to process my requests. My details and payment reference are shared with the admin.</label>
-    <label class="check-label"><input id="memberRecovery" type="checkbox"> Reconnect an existing account on this computer (admin review required).</label>
-    <div class="dialog-actions"><button id="enrollAccount" class="button primary">Request access</button></div></form>
+  <form id="accountForm">
+    <label class="check-label"><input id="memberLogin" type="checkbox"> I already have an account — sign in without admin approval.</label>
+    <div id="createAccountFields"><div class="settings-row"><div><label for="memberName">Full name</label><input id="memberName" autocomplete="name" required minlength="2" maxlength="80"></div><div><label for="memberPhone">Phone <span>Optional</span></label><input id="memberPhone" type="tel" autocomplete="tel" maxlength="32"></div></div>
+      <label class="check-label"><input id="memberConsent" type="checkbox" required> I agree to send selected project code and prompts to the shared server and its external AI provider to process my requests. My details and payment reference are shared with the admin.</label></div>
+    <label for="memberEmail">Email</label><input id="memberEmail" type="email" autocomplete="email" required maxlength="200">
+    <label for="memberPassword">Password</label><input id="memberPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128">
+    <div class="dialog-actions"><button id="enrollAccount" class="button primary">Request new account</button></div></form>
+  <section id="passwordSection" hidden><h3>Login password</h3><p class="settings-note">Use this password to sign in on another browser without admin approval.</p><form id="passwordForm"><label for="newAccountPassword">Set or change password</label><input id="newAccountPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"><div class="dialog-actions"><button id="saveAccountPassword" class="button secondary">Save password</button></div></form></section>
   <section id="paymentSection" hidden><h3>Add 1,000,000 tokens · ₹15</h3><p>Pay ₹15 using GPay, PhonePe or Paytm. Check the recipient before paying.</p><label for="payUpiId">UPI ID</label><div class="folder-input"><input id="payUpiId" readonly><button type="button" id="copyUpi" class="button secondary">Copy</button></div><p id="payeeName"></p><p>After paying, enter the transaction reference below. Credits appear after the admin checks and accepts your payment.</p>
-    <form id="paymentForm"><label for="paymentReference">UPI transaction reference / UTR</label><input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"><div class="dialog-actions"><button id="submitPayment" class="button primary">Submit payment for review</button></div></form></section>
-  <div id="accountPayments"></div><p class="settings-note">Input and output tokens both count. A temporary reservation is released when a request finishes. Your connection is remembered on this computer.</p><p id="accountSupport" class="settings-note"></p><div class="dialog-actions"><button id="reconnectAccount" class="text-button">Reconnect account</button><button id="refreshAccount" class="button secondary">Refresh account</button></div>
+    <form id="paymentForm"><label for="paymentCoupon">Coupon code <span>Optional</span></label><div class="folder-input"><input id="paymentCoupon" maxlength="32" autocomplete="off" placeholder="Enter coupon"><button type="button" id="applyCoupon" class="button secondary">Apply</button></div><p id="couponStatus" class="settings-note"></p><label for="paymentReference">UPI transaction reference / UTR</label><input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"><div class="dialog-actions"><button id="submitPayment" class="button primary">Submit payment for review</button></div></form></section>
+  <div id="accountPayments"></div><p class="settings-note">Input and output tokens both count. A temporary reservation is released when a request finishes. Your connection is remembered on this computer.</p><p id="accountSupport" class="settings-note"></p><div class="dialog-actions"><button id="reconnectAccount" class="text-button">Sign out / switch account</button><button id="refreshAccount" class="button secondary">Refresh account</button></div>
 </dialog>
 <dialog id="settingsDialog">
   <div class="dialog-header"><div><span class="eyebrow">YOUR ENGINE</span><h2>Connect AI</h2></div><button class="icon-button" data-close="settingsDialog" aria-label="Close settings"><span data-icon="close"></span></button></div>
@@ -340,21 +344,30 @@ function renderAccount() {
   document.body.classList.toggle('pilot-mode',!!a.enabled);
   if(!a.enabled)return;
   id('connectionLabel').textContent='Account';
-  id('connectionSub').textContent=a.ready?Number(a.available_tokens||0).toLocaleString()+' tokens':a.enrolled?'Waiting for approval':'Request access';
+  id('connectionSub').textContent=a.ready?Number(a.available_tokens||0).toLocaleString()+' tokens':a.enrolled?'Waiting for payment approval':'Sign in or create account';
   id('modelName').textContent=a.ready?Number(a.available_tokens||0).toLocaleString()+' tokens':'Account';
   id('appVersion').textContent='TESTER EDITION · '+appState.version;
   id('accountForm').hidden=!!a.enrolled;
+  id('passwordSection').hidden=!a.enrolled||a.device_status!=='active';
   id('accountBalance').hidden=!a.ready;
   id('creditAmount').textContent=Number(a.available_tokens||0).toLocaleString();
   id('creditHeld').textContent=a.held_tokens?Number(a.held_tokens).toLocaleString()+' tokens temporarily reserved':'';
   const pending=(a.payments||[]).some(p=>p.status==='pending');
-  id('accountMessage').textContent=a.ready?'Connected as '+a.name:a.enrolled?(a.status==='suspended'?'Account suspended. Contact the admin.':a.kind==='recovery'&&a.device_status!=='active'?'Device reconnection received. Waiting for admin identity verification.':pending?'Payment reference received. Waiting for admin verification.':a.upi_id&&a.payee_name?'Account request received. Pay ₹15 using the details below and submit your transaction reference for admin review.':'Account request received.'):'Enter your details to request access.';
-  if(a.enrolled&&!a.ready&&a.request_id)id('accountMessage').textContent+=' Request: '+a.request_id+'.';
+  id('accountMessage').textContent=a.ready?'Connected as '+a.name:a.enrolled?(a.status==='suspended'?'Account suspended. Contact the admin.':a.kind==='recovery'&&a.device_status!=='active'?'Manual account recovery is waiting for admin verification.':pending?'Payment reference received. Waiting for admin verification.':a.upi_id&&a.payee_name?'Account is connected. Pay ₹15 and submit the transaction reference for admin payment verification.':'Account is connected.'):'Sign in to an existing account, or create a new one.';
+  if(a.enrolled&&!a.password_set&&a.device_status==='active')id('accountMessage').textContent+=' Set a login password below before signing in on another browser.';
   id('paymentSection').hidden=!a.enrolled||!a.upi_id||!a.payee_name||pending||a.status==='suspended'||a.kind==='recovery'&&a.device_status!=='active';
   id('payUpiId').value=a.upi_id||'';id('payeeName').textContent='Recipient: '+(a.payee_name||'Not configured');
   if(a.enrolled&&(!a.upi_id||!a.payee_name))id('accountMessage').textContent+=' The admin has not enabled payments yet. Do not send payment.';
   id('accountSupport').textContent=a.support_email?'Support: '+a.support_email:'';
-  id('accountPayments').replaceChildren(...(a.payments||[]).map(p=>node('p','payment-record','₹15 · '+p.utr+' · '+p.status+(p.note?' — '+p.note:''))));
+  id('accountPayments').replaceChildren(...(a.payments||[]).map(p=>node('p','payment-record','₹15 · '+p.utr+' · '+p.status+(p.coupon_code?' · '+p.coupon_code+' +'+Number(p.bonus_tokens||0).toLocaleString()+' bonus tokens':'')+(p.note?' — '+p.note:''))));
+}
+function updateAccountMode(){
+  const login=id('memberLogin').checked;
+  id('createAccountFields').hidden=login;
+  id('memberName').required=!login;
+  id('memberConsent').required=!login;
+  id('memberPassword').autocomplete=login?'current-password':'new-password';
+  id('enrollAccount').textContent=login?'Sign in':'Request new account';
 }
 async function refreshAccount() {
   clearTimeout(accountTimer);
@@ -944,10 +957,19 @@ id("experienceButton").onclick=()=>action(async()=>{await api("/experience",{exp
 id("taskMode").onchange=renderControls;
 id('efficiencyMode').onchange=()=>action(async()=>{await api('/settings',{efficiency:id('efficiencyMode').value});await refreshState();});
 id('refreshAccount').onclick=()=>action(refreshAccount);
-id('reconnectAccount').onclick=()=>action(async()=>{if(busy())throw new Error('Stop the running task before reconnecting.');if(!window.confirm('This device will need admin approval again. Your existing credits and projects are kept. Reconnect?'))return;appState.account=await api('/account/reconnect',{confirm:true});id('memberRecovery').checked=true;renderAccount();if(isCloud)location.reload();});
+id('memberLogin').onchange=updateAccountMode;updateAccountMode();
+id('reconnectAccount').onclick=()=>action(async()=>{if(busy())throw new Error('Stop the running task before switching accounts.');if(!window.confirm('Sign out on this browser? Your credits and projects stay with your account.'))return;appState.account=await api('/account/reconnect',{confirm:true});id('memberLogin').checked=true;updateAccountMode();renderAccount();if(isCloud)location.reload();});
 id('copyUpi').onclick=()=>action(()=>copyText(id('payUpiId').value));
-id('accountForm').onsubmit=e=>{e.preventDefault();if(id('enrollAccount').disabled)return;action(async()=>{id('enrollAccount').disabled=true;try{appState.account=await api('/account/enroll',{name:id('memberName').value.trim(),email:id('memberEmail').value.trim(),phone:id('memberPhone').value.trim(),consent:id('memberConsent').checked,recovery:id('memberRecovery').checked});renderAccount();await refreshState();}catch(error){id('accountMessage').textContent=error.message;}finally{id('enrollAccount').disabled=false;}});};
-id('paymentForm').onsubmit=e=>{e.preventDefault();if(id('submitPayment').disabled)return;action(async()=>{id('submitPayment').disabled=true;try{appState.account=await api('/account/payment',{utr:id('paymentReference').value.trim()});id('paymentReference').value='';renderAccount();}catch(error){id('accountMessage').textContent=error.message;}finally{id('submitPayment').disabled=false;}});};
+id('accountForm').onsubmit=e=>{e.preventDefault();if(id('enrollAccount').disabled)return;action(async()=>{id('enrollAccount').disabled=true;try{
+  const email=id('memberEmail').value.trim(),password=id('memberPassword').value;
+  appState.account=id('memberLogin').checked
+    ?await api('/account/login',{email,password})
+    :await api('/account/enroll',{name:id('memberName').value.trim(),email,phone:id('memberPhone').value.trim(),password,consent:id('memberConsent').checked,recovery:false});
+  id('memberPassword').value='';renderAccount();await refreshState();
+}catch(error){id('accountMessage').textContent=error.message;}finally{id('enrollAccount').disabled=false;}});};
+id('passwordForm').onsubmit=e=>{e.preventDefault();action(async()=>{appState.account=await api('/account/password',{password:id('newAccountPassword').value});id('newAccountPassword').value='';renderAccount();toast('Login password saved');});};
+id('applyCoupon').onclick=()=>action(async()=>{const code=id('paymentCoupon').value.trim();if(!code){id('couponStatus').textContent='Enter a coupon code first.';return;}try{const q=await api('/account/coupon',{code});id('paymentCoupon').value=q.code;id('couponStatus').textContent='Coupon applied: +'+Number(q.bonus_tokens).toLocaleString()+' bonus tokens'+(q.expires?' · expires '+new Date(q.expires*1000).toLocaleString():'')+'.';}catch(error){id('couponStatus').textContent=error.message;}});
+id('paymentForm').onsubmit=e=>{e.preventDefault();if(id('submitPayment').disabled)return;action(async()=>{id('submitPayment').disabled=true;try{appState.account=await api('/account/payment',{utr:id('paymentReference').value.trim(),coupon_code:id('paymentCoupon').value.trim()});id('paymentReference').value='';id('paymentCoupon').value='';id('couponStatus').textContent='';renderAccount();}catch(error){id('accountMessage').textContent=error.message;}finally{id('submitPayment').disabled=false;}});};
 id("showApiKey").onclick=()=>{const show=id("apiKey").type==="password";id("apiKey").type=show?"text":"password";id("showApiKey").textContent=show?"Hide":"Show";id("showApiKey").setAttribute("aria-pressed",String(show));};
 id("clearApiKey").onclick=()=>action(async()=>{await api("/settings",{base_url:id("baseUrl").value.trim(),clear_key:true});await refreshState();id("apiKey").value="";id("keyHint").textContent="Key removed for this app session";id("clearApiKey").disabled=true;});
 id("removeRunCaps").onclick=()=>{["maxSteps","maxSeconds","maxTotalTokens","commandTimeout"].forEach(name=>id(name).value="");id("capsHint").textContent="All run caps cleared. Click Save connection to apply.";};

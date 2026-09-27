@@ -58,7 +58,7 @@ async function fixture(t){
  await vm.runInContext('refresh()',context);
  const signup=async(email='new@example.test')=>{
   const secret=crypto.randomUUID().replaceAll('-','')+'X'.repeat(32);
-  const response=await call('/api/enroll',{name:'New tester',email,phone:'12345678',consent:true},secret);
+  const response=await call('/api/enroll',{name:'New tester',email,phone:'12345678',password:'TestPass123!',consent:true},secret);
   assert.equal(response.status,201);return {secret,receipt:await response.json()};
  };
  return {...ui,context,env,call,signup,get overviews(){return overviews;},
@@ -92,7 +92,8 @@ test('automatic refresh preserves review input; approval activates exactly one c
  assert.equal(inputs.find(n=>n.type==='checkbox').checked,true);
  assert.equal(inputs.find(n=>n.type==='text').value,'Matched bank reference');
  assert.equal(ui.document.activeElement,inputs.find(n=>n.type==='text'));
- const accept=ui.elements.get('paymentList').querySelectorAll('button').find(n=>n.textContent==='Accept + 1M tokens');
+ const accept=ui.elements.get('paymentList').querySelectorAll('button').find(n=>n.textContent.startsWith('Accept +'));
+ assert.ok(accept,'Payment accept button was not rendered: '+ui.elements.get('paymentList').textContent);
  await accept.onclick();
  const account=await (await ui.call('/api/me',undefined,secret)).json();
  assert.equal(account.ready,true);assert.equal(account.available_tokens,1000000);

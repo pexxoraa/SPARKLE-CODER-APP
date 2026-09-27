@@ -19,17 +19,19 @@ test('Wrangler applies the schema once and file import records the same schema a
    {cwd:root,encoding:'utf8',timeout:30000,env:{...process.env,CI:'1',WRANGLER_SEND_METRICS:'false',WRANGLER_LOG_PATH:join(temporary,'wrangler.log')}});
   const query=(state,sql)=>JSON.parse(run(state,'execute','migration-check','--command',sql,'--json')).flatMap(r=>r.results);
   run('normal','migrations','apply','migration-check');
-  assert.deepEqual(query('normal','SELECT name FROM d1_migrations'),[{name:'0001_pilot.sql'}]);
-  assert.equal(query('normal',"SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger'")[0].n,6);
+  assert.deepEqual(query('normal','SELECT name FROM d1_migrations'),[{name:'0001_pilot.sql'},{name:'0002_login_coupons.sql'}]);
+  assert.equal(query('normal',"SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger'")[0].n,9);
   query('normal',"INSERT INTO accounts(id,email,name,created) VALUES ('keep','keep@example.test','Keep this account',1)");
   run('normal','migrations','apply','migration-check');
   assert.deepEqual(query('normal','SELECT name FROM accounts'),[{name:'Keep this account'}]);
 
   query('import','CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)');
   const file=join(temporary,'recovery.sql');
-  writeFileSync(file,readFileSync(join(root,'migrations/0001_pilot.sql'),'utf8')+"\nINSERT INTO d1_migrations(name) VALUES ('0001_pilot.sql');\n");
+  writeFileSync(file,readFileSync(join(root,'migrations/0001_pilot.sql'),'utf8')+"\n"+
+    readFileSync(join(root,'migrations/0002_login_coupons.sql'),'utf8')+
+    "\nINSERT INTO d1_migrations(name) VALUES ('0001_pilot.sql'),('0002_login_coupons.sql');\n");
   run('import','execute','migration-check','--file',file,'--yes');
-  assert.deepEqual(query('import','SELECT name FROM d1_migrations'),[{name:'0001_pilot.sql'}]);
+  assert.deepEqual(query('import','SELECT name FROM d1_migrations'),[{name:'0001_pilot.sql'},{name:'0002_login_coupons.sql'}]);
   const objects="SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name";
   assert.deepEqual(query('normal',objects),query('import',objects));
  } finally {rmSync(temporary,{recursive:true,force:true});}

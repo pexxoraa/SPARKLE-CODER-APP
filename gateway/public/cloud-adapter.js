@@ -44,6 +44,13 @@ window.SparkleCloud=(()=>{
     if(path==='/account/enroll'){
       version++;const result=receipt(await read(await send('/api/enroll',body)));account=result;return Response.json(result);
     }
+    if(path==='/account/login'){
+      version++;const result=receipt(await read(await send('/api/login',body)));account=result;return Response.json(result);
+    }
+    if(path==='/account/password'){
+      const result=await read(await send('/api/account/password',body));account={...account,password_set:result.password_set===true};return Response.json(account);
+    }
+    if(path==='/account/coupon')return Response.json(await read(await send('/api/coupons/quote',body)));
     if(path==='/account/payment'){
       const result=await read(await send('/api/payments',body));
       if(typeof result.id!=='string'||!['pending','approved','rejected'].includes(result.status))throw new Error('Payment reference not confirmed. Retry the same reference.');
@@ -51,7 +58,7 @@ window.SparkleCloud=(()=>{
       return Response.json(account);
     }
     if(path==='/account/reconnect'){
-      if(body?.confirm!==true)throw new Error('Confirm reconnection first.');
+      if(body?.confirm!==true)throw new Error('Confirm sign-out first.');
       localStorage.removeItem('sparkle_device_secret');version++;account={...info,enabled:true,enrolled:false,ready:false};return Response.json(account);
     }
     if(!path.startsWith('/')||path.startsWith('//')||path.includes('://'))throw new Error('Invalid workspace route.');

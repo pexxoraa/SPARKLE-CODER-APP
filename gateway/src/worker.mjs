@@ -5,6 +5,22 @@ const uid = () => crypto.randomUUID();
 const hex = bytes => [...new Uint8Array(bytes)].map(x => x.toString(16).padStart(2, '0')).join('');
 const hash = async value => hex(await crypto.subtle.digest('SHA-256', enc.encode(value)));
 const token = () => hex(crypto.getRandomValues(new Uint8Array(32)));
+const randomHex = bytes => hex(crypto.getRandomValues(new Uint8Array(bytes)));
+function passwordValue(value) {
+  const password=String(value||'');
+  if(password.length<8||password.length>128)fail(400,'Use a password with 8–128 characters.');
+  return password;
+}
+async function passwordHash(password,saltHex) {
+  const salt=Uint8Array.from((saltHex.match(/../g)||[]),pair=>parseInt(pair,16));
+  const key=await crypto.subtle.importKey('raw',enc.encode(password),'PBKDF2',false,['deriveBits']);
+  return hex(await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt,iterations:120000},key,256));
+}
+function equalText(left,right) {
+  if(typeof left!=='string'||typeof right!=='string'||left.length!==right.length)return false;
+  let diff=0;for(let i=0;i<left.length;i++)diff|=left.charCodeAt(i)^right.charCodeAt(i);return diff===0;
+}
+const couponCode = value => String(value||'').trim().toUpperCase();
 const PRICE = 1500, CREDITS = 1000000;
 const MODEL = 'nvidia/nemotron-3-super-120b-a12b';
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
@@ -83,11 +99,14 @@ async function me(record,env) {
   return {id:record.id, request_id:record.device_id, requested_at:record.device_created,
     name:permitted?record.name:record.claimed_name, email:record.email, status:record.status, kind:record.kind,
     device_status:record.device_status, ready:permitted&&record.status==='active',
+    password_set:Boolean(await one(env,'SELECT account_id FROM account_credentials WHERE account_id=?',record.id)),
     balance_tokens:permitted?record.balance:0, held_tokens:permitted?record.held:0,
     available_tokens:permitted?record.balance-record.held:0,
     model:env.MODEL||MODEL, price_paise:PRICE, credit_tokens:CREDITS,
     upi_id:env.UPI_ID||'', payee_name:env.PAYEE_NAME||'', support_email:env.SUPPORT_EMAIL||'',
-    payments:await rows(env,'SELECT id,utr,status,amount_paise,credits,created,note FROM payments WHERE account_id=? AND (? OR device_id=?) ORDER BY created DESC LIMIT 20',record.id,permitted?1:0,record.device_id),
+    payments:await rows(env,`SELECT p.id,p.utr,p.status,p.amount_paise,p.credits,p.created,p.note,
+      cr.code AS coupon_code,cr.bonus_tokens FROM payments p LEFT JOIN coupon_redemptions cr ON cr.payment_id=p.id
+      WHERE p.account_id=? AND (? OR p.device_id=?) ORDER BY p.created DESC LIMIT 20`,record.id,permitted?1:0,record.device_id),
     ledger:permitted?await rows(env,'SELECT delta,kind,created,note FROM ledger WHERE account_id=? ORDER BY created DESC LIMIT 20',record.id):[]};
 }
 async function enroll(request,env) {
@@ -99,31 +118,71 @@ async function enroll(request,env) {
   if(name.length<2||name.length>80||email.length>200||!/^\S+@[^\s@]+\.[^\s@]+$/.test(email)||phone.length>32)
     fail(400,'Enter your name, a valid email and an optional phone number.');
   if(data.consent!==true)fail(400,'Confirm that project context can be processed by the model service.');
-  const stamp=now(), id=uid(), deviceId=uid();
-  const account=await one(env,'SELECT id FROM accounts WHERE email=?',email);
-  if(account && data.recovery!==true)fail(409,'This email is registered. Choose Reconnect this device for admin review.');
+  const stamp=now(), id=uid(), deviceId=uid(), account=await one(env,'SELECT id FROM accounts WHERE email=?',email);
+  if(account&&data.recovery!==true)fail(409,'This email is already registered. Choose Sign in and use your password.');
   if(account){
     if((await one(env,"SELECT COUNT(*) AS n FROM devices WHERE account_id=? AND status='pending'",account.id)).n>=3)
-      fail(409,'A device request is already waiting. Contact the admin.');
+      fail(409,'A manual recovery request is already waiting. Contact the admin.');
     await env.DB.batch([
       sql(env,"INSERT INTO devices VALUES (?,?,?,'pending','recovery',?,?,?)",deviceId,account.id,secret_hash,name,phone,stamp),
-      sql(env,'INSERT INTO audit VALUES (?,?,?,?,?)',uid(),'device-requested',deviceId,stamp,'Account reconnection requested')
+      sql(env,'INSERT INTO audit VALUES (?,?,?,?,?)',uid(),'device-requested',deviceId,stamp,'Manual account recovery requested')
     ]);
   }else{
-    if(data.recovery===true)fail(400,'Request a new account first.');
+    if(data.recovery===true)fail(400,'Create a new account first.');
+    const password=passwordValue(data.password),salt=randomHex(16),password_hash=await passwordHash(password,salt);
     try{await env.DB.batch([
       sql(env,"INSERT INTO accounts(id,email,name,phone,created) SELECT ?,?,?,?,? WHERE (SELECT COUNT(*) FROM accounts)<?",id,email,name,phone,stamp,Number(env.MAX_MEMBERS||50)),
+      sql(env,'INSERT INTO account_credentials(account_id,salt,password_hash,updated) VALUES (?,?,?,?)',id,salt,password_hash,stamp),
       sql(env,"INSERT INTO devices VALUES (?,?,?,'pending','signup',?,?,?)",deviceId,id,secret_hash,name,phone,stamp),
       sql(env,'INSERT INTO audit VALUES (?,?,?,?,?)',uid(),'account-requested',deviceId,stamp,'New tester account requested')
     ]);}catch(error){
       if(await one(env,'SELECT id FROM accounts WHERE email=?',email))
-        fail(409,'This email is registered. Choose Reconnect this device for admin review.');
+        fail(409,'This email is already registered. Choose Sign in and use your password.');
       if((await one(env,'SELECT COUNT(*) AS n FROM accounts')).n>=Number(env.MAX_MEMBERS||50))
         fail(409,'Registration is full. Contact the admin.');
       throw error;
     }
   }
   return json(await me(await device(request,env),env),201);
+}
+async function loginAccount(request,env) {
+  await rate(env,request,'account-login',10,900);
+  const data=await body(request),email=String(data.email||'').trim().toLowerCase(),password=passwordValue(data.password);
+  if(email.length>200||!/^\S+@[^\s@]+\.[^\s@]+$/.test(email))fail(401,'Email or password is incorrect.');
+  const account=await one(env,`SELECT a.*,c.salt,c.password_hash FROM accounts a
+    LEFT JOIN account_credentials c ON c.account_id=a.id WHERE a.email=?`,email);
+  if(!account)fail(401,'Email or password is incorrect.');
+  if(!account.password_hash)fail(409,'This older account does not have a login password yet. Open Account on a connected device and set one first.');
+  const candidate=await passwordHash(password,account.salt);
+  if(!equalText(candidate,account.password_hash))fail(401,'Email or password is incorrect.');
+  const secret_hash=await hash(bearer(request)),stamp=now(),existing=await one(env,'SELECT id,account_id FROM devices WHERE secret_hash=?',secret_hash);
+  if(existing&&existing.account_id!==account.id)fail(409,'This browser identity is already linked to another account.');
+  if(existing)await sql(env,"UPDATE devices SET status='active',kind='signup',claimed_name=?,claimed_phone=? WHERE id=?",account.name,account.phone,existing.id).run();
+  else await sql(env,"INSERT INTO devices VALUES (?,?,?,'active','signup',?,?,?)",uid(),account.id,secret_hash,account.name,account.phone,stamp).run();
+  await audit(env,'account-login',account.id,'Password sign-in; no admin approval required');
+  return json(await me(await device(request,env),env));
+}
+async function setAccountPassword(request,env) {
+  const account=await device(request,env,true),data=await body(request),password=passwordValue(data.password);
+  const salt=randomHex(16),password_hash=await passwordHash(password,salt),stamp=now();
+  await sql(env,`INSERT INTO account_credentials(account_id,salt,password_hash,updated) VALUES (?,?,?,?)
+    ON CONFLICT(account_id) DO UPDATE SET salt=excluded.salt,password_hash=excluded.password_hash,updated=excluded.updated`,
+    account.id,salt,password_hash,stamp).run();
+  await audit(env,'account-password',account.id,'Login password set or changed from an active device');
+  return json({ok:true,password_set:true});
+}
+async function couponQuote(env,account,rawCode) {
+  const code=couponCode(rawCode);
+  if(!code)return null;
+  if(!/^[A-Z0-9][A-Z0-9_-]{2,31}$/.test(code))fail(400,'Coupon code is invalid.');
+  const coupon=await one(env,'SELECT * FROM coupons WHERE code=?',code);
+  if(!coupon||!coupon.active||(coupon.expires!=null&&coupon.expires<=now()))fail(400,'Coupon is invalid or expired.');
+  const reserved=(await one(env,"SELECT COUNT(*) AS n FROM coupon_redemptions WHERE coupon_id=? AND status IN ('pending','redeemed')",coupon.id)).n;
+  if(reserved>=coupon.max_uses)fail(409,'Coupon use limit has been reached.');
+  if(coupon.one_per_account&&(await one(env,"SELECT COUNT(*) AS n FROM coupon_redemptions WHERE coupon_id=? AND account_id=? AND status IN ('pending','redeemed')",coupon.id,account.id)).n)
+    fail(409,'This coupon has already been used by this account.');
+  return {id:coupon.id,code:coupon.code,bonus_tokens:coupon.bonus_tokens,expires:coupon.expires,
+    remaining_uses:Math.max(0,coupon.max_uses-reserved),one_per_account:Boolean(coupon.one_per_account)};
 }
 async function existingResponse(env,record,account,requestHash) {
   if(record.account_id!==account.id||record.payload_hash!==requestHash)fail(409,'Request ID is already used for another request.');
@@ -248,14 +307,50 @@ async function adminRoutes(request,env,path) {
       return json({ok:true,message:'AI response and token usage verified.',prompt_tokens:p,completion_tokens:c,milliseconds:Date.now()-started});
     }catch{return json({ok:false,message:'Model connection check failed or timed out. No member credits changed.'},502);}
   }
+  if(path==='/api/admin/coupons'&&request.method==='POST'){
+    const data=await body(request),code=couponCode(data.code),bonus=Number(data.bonus_tokens),
+      maxUses=Number(data.max_uses),expires=data.expires==null||data.expires===''?null:Number(data.expires),
+      onePer=data.one_per_account!==false?1:0,note=String(data.note||'').trim().slice(0,200);
+    if(!/^[A-Z0-9][A-Z0-9_-]{2,31}$/.test(code))fail(400,'Use a 3–32 character coupon code with letters, numbers, - or _.');
+    if(!Number.isSafeInteger(bonus)||bonus<1||bonus>10000000)fail(400,'Bonus tokens must be between 1 and 10,000,000.');
+    if(!Number.isSafeInteger(maxUses)||maxUses<1||maxUses>100000)fail(400,'Max uses must be between 1 and 100,000.');
+    if(expires!=null&&(!Number.isSafeInteger(expires)||expires<=now()))fail(400,'Expiry must be a future date/time.');
+    const id=uid();
+    try{await sql(env,'INSERT INTO coupons(id,code,bonus_tokens,expires,max_uses,one_per_account,active,created,note) VALUES (?,?,?,?,?,?,1,?,?)',
+      id,code,bonus,expires,maxUses,onePer,now(),note).run();}
+    catch(error){if(await one(env,'SELECT id FROM coupons WHERE code=?',code))fail(409,'That coupon code already exists.');throw error;}
+    await audit(env,'coupon-created',id,code+' +'+bonus+' tokens');
+    return json({id,code,bonus_tokens:bonus,expires,max_uses:maxUses,one_per_account:Boolean(onePer),active:true},201);
+  }
+  const couponMatch=path.match(/^\/api\/admin\/coupons\/([a-zA-Z0-9_-]+)$/);
+  if(couponMatch&&request.method==='POST'){
+    const id=couponMatch[1],record=await one(env,'SELECT * FROM coupons WHERE id=?',id);if(!record)fail(404,'Coupon not found.');
+    const data=await body(request),bonus=Number(data.bonus_tokens),maxUses=Number(data.max_uses),
+      expires=data.expires==null||data.expires===''?null:Number(data.expires),active=data.active===true?1:0,
+      onePer=data.one_per_account!==false?1:0,note=String(data.note||'').trim().slice(0,200);
+    const reserved=(await one(env,"SELECT COUNT(*) AS n FROM coupon_redemptions WHERE coupon_id=? AND status IN ('pending','redeemed')",id)).n;
+    if(!Number.isSafeInteger(bonus)||bonus<1||bonus>10000000)fail(400,'Bonus tokens must be between 1 and 10,000,000.');
+    if(!Number.isSafeInteger(maxUses)||maxUses<reserved||maxUses>100000)fail(400,'Max uses cannot be below current reserved/redeemed uses.');
+    if(expires!=null&&!Number.isSafeInteger(expires))fail(400,'Invalid expiry date/time.');
+    await sql(env,'UPDATE coupons SET bonus_tokens=?,expires=?,max_uses=?,one_per_account=?,active=?,note=? WHERE id=?',
+      bonus,expires,maxUses,onePer,active,note,id).run();
+    await audit(env,'coupon-updated',id,record.code+' active='+active);
+    return json({ok:true});
+  }
   if(path==='/api/admin/overview'&&request.method==='GET')return json({
     accounts:await rows(env,'SELECT * FROM accounts ORDER BY created DESC LIMIT 100'),
-    payments:await rows(env,`SELECT p.*,a.name,a.email,d.claimed_name,d.claimed_phone,d.kind AS device_kind
-      FROM payments p JOIN accounts a ON a.id=p.account_id JOIN devices d ON d.id=p.device_id ORDER BY (p.status='pending') DESC,p.created DESC LIMIT 150`),
+    payments:await rows(env,`SELECT p.*,a.name,a.email,d.claimed_name,d.claimed_phone,d.kind AS device_kind,
+      cr.code AS coupon_code,cr.bonus_tokens FROM payments p JOIN accounts a ON a.id=p.account_id
+      JOIN devices d ON d.id=p.device_id LEFT JOIN coupon_redemptions cr ON cr.payment_id=p.id
+      ORDER BY (p.status='pending') DESC,p.created DESC LIMIT 150`),
     devices:await rows(env,`SELECT d.id,d.account_id,d.kind,d.claimed_name,d.claimed_phone,d.created,a.email,a.status AS account_status
       FROM devices d JOIN accounts a ON a.id=d.account_id WHERE d.status='pending' ORDER BY d.created`),
     requests:await rows(env,`SELECT r.id,r.account_id,r.state,r.reserve,r.charged,r.prompt_tokens,r.completion_tokens,r.created,r.note,a.email
       FROM requests r JOIN accounts a ON a.id=r.account_id ORDER BY (r.state IN ('uncertain','inflight')) DESC,r.created DESC LIMIT 100`),
+    coupons:await rows(env,`SELECT c.*,
+      (SELECT COUNT(*) FROM coupon_redemptions r WHERE r.coupon_id=c.id AND r.status IN ('pending','redeemed')) AS reserved_uses,
+      (SELECT COUNT(*) FROM coupon_redemptions r WHERE r.coupon_id=c.id AND r.status='redeemed') AS redeemed_uses
+      FROM coupons c ORDER BY c.active DESC,c.created DESC LIMIT 200`),
     audit:await rows(env,'SELECT * FROM audit ORDER BY created DESC LIMIT 100'),
     settings:{price_paise:PRICE,credits:CREDITS,upi_id:env.UPI_ID||'',payee_name:env.PAYEE_NAME||'',model:env.MODEL||MODEL,provider_configured:Boolean(env.NVIDIA_API_KEY)}
   });
@@ -309,19 +404,33 @@ export async function route(request,env) {
     if(path.startsWith('/api/admin/'))return adminRoutes(request,env,path);
     if(path.startsWith('/api/engine/'))return proxyEngine(request,env,await device(request,env,true));
     if(path==='/api/enroll'&&request.method==='POST')return enroll(request,env);
+    if(path==='/api/login'&&request.method==='POST')return loginAccount(request,env);
+    if(path==='/api/account/password'&&request.method==='POST')return setAccountPassword(request,env);
     if(path==='/api/me'&&request.method==='GET')return json(await me(await device(request,env),env));
+    if(path==='/api/coupons/quote'&&request.method==='POST'){
+      const account=await device(request,env),data=await body(request),quote=await couponQuote(env,account,data.code);
+      if(!quote)fail(400,'Enter a coupon code.');return json(quote);
+    }
     if(path==='/api/payments'&&request.method==='POST'){
       const account=await device(request,env);await rate(env,request,'payment:'+account.id,10);
       if(account.status==='suspended')fail(403,'Account suspended. Contact the admin.');
-      if(account.kind==='recovery'&&account.device_status!=='active')fail(403,'Wait for device reconnection before requesting credits.');
+      if(account.kind==='recovery'&&account.device_status!=='active')fail(403,'Complete manual account recovery before requesting credits.');
       if(!env.UPI_ID||!env.PAYEE_NAME)fail(503,'The admin has not added payment details yet. Do not send payment.');
-      const data=await body(request),utr=String(data.utr||'').replace(/\s/g,'').toUpperCase();
+      const data=await body(request),utr=String(data.utr||'').replace(/\s/g,'').toUpperCase(),quote=await couponQuote(env,account,data.coupon_code);
       if(!/^[A-Z0-9]{8,40}$/.test(utr))fail(400,'Enter the UPI transaction reference from your payment app.');
       const old=await one(env,'SELECT id,status,account_id FROM payments WHERE utr=?',utr);
       if(old){if(old.account_id!==account.id)fail(409,'This transaction reference has already been submitted.');return json({id:old.id,status:old.status});}
       if(await one(env,"SELECT id FROM payments WHERE account_id=? AND status='pending'",account.id))fail(409,'One payment is already waiting for review.');
-      const id=uid();await sql(env,'INSERT INTO payments(id,account_id,device_id,utr,created) VALUES (?,?,?,?,?)',id,account.id,account.device_id,utr,now()).run();
-      return json({id,status:'pending',amount_paise:PRICE,credits:CREDITS},201);
+      const id=uid(),stamp=now();
+      if(quote){
+        try{await env.DB.batch([
+          sql(env,'INSERT INTO payments(id,account_id,device_id,utr,created) VALUES (?,?,?,?,?)',id,account.id,account.device_id,utr,stamp),
+          sql(env,"INSERT INTO coupon_redemptions(payment_id,coupon_id,account_id,code,bonus_tokens,status,created) VALUES (?,?,?,?,?,'pending',?)",
+            id,quote.id,account.id,quote.code,quote.bonus_tokens,stamp)
+        ]);}catch(error){fail(409,'Coupon is no longer available. Refresh the coupon and try again.');}
+      }else await sql(env,'INSERT INTO payments(id,account_id,device_id,utr,created) VALUES (?,?,?,?,?)',id,account.id,account.device_id,utr,stamp).run();
+      return json({id,status:'pending',amount_paise:PRICE,credits:CREDITS,
+        coupon_code:quote?.code||null,bonus_tokens:quote?.bonus_tokens||0,total_credits:CREDITS+(quote?.bonus_tokens||0)},201);
     }
     if(path==='/v1/models'&&request.method==='GET'){await device(request,env,true);return json({data:[{id:env.MODEL||MODEL,object:'model'}]});}
     if(path==='/v1/balance'&&request.method==='GET'){const a=await device(request,env,true);return json({balance_tokens:a.balance-a.held,held_tokens:a.held,name:a.name});}

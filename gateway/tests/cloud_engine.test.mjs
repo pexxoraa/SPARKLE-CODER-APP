@@ -62,7 +62,7 @@ async function fixture(t,{python=false}={}){
   vm.runInContext(readFileSync(new URL('../public/cloud-adapter.js',import.meta.url),'utf8'),context);
   const request=(path,body)=>context.window.SparkleCloud.request(path,body);
   async function api(path,body){const response=await request(path,body),result=await response.json();assert.equal(response.status,200,JSON.stringify(result));return result;}
-  const enroll=()=>api('/account/enroll',{name:'Cloud tester',email:'cloud@example.test',consent:true});
+  const enroll=()=>api('/account/enroll',{name:'Cloud tester',email:'cloud@example.test',password:'CloudPass123!',consent:true});
   async function approve(){
     await api('/account/payment',{utr:'CLOUD123456789'});
     assert.equal((await raw('/api/admin/login',{password:env.ADMIN_SECRET},null,true)).status,200);

@@ -19,7 +19,7 @@ function fixture(){
   if(response.headers.has('Set-Cookie'))cookie=response.headers.get('Set-Cookie').split(';')[0];
   const result=await response.json();return {status:response.status,body:result,headers:response.headers};
  }
- async function enroll(email='tester@example.com',secret=device){const r=await api('/api/enroll',{name:'Test user',email,phone:'1234567890',consent:true},{secret});assert.equal(r.status,201);return r.body;}
+ async function enroll(email='tester@example.com',secret=device){const r=await api('/api/enroll',{name:'Test user',email,phone:'1234567890',password:'TestPass123!',consent:true},{secret});assert.equal(r.status,201);return r.body;}
  async function login(){const r=await api('/api/admin/login',{password:env.ADMIN_SECRET},{admin:true,secret:null});assert.equal(r.status,200);assert.match(r.headers.get('Set-Cookie'),/HttpOnly; SameSite=Strict/);}
  async function approve(){await enroll();await login();const payment=await api('/api/payments',{utr:'UPI1234567890',credits:999999999,amount_paise:1});assert.equal(payment.status,201);
   const r=await api('/api/admin/payments/'+payment.body.id,{action:'approve',verified:true},{admin:true});assert.equal(r.status,200);return payment.body.id;}
@@ -46,7 +46,7 @@ test('signup receipt appears in admin before payment and retry cannot duplicate 
  assert.equal(overview.devices[0].email,'tester@example.com');assert.equal(overview.devices[0].account_status,'pending');
  assert.equal(overview.audit[0].action,'account-requested');assert.equal(overview.audit[0].reference,receipt.request_id);
  assert.ok(!JSON.stringify(overview).includes(f.device));assert.ok(!JSON.stringify(overview).includes('secret_hash'));
- const retry=await f.api('/api/enroll',{name:'Test user',email:'tester@example.com',consent:true});
+ const retry=await f.api('/api/enroll',{name:'Test user',email:'tester@example.com',password:'TestPass123!',consent:true});
  assert.equal(retry.status,200);assert.equal(retry.body.request_id,receipt.request_id);
  overview=(await f.api('/api/admin/overview',undefined,{admin:true})).body;
  assert.equal(overview.accounts.length,1);assert.equal(overview.devices.length,1);assert.equal(overview.audit.length,1);
@@ -58,7 +58,7 @@ test('signup receipt appears in admin before payment and retry cannot duplicate 
 test('database write failure never returns a signup receipt or a false capacity error',async()=>{
  const f=fixture();
  f.env.DB.db.exec("CREATE TRIGGER fail_account_audit BEFORE INSERT ON audit WHEN NEW.action='account-requested' BEGIN SELECT RAISE(ABORT,'Simulated storage failure'); END");
- const result=await f.api('/api/enroll',{name:'Test user',email:'tester@example.com',consent:true});
+ const result=await f.api('/api/enroll',{name:'Test user',email:'tester@example.com',password:'TestPass123!',consent:true});
  assert.equal(result.status,500);assert.ok(!result.body.request_id);assert.doesNotMatch(result.body.error,/full|registered/);
  for(const table of ['accounts','devices','audit'])assert.equal(f.env.DB.db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n,0);
 });
@@ -155,12 +155,62 @@ test('device recovery is manually approved and does not expose balance or grant 
  assert.equal((await f.api('/api/me',undefined,{secret:replacement})).body.balance_tokens,1000000);
  assert.equal((await f.api('/api/me')).status,401);
 });
+test('approved account signs in on a new device with password and creates no admin request',async()=>{
+ const f=fixture();await f.approve();const replacement='login_'+crypto.randomUUID().replaceAll('-','')+'L'.repeat(20);
+ const signed=await f.api('/api/login',{email:'tester@example.com',password:'TestPass123!'},{secret:replacement});
+ assert.equal(signed.status,200);assert.equal(signed.body.ready,true);assert.equal(signed.body.device_status,'active');
+ assert.equal(signed.body.balance_tokens,1000000);
+ const wrongSecret='wrong_'+crypto.randomUUID().replaceAll('-','')+'W'.repeat(20);
+ const wrong=await f.api('/api/login',{email:'tester@example.com',password:'WrongPass123!'},{secret:wrongSecret});
+ assert.equal(wrong.status,401);
+ const overview=(await f.api('/api/admin/overview',undefined,{admin:true})).body;
+ assert.equal(overview.devices.filter(x=>x.kind==='recovery').length,0);
+ assert.equal(f.env.DB.db.prepare("SELECT COUNT(*) AS n FROM devices WHERE account_id=? AND status='active'").get(signed.body.id).n,2);
+});
+test('legacy active account can set a password once and then sign in without admin review',async()=>{
+ const f=fixture();await f.approve();f.env.DB.db.prepare('DELETE FROM account_credentials').run();
+ let me=(await f.api('/api/me')).body;assert.equal(me.password_set,false);
+ const saved=await f.api('/api/account/password',{password:'LegacyPass123!'});assert.equal(saved.status,200);
+ me=(await f.api('/api/me')).body;assert.equal(me.password_set,true);
+ const replacement='legacy_'+crypto.randomUUID().replaceAll('-','')+'Q'.repeat(20);
+ const signed=await f.api('/api/login',{email:'tester@example.com',password:'LegacyPass123!'},{secret:replacement});
+ assert.equal(signed.status,200);assert.equal(signed.body.ready,true);
+ const overview=(await f.api('/api/admin/overview',undefined,{admin:true})).body;
+ assert.equal(overview.devices.filter(x=>x.kind==='recovery').length,0);
+});
+test('coupon adds bonus tokens only after verified payment and enforces account use limit',async()=>{
+ const f=fixture();await f.approve();await f.login();
+ const created=await f.api('/api/admin/coupons',{code:'BONUS250',bonus_tokens:250000,max_uses:3,one_per_account:true,expires:Math.floor(Date.now()/1000)+3600,note:'Pilot bonus'},{admin:true});
+ assert.equal(created.status,201);assert.equal(created.body.code,'BONUS250');
+ const quote=await f.api('/api/coupons/quote',{code:'bonus250'});assert.equal(quote.status,200);assert.equal(quote.body.bonus_tokens,250000);
+ const payment=await f.api('/api/payments',{utr:'COUPONPAY12345',coupon_code:'bonus250'});assert.equal(payment.status,201);
+ assert.equal(payment.body.total_credits,1250000);
+ assert.equal((await f.api('/api/me')).body.balance_tokens,1000000);
+ const approved=await f.api('/api/admin/payments/'+payment.body.id,{action:'approve',verified:true},{admin:true});assert.equal(approved.status,200);
+ const me=(await f.api('/api/me')).body;assert.equal(me.balance_tokens,2250000);
+ assert.equal(me.ledger.filter(x=>x.kind==='coupon').length,1);
+ assert.equal((await f.api('/api/coupons/quote',{code:'BONUS250'})).status,409);
+ const overview=(await f.api('/api/admin/overview',undefined,{admin:true})).body;
+ const coupon=overview.coupons.find(x=>x.code==='BONUS250');assert.equal(coupon.redeemed_uses,1);assert.equal(coupon.reserved_uses,1);
+});
+test('rejected coupon payment releases its use and expired coupons are refused',async()=>{
+ const f=fixture();await f.approve();await f.login();
+ const created=await f.api('/api/admin/coupons',{code:'ONCE10',bonus_tokens:10000,max_uses:1,one_per_account:true,expires:Math.floor(Date.now()/1000)+3600,note:''},{admin:true});
+ assert.equal(created.status,201);
+ const payment=await f.api('/api/payments',{utr:'COUPONREJECT123',coupon_code:'ONCE10'});assert.equal(payment.status,201);
+ assert.equal((await f.api('/api/coupons/quote',{code:'ONCE10'})).status,409);
+ await f.api('/api/admin/payments/'+payment.body.id,{action:'reject',note:'Bank payment not found'},{admin:true});
+ assert.equal((await f.api('/api/coupons/quote',{code:'ONCE10'})).status,200);
+ const updated=await f.api('/api/admin/coupons/'+created.body.id,{bonus_tokens:10000,max_uses:1,one_per_account:true,expires:Math.floor(Date.now()/1000)-1,active:true,note:'expired'},{admin:true});
+ assert.equal(updated.status,200);
+ assert.equal((await f.api('/api/coupons/quote',{code:'ONCE10'})).status,400);
+});
 test('pilot capacity, UPI setup and oversized requests fail closed',async()=>{
  const f=fixture();f.env.MAX_MEMBERS='1';await f.enroll();f.env.UPI_ID='';
  assert.equal((await f.api('/api/payments',{utr:'123456789012'})).status,503);
  const other='member_'+crypto.randomUUID().replaceAll('-','')+'E'.repeat(20);
- assert.equal((await f.api('/api/enroll',{name:'Other',email:'other@example.com',consent:true},{secret:other})).status,409);
- assert.equal((await f.api('/api/enroll',{name:'A'.repeat(20000),email:'a@b.co',consent:true},{secret:other})).status,413);
+ assert.equal((await f.api('/api/enroll',{name:'Other',email:'other@example.com',password:'OtherPass123!',consent:true},{secret:other})).status,409);
+ assert.equal((await f.api('/api/enroll',{name:'A'.repeat(20000),email:'a@b.co',password:'OtherPass123!',consent:true},{secret:other})).status,413);
  assert.equal(f.env.DB.db.prepare('SELECT COUNT(*) AS n FROM accounts').get().n,1);
 });
 test('ledger cannot be edited and concurrent approval credits exactly once',async()=>{
