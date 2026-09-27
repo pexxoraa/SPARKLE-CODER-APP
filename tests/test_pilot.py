@@ -39,8 +39,12 @@ class EfficiencyTests(unittest.TestCase):
         compact = compact_group(group)
         self.assertLess(len(json.dumps(compact)), len(original)*.08)
         self.assertEqual(json.dumps(group), original)
-        self.assertEqual(compact[0]['tool_calls'][0]['id'], compact[1]['tool_call_id'])
-        self.assertIn('Historical edit body omitted', compact[0]['tool_calls'][0]['function']['arguments'])
+        self.assertEqual(len(compact),1)
+        self.assertEqual(compact[0]['role'],'assistant')
+        self.assertIn('styles.css',compact[0]['content'])
+        self.assertIn('metadata only',compact[0]['content'])
+        self.assertNotIn('Historical edit body omitted',json.dumps(compact))
+        self.assertNotIn('body { color: green; }',json.dumps(compact))
 
     def test_recent_file_write_keeps_exact_content_for_the_next_model_call(self):
         code = 'print("small task")\n' * 80
@@ -51,9 +55,20 @@ class EfficiencyTests(unittest.TestCase):
         self.assertEqual(arguments['content'], code)
         self.assertNotIn('Historical edit body omitted', arguments['content'])
 
+    def test_corrupted_saved_edit_is_quarantined_even_when_recent(self):
+        marker='[Historical edit body omitted from this request. The original source remains in history.]'
+        group=[{'role':'assistant','content':'','tool_calls':[{'id':'write-1','type':'function','function':{
+            'name':'write_file','arguments':json.dumps({'path':'styles.css','content':marker})}}]},
+               {'role':'tool','tool_call_id':'write-1','content':json.dumps({'ok':True,'path':'styles.css'})}]
+        compact=compact_group(group,recent=True)
+        self.assertEqual(len(compact),1)
+        self.assertIn('styles.css',compact[0]['content'])
+        self.assertNotIn(marker,json.dumps(compact))
+
     def test_tiny_prompts_get_hard_budgets_without_misclassifying_debug_work(self):
         self.assertEqual(task_profile('addition program in python')['name'], 'micro')
         self.assertEqual(task_profile('build a simple landing page')['name'], 'simple_web')
+        self.assertEqual(task_profile('build a static website for hotel')['name'], 'simple_web')
         self.assertEqual(task_profile('fix all bugs and test the existing project')['name'], 'standard')
         self.assertEqual(task_profile('simple landing page with authentication backend')['name'], 'standard')
 
@@ -71,6 +86,17 @@ class EfficiencyTests(unittest.TestCase):
             self.assertIn('verify',names)
             self.assertNotIn('run_command',names)
             self.assertNotIn('update_plan',names)
+            self.assertNotIn('web_search',names)
+            self.assertNotIn('read_web_page',names)
+
+    def test_small_task_gets_web_tools_only_when_prompt_requests_current_web_info(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace=Workspace(Path(temporary));config=Config()
+            session=Session.create(workspace,'build a simple landing page using the latest official docs',[],config.public_info())
+            agent=Agent(workspace,session,config,None,lambda _:True,emit=lambda _:None)
+            names={item['function']['name'] for item in agent.schemas}
+            self.assertIn('web_search',names)
+            self.assertIn('read_web_page',names)
 
     def test_plain_site_verification_rechecks_edits_without_commands(self):
         with tempfile.TemporaryDirectory() as temporary:

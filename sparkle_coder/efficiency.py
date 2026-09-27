@@ -8,6 +8,15 @@ SIMPLE_TOOL_NAMES = frozenset({
     "inspect_static_site", "inspect_setup", "request_input", "list_files", "read_file",
     "search_files", "write_file", "edit_file", "delete_file", "verify", "update_delivery",
 })
+WEB_TOOL_NAMES = frozenset({"web_search", "read_web_page"})
+_WEB_NEEDED = re.compile(
+    r"\b(?:internet|web\s+search|search\s+(?:the\s+)?web|online|latest|current|today|"
+    r"documentation|docs|release\s+notes|changelog|official\s+site)\b", re.I
+)
+
+
+def needs_web(goal):
+    return bool(_WEB_NEEDED.search(str(goal or "")))
 
 _COMPLEX_TASK = re.compile(
     r"\b(?:fix|debug|bug|refactor|migrat\w*|integrat\w*|deploy|database|backend|api|auth|security|"
@@ -20,8 +29,8 @@ _MICRO_TASK = re.compile(
     re.I,
 )
 _SIMPLE_WEB = re.compile(
-    r"(?:\b(?:simple|basic|small)\b.{0,80}\b(?:landing\s+page|web\s*page|static\s+(?:site|page))\b|"
-    r"\blanding\s+page\b)",
+    r"(?:\b(?:simple|basic|small)\b.{0,80}\b(?:landing\s+page|web\s*page|static\s+(?:site|page|website))\b|"
+    r"\blanding\s+page\b|\bstatic\s+(?:site|page|website)\b)",
     re.I | re.S,
 )
 
@@ -48,27 +57,37 @@ def preview(text, limit):
 
 
 def compact_group(group, *, recent=False):
-    result = copy.deepcopy(group)
     completed = {m.get('tool_call_id') for m in group if m.get('role') == 'tool'}
-    for message in result:
+    # Never put fake/placeholder source text into historical file-edit arguments. Models can
+    # accidentally copy such strings into project files. Old, completed mutations become a
+    # plain metadata-only exchange; current source must be obtained with read_file.
+    edits = []
+    unsafe_saved_body = False
+    for message in group:
         for call in message.get('tool_calls', []):
             if call.get('id') not in completed:
                 continue
             function = call.get('function', {})
-            fields = (() if recent else
-                      {'write_file': ('content',), 'edit_file': ('old_text', 'new_text')}.get(function.get('name'), ()))
-            if not fields:
+            if function.get('name') not in ('write_file', 'edit_file', 'delete_file'):
                 continue
             try:
-                arguments = json.loads(function['arguments'])
+                arguments = json.loads(function.get('arguments', '{}'))
             except (ValueError, TypeError):
-                continue
-            for field in fields:
-                value = arguments.get(field)
-                if isinstance(value, str) and len(value) > 600:
-                    arguments[field] = ('[Historical edit body omitted from this request. The tool result records its outcome. '
-                                        f'The original {len(value)} characters remain in saved history; read the current file before editing.]')
-            function['arguments'] = json.dumps(arguments, ensure_ascii=False)
+                arguments = {}
+            bodies = [arguments.get(field) for field in ('content', 'old_text', 'new_text')
+                      if isinstance(arguments.get(field), str)]
+            body_size = sum(len(value) for value in bodies)
+            unsafe_saved_body = unsafe_saved_body or any(
+                'Historical edit body omitted from this request' in value
+                or 'Earlier completed file changes (metadata only)' in value for value in bodies)
+            edits.append(f"{function.get('name')} {arguments.get('path', '(unknown path)')}"
+                         + (f" ({body_size} source characters)" if body_size else ""))
+    if edits and (not recent or unsafe_saved_body):
+        return [{"role": "assistant", "content":
+                 "Earlier completed file changes (metadata only): " + "; ".join(edits[:12])
+                 + ". Source bodies are intentionally absent from model context; use read_file for current text."}]
+    result = copy.deepcopy(group)
+    for message in result:
         if message.get('role') == 'tool':
             text = message.get('content', '')
             limit = 6000 if recent else 1800

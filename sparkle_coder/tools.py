@@ -9,6 +9,8 @@ from .checks import discover_checks
 from .diagnostics import inspect_setup
 from .explanations import check_title, explain_failure
 from .execution import CommandRunner
+from .internet import read_web_page as fetch_web_page, web_search as search_web
+from .memory import normalize_store, recall, record_file, remember_fact, remember_task
 from .state import Session, now
 from .workspace import MAX_FILE_BYTES, Redactor, Workspace, WorkspaceError, write_json
 from .verification import check_key, identify_checks, replacements
@@ -36,6 +38,10 @@ SCHEMAS = [
            {"path": S, "start_line": I, "max_lines": I}, ["path"]),
     schema("search_files", "Find literal text across project files; use a glob to narrow the search.",
            {"query": S, "pattern": S, "limit": I}, ["query"]),
+    schema("web_search", "Search the public Internet for current documentation or facts. Use only when the task needs external/current information; basic coding tasks should not browse.",
+           {"query": S, "limit": I}, ["query"]),
+    schema("read_web_page", "Read bounded text from one public http(s) page returned by web_search. Local/private addresses, credentials, nonstandard ports and large/binary downloads are blocked.",
+           {"url": S, "max_chars": I}, ["url"]),
     schema("write_file", "Create or replace a UTF-8 file. Replacing requires the sha256 returned by read_file.",
            {"path": S, "content": S, "expected_sha256": S}, ["path", "content"]),
     schema("edit_file", "Replace one exact, unique text occurrence; requires the current full-file sha256.",
@@ -204,13 +210,25 @@ class ToolSet:
                         return {"matches": matches, "truncated": True}
         return {"matches": matches, "truncated": len(candidates) > 2000}
 
+    @staticmethod
+    def _reject_context_marker(text):
+        markers = ("Historical edit body omitted from this request",
+                   "Earlier completed file changes (metadata only)",
+                   "Source bodies are intentionally absent from model context")
+        if any(marker in text for marker in markers):
+            raise ValueError("Refusing to write a model-context compaction marker into a project file. Read the current file and write real source text.")
+
     def write_file(self, path, content, expected_sha256=None):
+        self._reject_context_marker(content)
         data = content.encode("utf-8")
         if len(data) > min(MAX_FILE_BYTES, 200000):
             raise ValueError("Write exceeds 200 KB. Split the implementation into modules.")
-        return self.session.mutate(path, data, expected_sha256)
+        result = self.session.mutate(path, data, expected_sha256)
+        self._record_file_memory(path, result.get("sha256"), len(data))
+        return result
 
     def edit_file(self, path, old_text, new_text, expected_sha256):
+        self._reject_context_marker(new_text)
         text, digest = self.workspace.read(path)
         if digest != expected_sha256:
             raise WorkspaceError("Stale file hash. Read the file again.")
@@ -219,7 +237,21 @@ class ToolSet:
         return self.write_file(path, text.replace(old_text, new_text, 1), expected_sha256)
 
     def delete_file(self, path, expected_sha256):
-        return self.session.mutate(path, None, expected_sha256)
+        result = self.session.mutate(path, None, expected_sha256)
+        self._record_file_memory(path, None, 0)
+        return result
+
+    def web_search(self, query, limit=5):
+        safe = self.redactor.text(query)
+        if safe != query:
+            raise ValueError("Search query contains a configured secret.")
+        return search_web(safe, limit)
+
+    def read_web_page(self, url, max_chars=12000):
+        safe = self.redactor.text(url)
+        if safe != url:
+            raise ValueError("Web URL contains a configured secret.")
+        return fetch_web_page(safe, max_chars)
 
     def run_command(self, command, cwd=".", timeout=None, purpose=""):
         if purpose:
@@ -358,21 +390,52 @@ class ToolSet:
         self.session.state["plan"] = self.redactor.value(steps)
         return {"plan": steps}
 
-    def memory(self):
+    def _memory_store(self):
         path = self.workspace.state_dir / "memory.json"
         if path.is_symlink():
             raise WorkspaceError("Memory must not be a symlink.")
-        return json.loads(path.read_text("utf-8")) if path.exists() else {}
+        if not path.exists():
+            return normalize_store({})
+        try:
+            return normalize_store(json.loads(path.read_text("utf-8")))
+        except json.JSONDecodeError:
+            return normalize_store({})
+
+    def _save_memory_store(self, store):
+        write_json(self.workspace.state_dir / "memory.json", self.redactor.value(store))
+
+    def memory(self):
+        """Backward-compatible fact view for local/admin tooling."""
+        return self._memory_store()["facts"]
+
+    def recall_memory(self, query, limit=8):
+        return recall(self._memory_store(), query, limit)
 
     def remember(self, key, fact, source):
         if len(key) > 80 or len(fact) > 1500 or len(source) > 500:
             raise ValueError("Memory entry is too long.")
-        memory = self.memory()
-        if len(memory) >= 100 and key not in memory:
-            raise ValueError("Project memory is full. Review and remove stale entries manually.")
-        memory[key] = self.redactor.value({"fact": fact, "source": source, "updated": now()})
-        write_json(self.workspace.state_dir / "memory.json", memory)
+        store = self._memory_store()
+        remember_fact(store, key, self.redactor.text(fact), self.redactor.text(source))
+        self._save_memory_store(store)
         return {"saved": key}
 
+    def _record_file_memory(self, path, digest, size):
+        try:
+            store = self._memory_store()
+            record_file(store, path, digest, size, self.session.state.get("goal", ""))
+            self._save_memory_store(store)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            # File mutation already succeeded; memory must never change that outcome.
+            return
 
-READ_ONLY_TOOLS = {"list_files", "read_file", "search_files", "discover_checks", "inspect_setup", "request_input", "update_plan"}
+    def remember_task(self, status, summary):
+        store = self._memory_store()
+        changed = [item.get("path") for item in self.session.state.get("journal", [])
+                   if item.get("applied") and item.get("path")]
+        remember_task(store, self.session.id, self.session.state.get("goal", ""), status,
+                      self.redactor.text(summary), changed)
+        self._save_memory_store(store)
+
+
+READ_ONLY_TOOLS = {"list_files", "read_file", "search_files", "web_search", "read_web_page",
+                   "discover_checks", "inspect_setup", "request_input", "update_plan"}

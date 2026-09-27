@@ -175,10 +175,23 @@ the local run; an already submitted model request may still finish at the provid
 ## Agent capabilities
 
 The same agent core handles planning, file search/read/write/exact edits,
-foreground development commands, project memory, and saved sessions. Native
-function calls and an explicit JSON fallback support compatible model servers.
-Context trimming preserves whole tool exchanges and recent user corrections.
-Interrupted actions are marked uncertain instead of automatically replayed.
+foreground development commands, retrieval-based project memory, bounded public-Web
+search/page reading, and saved sessions. Native function calls and an explicit JSON
+fallback support compatible model servers. Project memory stores bounded facts,
+recent task summaries, and changed-file hashes/metadata, then retrieves only a few
+items relevant to the current request instead of injecting the whole memory store.
+Context trimming preserves recent source edits exactly and converts older completed
+file mutations to metadata-only summaries; compaction markers are rejected by file
+tools so they cannot become project source. Interrupted actions are marked uncertain
+instead of automatically replayed.
+
+`web_search` and `read_web_page` are the only dedicated Internet tools. They send
+bounded search queries/URLs without cookies or project credentials, reject obvious
+secret-bearing inputs, block localhost/private/link-local targets and nonstandard
+ports, cap redirects/download size/text returned, and treat fetched text as untrusted
+data. Routine small tasks do not receive the web-search schemas unless the request
+actually asks for current/online information. Command execution remains governed by
+its own network policy; web tools do not give shell commands arbitrary Internet access.
 
 Required acceptance commands run when the model proposes completion. Unchanged
 results are reused within that run to avoid repeatedly executing the same check;
@@ -312,7 +325,9 @@ remains available in [CLI_REFERENCE.md](CLI_REFERENCE.md).
 | sparkle_coder/picker.py | Optional native folder chooser |
 | sparkle_coder/agent.py | Model/tool loop, context, acceptance checks, reports |
 | sparkle_coder/provider.py | Model API transport and native/JSON tools |
-| sparkle_coder/tools.py | Model-facing project tools and memory |
+| sparkle_coder/tools.py | Model-facing project tools and memory integration |
+| sparkle_coder/memory.py | Retrieval-oriented project facts, task summaries and file metadata |
+| sparkle_coder/internet.py | Bounded public-Web search/page retrieval and network guards |
 | sparkle_coder/checks.py | Read-only discovery of common project checks |
 | sparkle_coder/explanations.py | Plain-language error and recovery explanations |
 | sparkle_coder/verification.py | Check identities, correction history and evidence status |

@@ -67,7 +67,8 @@ class Run:
                 self.current_action = "Diagnosing check failures and continuing repairs"
             elif kind == "tool_start":
                 names = {"read_file": "Reading a file", "list_files": "Looking through the project",
-                         "write_file": "Writing a file", "edit_file": "Updating a file", "verify": "Testing the project",
+                         "write_file": "Writing a file", "edit_file": "Updating a file", "web_search": "Searching the web",
+                         "read_web_page": "Reading a web page", "verify": "Testing the project",
                          "revise_check": "Checking a test correction", "update_delivery": "Preparing simple usage instructions",
                          "run_command": "Preparing a command", "request_input": "Preparing a question for you"}
                 self.current_action = names.get(data.get("tool"), "Working on the project")

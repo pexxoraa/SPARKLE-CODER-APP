@@ -123,12 +123,21 @@ only on first initialization if the host has enough capacity; an existing privat
 configuration is preserved. Busy requests fail before a model request is made.
 
 Each command container has a 4 GiB memory ceiling, 2 CPUs, 256 processes, a read-only
-root, temporary storage and only that project's bind mount. Networking is disabled.
-Package downloads therefore do not work during a task. Add needed runtimes and
-dependencies to an owner-built tools image, or import a project with usable
-dependencies according to its tooling. The default image has Python, Node/npm,
-Git and build tools; it is not a universal environment for every language or
-framework. Setup discovery reports this uncertainty; only actual checks are proof.
+root, temporary storage and only that project's bind mount. **Command-container
+networking is disabled.** Package downloads therefore do not work through shell
+commands during a task. Add needed runtimes and dependencies to an owner-built tools
+image, or import a project with usable dependencies according to its tooling. The
+default image has Python, Node/npm, Git and build tools; it is not a universal
+environment for every language or framework. Setup discovery reports this uncertainty;
+only actual checks are proof.
+
+The hosted engine separately exposes bounded `web_search` and `read_web_page` model
+tools for public research/documentation. These run in the owner engine, not in the
+user command container. They block local/private/link-local destinations, credential-
+bearing URLs/searches and nonstandard ports, follow only bounded redirects, cap page
+downloads/text, and send no cookies. Web content is treated as untrusted task data and
+cannot authorize commands or broader access. This does **not** enable arbitrary shell
+networking or package installation.
 
 Hosted run caps are 24 model steps, 15 minutes, 200,000 total tokens, 8,192 output
 tokens per request and 120 seconds per command. Project configuration cannot
