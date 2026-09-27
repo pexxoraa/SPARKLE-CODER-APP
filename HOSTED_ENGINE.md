@@ -195,3 +195,9 @@ requires the existing owner Wrangler login and configuration; it creates no new 
 Temporary tunnel recovery cannot keep a sleeping or disconnected owner computer online.
 For continuous availability, use a persistent host and a stable HTTPS origin. Projects
 remain in `HOSTED_DATA` across tunnel and engine restarts.
+
+The production prompt failure was reproduced in workerd: `redirect: 'error'` is
+rejected by the Workers runtime before an outbound request is sent. Both the
+engine proxy and model transport now use `manual` and refuse redirects without
+forwarding secrets. The gateway suite includes a real workerd/D1 test for model
+usage settlement, cached retries, engine proxying and redirect rejection.

@@ -28,9 +28,11 @@ export async function proxyEngine(request,env,account){
   const target=origin.origin+'/api'+path+url.search;
   try{
     const perform=env.ENGINE?.fetch?.bind(env.ENGINE)||fetch;
-    const response=await perform(target,{method:request.method,redirect:'error',signal:AbortSignal.timeout(60000),
+    const response=await perform(target,{method:request.method,redirect:'manual',signal:AbortSignal.timeout(60000),
       headers:{'X-Sparkle-Relay':env.ENGINE_SECRET,'X-Sparkle-Device':request.headers.get('Authorization').slice(7),'X-Sparkle-Account':encoded,
         ...(payload?{'Content-Type':'application/json'}:{})},...(payload?{body:payload}:{})});
+    // Workers support manual redirects, not redirect:'error'. Never forward relay credentials.
+    if(response.status>=300&&response.status<400){await response.body?.cancel();return Response.json({error:'The coding server redirected. The owner must configure its final HTTPS address.'},{status:502});}
     const headers=new Headers({'Cache-Control':'no-store'});
     for(const key of ['Content-Type','Content-Disposition'])if(response.headers.has(key))headers.set(key,response.headers.get(key));
     return new Response(response.body,{status:response.status,headers});

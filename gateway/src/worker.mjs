@@ -184,7 +184,7 @@ async function inference(request,env) {
   try{
     const perform=env.UPSTREAM?.fetch?.bind(env.UPSTREAM)||fetch;
     upstream=await perform('https://integrate.api.nvidia.com/v1/chat/completions',{
-      method:'POST',redirect:'error',signal:AbortSignal.timeout(240000),
+      method:'POST',redirect:'manual',signal:AbortSignal.timeout(240000),
       headers:{'Authorization':'Bearer '+env.NVIDIA_API_KEY,'Content-Type':'application/json'},body:payload});
     if(!upstream.ok){
       const definite=[400,401,403,404,422,429].includes(upstream.status);
@@ -233,7 +233,7 @@ async function adminRoutes(request,env,path) {
     const started=Date.now(),perform=env.UPSTREAM?.fetch?.bind(env.UPSTREAM)||fetch;
     try{
       const response=await perform('https://integrate.api.nvidia.com/v1/chat/completions',{
-        method:'POST',redirect:'error',signal:AbortSignal.timeout(45000),
+        method:'POST',redirect:'manual',signal:AbortSignal.timeout(45000),
         headers:{Authorization:'Bearer '+env.NVIDIA_API_KEY,'Content-Type':'application/json'},
         body:JSON.stringify(modelBody({messages:[{role:'user',content:'Reply with SPARKLE_READY only.'}],max_tokens:64},env))});
       if(!response.ok){await response.body?.cancel();return json({ok:false,message:'Model service returned HTTP '+response.status+'.',http_status:response.status},502);}
