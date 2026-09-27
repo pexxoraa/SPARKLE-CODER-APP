@@ -54,7 +54,7 @@ async function fixture(t){
   const login=async()=>{assert.equal((await call('/api/admin/login',{password:env.ADMIN_SECRET},null,true)).status,200);};
   const approve=async()=>{
     await signup();await login();el('paymentReference').value='WEBTEST12345678';await el('paymentForm').onsubmit({preventDefault(){}});
-    const payment=env.DB.db.prepare('SELECT id FROM payments').get();assert.ok(payment);
+    const payment=env.DB.db.prepare('SELECT id FROM payments_v2').get();assert.ok(payment);
     assert.equal((await call('/api/admin/payments/'+payment.id,{action:'approve',verified:true},null,true)).status,200);await run('refreshAccount()');
   };
   const edit=text=>{el('editor').value=text;el('editor').oninput();};
@@ -68,7 +68,7 @@ test('browser signup receipt is in admin before payment; polling shows approved 
   assert.equal(overview.devices[0].id,receipt.request_id);assert.equal(overview.payments.length,0);
   assert.match(f.el('requestReceipt').textContent,new RegExp(receipt.request_id));assert.match(f.el('accountMessage').textContent,/new account request/i);
   f.el('paymentReference').value='BROWSER12345678';await f.el('paymentForm').onsubmit({preventDefault(){}});
-  const id=f.env.DB.db.prepare('SELECT id FROM payments').get().id;
+  const id=f.env.DB.db.prepare('SELECT id FROM payments_v2').get().id;
   await f.call('/api/admin/payments/'+id,{action:'approve',verified:true},null,true);
   await f.timers[0]();assert.equal(f.run('state.account.ready'),true);assert.equal(f.el('accountBalance').textContent,'1,000,000');
 });

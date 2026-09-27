@@ -4,8 +4,9 @@ const $=id=>document.getElementById(id);
 const enc=new TextEncoder();
 const textExtensions=new Set(["txt","md","markdown","js","mjs","cjs","ts","tsx","jsx","json","html","htm","css","scss","sass","less","py","java","c","h","cpp","hpp","cs","go","rs","php","rb","sh","bash","zsh","ps1","sql","xml","yaml","yml","toml","ini","cfg","conf","env","gitignore","dockerfile","vue","svelte","kt","kts","swift","dart","r","lua"]);
 const skipDirs=new Set([".git","node_modules","dist","build",".next",".venv","venv","__pycache__"]);
-const state={account:null,info:null,mode:"scratch",projectName:"Scratch workspace",files:{},fileHandles:new Map(),directoryHandle:null,activePath:"README.md",dirty:false,installPrompt:null,workspaceBusy:false,workspaceVersion:0,sending:false,registering:false,paying:false,accountVersion:0,accountSync:null,history:[],proposal:null};
+const state={account:null,info:null,mode:"scratch",projectName:"Scratch workspace",files:{},fileHandles:new Map(),directoryHandle:null,activePath:"README.md",dirty:false,installPrompt:null,workspaceBusy:false,workspaceVersion:0,sending:false,registering:false,paying:false,accountVersion:0,accountSync:null,couponQuote:null,history:[],proposal:null};
 let toastTimer;
+const money=paise=>"₹"+(Number(paise||0)/100).toFixed(2);
 
 function toast(message){clearTimeout(toastTimer);$("toast").textContent=message;$("toast").classList.add("show");toastTimer=setTimeout(()=>$("toast").classList.remove("show"),4000);}
 function safeError(error){return error?.message||"Something went wrong.";}
@@ -170,6 +171,14 @@ async function importFolder(files){
 function downloadActive(){if(!state.activePath)return;const blob=new Blob([$("editor").value],{type:"text/plain;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=escapeName(state.activePath);document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 
 function accountReady(){return Boolean(state.account?.ready);}
+function renderPurchaseQuote(){
+  const a=state.account||state.info||{},quote=state.couponQuote,base=Number(a.price_paise||1500),credits=Number(a.credit_tokens||1000000);
+  const amount=quote?Number(quote.final_amount_paise):base,bonus=quote?Number(quote.bonus_tokens||0):0,discount=quote?Number(quote.discount_paise||0):0;
+  $("purchaseTitle").textContent=`Add ${(credits+bonus).toLocaleString()} tokens · ${money(amount)}`;
+  $("purchaseInstructions").textContent=amount===0?"This coupon covers the full price. No UPI payment is required; submit the coupon claim for admin review.":`Pay ${money(amount)} only after checking the recipient details below. Credits appear after the admin verifies the purchase.`;
+  $("paymentReferenceRow").hidden=amount===0;$("paymentReference").required=amount>0;
+  $("couponStatus").textContent=quote?`Coupon ${quote.code}: ${money(discount)} off${bonus?" + "+bonus.toLocaleString()+" bonus tokens":""}${quote.expires?" · expires "+new Date(quote.expires*1000).toLocaleString():""}.`:"";
+}
 function renderAccount(){
   const a=state.account,info=state.info||{};
   $("registerSection").hidden=Boolean(a);$("memberSection").hidden=!a;$("requestReceipt").textContent="";
@@ -182,16 +191,19 @@ function renderAccount(){
   $("upiId").textContent=upi||"Not configured";$("payeeName").textContent=payee||"Not configured";
   $("supportLine").textContent=(a.support_email||info.support_email)?`Support: ${a.support_email||info.support_email}`:"";
   $("passwordSection").hidden=a.device_status!=="active";
-  $("paymentSection").hidden=pending||a.status==="suspended"||!configured||recovering;
+  $("paymentSection").hidden=a.password_required||pending||a.status==="suspended"||!configured||recovering;
   if(a.request_id)$("requestReceipt").textContent=`Request ID: ${a.request_id}${a.requested_at?" · Received "+new Date(a.requested_at*1000).toLocaleString():""}`;
   const history=$("paymentHistory");history.replaceChildren();
-  for(const payment of a.payments||[]){const row=document.createElement("div");row.className="history-row";row.textContent=`₹15 · ${payment.utr} · ${payment.status}${payment.coupon_code?" · "+payment.coupon_code+" +"+Number(payment.bonus_tokens||0).toLocaleString()+" bonus tokens":""}${payment.note?" — "+payment.note:""}`;history.append(row);}
+  for(const payment of a.payments||[]){const row=document.createElement("div");row.className="history-row";row.textContent=`${money(payment.amount_paise)} · ${payment.utr} · ${payment.status}${payment.coupon_code?" · "+payment.coupon_code+" · "+money(payment.discount_paise)+" off"+(payment.bonus_tokens?" · +"+Number(payment.bonus_tokens).toLocaleString()+" bonus tokens":""):""}${payment.note?" — "+payment.note:""}`;history.append(row);}
   if(!history.children.length){const row=document.createElement("div");row.className="history-row";row.textContent="No payments submitted yet.";history.append(row);}
   $("connectionPill").className=a.ready?"pill":"pill warn";
   if(a.status==="suspended"){$("connectionPill").textContent="Suspended";$("accountMessage").textContent="This account is suspended. Contact support.";}
-  else if(a.ready){$("connectionPill").textContent=`Ready · ${available.toLocaleString()} tokens`;$("accountMessage").textContent=`Connected as ${a.name}. Your model access is active.`+(a.password_set?"":" Set a login password below before using another browser.");}
+  else if(a.password_required){$("connectionPill").textContent="Password required";$("accountMessage").textContent="Create a login password below to continue using SPARKLE. This is required once for existing accounts.";}
+  else if(a.ready){$("connectionPill").textContent=`Ready · ${available.toLocaleString()} tokens`;$("accountMessage").textContent=`Connected as ${a.name}. Your model access is active.`;}
   else if(recovering){$("connectionPill").textContent="Recovery pending";$("accountMessage").textContent="Manual account recovery is waiting for admin verification.";}
-  else{$("connectionPill").textContent=pending?"Payment pending":"Account requested";$("accountMessage").textContent=pending?"Your payment is waiting for admin verification. This page checks automatically.":configured?"Your new account request was received. Submit a ₹15 payment reference below; credits activate after payment verification.":"Your account request was received. Payment details are not configured yet; contact support before paying.";}
+  else{$("connectionPill").textContent=pending?"Purchase pending":"Account requested";$("accountMessage").textContent=pending?"Your purchase is waiting for admin verification. This page checks automatically.":configured?"Your new account request was received. Apply a coupon if you have one, then submit the required payment for verification.":"Your account request was received. Payment details are not configured yet; contact support before paying.";}
+  renderPurchaseQuote();
+  if(a.password_required&&!$("accountDialog").open)queueMicrotask(()=>{if(!$("accountDialog").open)$("accountDialog").showModal();});
 }
 function updateAccountMode(){
   const login=$("loginMode").checked;$("newAccountFields").hidden=login;
@@ -234,17 +246,17 @@ async function saveAccountPassword(event){
   catch(error){$("accountMessage").textContent=safeError(error);}
 }
 async function applyCoupon(){
-  const code=$("paymentCoupon").value.trim();if(!code){$("couponStatus").textContent="Enter a coupon code first.";return;}
-  try{const quote=await authApi("/api/coupons/quote",{method:"POST",body:JSON.stringify({code})});$("paymentCoupon").value=quote.code;$("couponStatus").textContent=`Coupon applied: +${Number(quote.bonus_tokens).toLocaleString()} bonus tokens${quote.expires?" · expires "+new Date(quote.expires*1000).toLocaleString():""}.`;}
-  catch(error){$("couponStatus").textContent=safeError(error);}
+  const code=$("paymentCoupon").value.trim();if(!code){state.couponQuote=null;renderPurchaseQuote();$("couponStatus").textContent="Enter a coupon code first.";return;}
+  try{state.couponQuote=await authApi("/api/coupons/quote",{method:"POST",body:JSON.stringify({code})});$("paymentCoupon").value=state.couponQuote.code;renderPurchaseQuote();}
+  catch(error){state.couponQuote=null;renderPurchaseQuote();$("couponStatus").textContent=safeError(error);}
 }
 async function submitPayment(event){
   event.preventDefault();if(state.paying)return;state.paying=true;$("paymentButton").disabled=true;
   try{
     const receipt=await authApi("/api/payments",{method:"POST",body:JSON.stringify({utr:$("paymentReference").value.trim(),coupon_code:$("paymentCoupon").value.trim()})});
     if(typeof receipt.id!=="string"||!['pending','approved','rejected'].includes(receipt.status))throw new Error("Server did not confirm the payment reference. Retry the same reference.");
-    $("paymentReference").value="";$("paymentCoupon").value="";$("couponStatus").textContent="";
-    const message=`Payment reference received (${receipt.status}). Receipt: ${receipt.id}`;
+    $("paymentReference").value="";$("paymentCoupon").value="";state.couponQuote=null;renderPurchaseQuote();
+    const message=`Purchase received (${receipt.status}). Amount: ${money(receipt.amount_paise)}. Receipt: ${receipt.id}`;
     toast(message);$("accountMessage").textContent=message;
     await refreshAccount().catch(()=>{});
   }catch(error){$("accountMessage").textContent=safeError(error);}
@@ -367,6 +379,7 @@ $("accountButton").onclick=()=>{renderAccount();$("accountDialog").showModal();r
 $("refreshAccountButton").onclick=()=>refreshAccount().catch(error=>toast(safeError(error)));
 $("reconnectButton").onclick=reconnectAccount;
 $("loginMode").onchange=updateAccountMode;updateAccountMode();
+$("paymentCoupon").oninput=()=>{state.couponQuote=null;renderPurchaseQuote();};
 $("applyCoupon").onclick=applyCoupon;
 $("registerForm").onsubmit=registerAccount;$("passwordForm").onsubmit=saveAccountPassword;$("paymentForm").onsubmit=submitPayment;$("promptForm").onsubmit=sendPrompt;$("clearChatButton").onclick=clearChat;
 $("confirmApply").onclick=confirmApply;

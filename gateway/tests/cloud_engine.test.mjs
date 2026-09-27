@@ -66,7 +66,7 @@ async function fixture(t,{python=false}={}){
   async function approve(){
     await api('/account/payment',{utr:'CLOUD123456789'});
     assert.equal((await raw('/api/admin/login',{password:env.ADMIN_SECRET},null,true)).status,200);
-    const payment=env.DB.db.prepare('SELECT id FROM payments').get();
+    const payment=env.DB.db.prepare('SELECT id FROM payments_v2').get();
     assert.equal((await raw('/api/admin/payments/'+payment.id,{action:'approve',verified:true},null,true)).status,200);
   }
   return {env,raw,api,request,local,context,calls,enroll,approve,get modelCalls(){return modelCalls;}};

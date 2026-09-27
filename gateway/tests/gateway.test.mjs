@@ -167,11 +167,13 @@ test('approved account signs in on a new device with password and creates no adm
  assert.equal(overview.devices.filter(x=>x.kind==='recovery').length,0);
  assert.equal(f.env.DB.db.prepare("SELECT COUNT(*) AS n FROM devices WHERE account_id=? AND status='active'").get(signed.body.id).n,2);
 });
-test('legacy active account can set a password once and then sign in without admin review',async()=>{
+test('legacy active account must create a password before coding or buying, then can sign in without admin review',async()=>{
  const f=fixture();await f.approve();f.env.DB.db.prepare('DELETE FROM account_credentials').run();
- let me=(await f.api('/api/me')).body;assert.equal(me.password_set,false);
+ let me=(await f.api('/api/me')).body;assert.equal(me.password_set,false);assert.equal(me.password_required,true);assert.equal(me.ready,false);
+ assert.equal((await f.api('/v1/balance')).status,428);
+ assert.equal((await f.api('/api/payments',{utr:'LEGACYBUY12345'})).status,428);
  const saved=await f.api('/api/account/password',{password:'LegacyPass123!'});assert.equal(saved.status,200);
- me=(await f.api('/api/me')).body;assert.equal(me.password_set,true);
+ me=(await f.api('/api/me')).body;assert.equal(me.password_set,true);assert.equal(me.password_required,false);assert.equal(me.ready,true);
  const replacement='legacy_'+crypto.randomUUID().replaceAll('-','')+'Q'.repeat(20);
  const signed=await f.api('/api/login',{email:'tester@example.com',password:'LegacyPass123!'},{secret:replacement});
  assert.equal(signed.status,200);assert.equal(signed.body.ready,true);
@@ -180,11 +182,11 @@ test('legacy active account can set a password once and then sign in without adm
 });
 test('coupon adds bonus tokens only after verified payment and enforces account use limit',async()=>{
  const f=fixture();await f.approve();await f.login();
- const created=await f.api('/api/admin/coupons',{code:'BONUS250',bonus_tokens:250000,max_uses:3,one_per_account:true,expires:Math.floor(Date.now()/1000)+3600,note:'Pilot bonus'},{admin:true});
- assert.equal(created.status,201);assert.equal(created.body.code,'BONUS250');
- const quote=await f.api('/api/coupons/quote',{code:'bonus250'});assert.equal(quote.status,200);assert.equal(quote.body.bonus_tokens,250000);
+ const created=await f.api('/api/admin/coupons',{code:'BONUS250',bonus_tokens:250000,discount_paise:500,max_uses:3,one_per_account:true,expires:Math.floor(Date.now()/1000)+3600,note:'Pilot bonus'},{admin:true});
+ assert.equal(created.status,201);assert.equal(created.body.code,'BONUS250');assert.equal(created.body.discount_paise,500);
+ const quote=await f.api('/api/coupons/quote',{code:'bonus250'});assert.equal(quote.status,200);assert.equal(quote.body.bonus_tokens,250000);assert.equal(quote.body.final_amount_paise,1000);
  const payment=await f.api('/api/payments',{utr:'COUPONPAY12345',coupon_code:'bonus250'});assert.equal(payment.status,201);
- assert.equal(payment.body.total_credits,1250000);
+ assert.equal(payment.body.amount_paise,1000);assert.equal(payment.body.discount_paise,500);assert.equal(payment.body.total_credits,1250000);
  assert.equal((await f.api('/api/me')).body.balance_tokens,1000000);
  const approved=await f.api('/api/admin/payments/'+payment.body.id,{action:'approve',verified:true},{admin:true});assert.equal(approved.status,200);
  const me=(await f.api('/api/me')).body;assert.equal(me.balance_tokens,2250000);
@@ -192,6 +194,22 @@ test('coupon adds bonus tokens only after verified payment and enforces account 
  assert.equal((await f.api('/api/coupons/quote',{code:'BONUS250'})).status,409);
  const overview=(await f.api('/api/admin/overview',undefined,{admin:true})).body;
  const coupon=overview.coupons.find(x=>x.code==='BONUS250');assert.equal(coupon.redeemed_uses,1);assert.equal(coupon.reserved_uses,1);
+});
+test('money-only and 100 percent coupons change the payable amount without inventing bonus tokens',async()=>{
+ const f=fixture();await f.approve();await f.login();
+ let created=await f.api('/api/admin/coupons',{code:'SAVE5',bonus_tokens:0,discount_paise:500,max_uses:2,one_per_account:true,expires:Math.floor(Date.now()/1000)+3600,note:'₹5 off'},{admin:true});
+ assert.equal(created.status,201);
+ let quote=await f.api('/api/coupons/quote',{code:'SAVE5'});assert.equal(quote.body.final_amount_paise,1000);assert.equal(quote.body.bonus_tokens,0);
+ let payment=await f.api('/api/payments',{utr:'SAVEFIVE12345',coupon_code:'SAVE5'});assert.equal(payment.status,201);assert.equal(payment.body.amount_paise,1000);
+ await f.api('/api/admin/payments/'+payment.body.id,{action:'approve',verified:true},{admin:true});
+ let me=(await f.api('/api/me')).body;assert.equal(me.balance_tokens,2000000);assert.equal(me.ledger.filter(x=>x.kind==='coupon').length,0);
+ created=await f.api('/api/admin/coupons',{code:'FREEPACK',bonus_tokens:0,discount_paise:1500,max_uses:1,one_per_account:true,expires:Math.floor(Date.now()/1000)+3600,note:'100% off'},{admin:true});
+ assert.equal(created.status,201);
+ quote=await f.api('/api/coupons/quote',{code:'FREEPACK'});assert.equal(quote.body.final_amount_paise,0);
+ payment=await f.api('/api/payments',{utr:'',coupon_code:'FREEPACK'});assert.equal(payment.status,201);assert.equal(payment.body.amount_paise,0);assert.equal(payment.body.payment_required,false);
+ assert.match(f.env.DB.db.prepare('SELECT utr FROM payments_v2 WHERE id=?').get(payment.body.id).utr,/^FREE/);
+ await f.api('/api/admin/payments/'+payment.body.id,{action:'approve',verified:true},{admin:true});
+ me=(await f.api('/api/me')).body;assert.equal(me.balance_tokens,3000000);
 });
 test('rejected coupon payment releases its use and expired coupons are refused',async()=>{
  const f=fixture();await f.approve();await f.login();
@@ -240,8 +258,8 @@ test('scheduled cleanup expires response content and flags abandoned holds witho
 test('payment trigger rolls back payment and ledger when the account is suspended',async()=>{
  const f=fixture();const account=await f.enroll();const payment=await f.api('/api/payments',{utr:'SUSPEND12345678'});
  const db=f.env.DB.db;db.prepare("UPDATE accounts SET status='suspended' WHERE id=?").run(account.id);
- assert.throws(()=>db.prepare("UPDATE payments SET status='approved',reviewed=1 WHERE id=?").run(payment.body.id),/Account is suspended/);
- assert.equal(db.prepare('SELECT status FROM payments').get().status,'pending');
+ assert.throws(()=>db.prepare("UPDATE payments_v2 SET status='approved',reviewed=1 WHERE id=?").run(payment.body.id),/Account is suspended/);
+ assert.equal(db.prepare('SELECT status FROM payments_v2').get().status,'pending');
  assert.equal(db.prepare('SELECT balance FROM accounts').get().balance,0);
  assert.equal(db.prepare('SELECT status FROM devices').get().status,'pending');
  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM ledger').get().n,0);

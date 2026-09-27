@@ -32,7 +32,7 @@ window.SparkleCloud=(()=>{
   async function request(path,body){
     if(path==='/state'){
       info=await read(await send('/api/info'));await status();
-      if(!account.ready)return Response.json(waiting(account.enrolled?'Account request received. Open Account to check payment or reconnection approval.':'Open Account to request access to your cloud workspace.'));
+      if(!account.ready)return Response.json(waiting(account.password_required?'Create a login password in Account to continue.':account.enrolled?'Account request received. Open Account to check purchase or recovery approval.':'Open Account to request access to your cloud workspace.'));
       if(!info.engine_configured)return Response.json(waiting('Your account is ready. The owner must connect the coding server to enable cloud projects.'));
       try{
         const result=await read(await send('/api/engine/state'));
@@ -48,13 +48,13 @@ window.SparkleCloud=(()=>{
       version++;const result=receipt(await read(await send('/api/login',body)));account=result;return Response.json(result);
     }
     if(path==='/account/password'){
-      const result=await read(await send('/api/account/password',body));account={...account,password_set:result.password_set===true};return Response.json(account);
+      await read(await send('/api/account/password',body));return Response.json(await status());
     }
     if(path==='/account/coupon')return Response.json(await read(await send('/api/coupons/quote',body)));
     if(path==='/account/payment'){
       const result=await read(await send('/api/payments',body));
       if(typeof result.id!=='string'||!['pending','approved','rejected'].includes(result.status))throw new Error('Payment reference not confirmed. Retry the same reference.');
-      account={...account,payments:[{...result,utr:body.utr.replace(/\s/g,'').toUpperCase()},...(account?.payments||[]).filter(p=>p.id!==result.id)]};
+      account={...account,payments:[{...result,utr:result.payment_required===false?'Coupon claim':body.utr.replace(/\s/g,'').toUpperCase()},...(account?.payments||[]).filter(p=>p.id!==result.id)]};
       return Response.json(account);
     }
     if(path==='/account/reconnect'){

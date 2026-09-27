@@ -81,15 +81,15 @@
         <form id="passwordForm"><label>Set or change password<input id="newAccountPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label><button id="passwordButton" class="button secondary" type="submit">Save password</button></form>
       </div>
       <div id="paymentSection" hidden>
-        <h3>Add 1,000,000 tokens · ₹15</h3>
-        <p>Pay only after checking the recipient details below. Credits appear after the admin verifies the payment.</p>
+        <h3 id="purchaseTitle">Add 1,000,000 tokens · ₹15.00</h3>
+        <p id="purchaseInstructions">Pay ₹15.00 only after checking the recipient details below. Credits appear after the admin verifies the purchase.</p>
         <div class="pay-grid"><span>UPI ID</span><strong id="upiId">—</strong><span>Recipient</span><strong id="payeeName">—</strong></div>
         <form id="paymentForm">
           <label>Coupon code <span>(optional)</span><input id="paymentCoupon" maxlength="32" autocomplete="off"></label>
           <div class="dialog-actions"><button id="applyCoupon" class="button secondary" type="button">Apply coupon</button></div>
           <p id="couponStatus" class="hint"></p>
-          <label>UPI transaction reference / UTR<input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"></label>
-          <button id="paymentButton" class="button primary" type="submit">Submit payment</button>
+          <label id="paymentReferenceRow">UPI transaction reference / UTR<input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"></label>
+          <button id="paymentButton" class="button primary" type="submit">Submit purchase</button>
         </form>
       </div>
       <div><h3>Recent payments</h3><div id="paymentHistory" class="history-list"></div></div>

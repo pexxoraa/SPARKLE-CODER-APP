@@ -19,7 +19,7 @@ test('Workers runtime sends model/engine requests, settles exact usage, and refu
   const mf=new runtime.Miniflare(runtime.convertV4MiniflareOptions?runtime.convertV4MiniflareOptions(options):options);
   try{
     const db=await mf.getD1Database('DB');
-    for(const migration of ['0001_pilot.sql','0002_login_coupons.sql']){
+    for(const migration of ['0001_pilot.sql','0002_login_coupons.sql','0003_coupon_money.sql']){
       let statement='';
       for(const line of readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8').split('\n')){
         if(!line.trim()||line.startsWith('--'))continue;statement+=line+' ';
@@ -29,6 +29,7 @@ test('Workers runtime sends model/engine requests, settles exact usage, and refu
     await db.prepare("INSERT INTO accounts(id,email,name,status,balance,created) VALUES ('test','runtime@example.test','Runtime','active',1000000,1)").run();
     const digest=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(device))).toString('hex');
     await db.prepare("INSERT INTO devices(id,account_id,secret_hash,status,claimed_name,created) VALUES ('device','test',?,'active','Runtime',1)").bind(digest).run();
+    await db.prepare("INSERT INTO account_credentials(account_id,salt,password_hash,updated) VALUES ('test','00','test-hash',1)").run();
     const send=(path,body,headers={})=>mf.dispatchFetch('http://localhost'+path,{method:body===undefined?'GET':'POST',headers:{...(body===undefined?{}:{'Content-Type':'application/json'}),...headers},body:body===undefined?undefined:JSON.stringify(body)});
     const login=await send('/api/admin/login',{password:secret},{Origin:'http://localhost'});assert.equal(login.status,200);
     const cookie=login.headers.get('Set-Cookie').split(';')[0];
