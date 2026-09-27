@@ -155,7 +155,7 @@ async function loginAccount(request,env) {
   const account=await one(env,`SELECT a.*,c.salt,c.password_hash FROM accounts a
     LEFT JOIN account_credentials c ON c.account_id=a.id WHERE a.email=?`,email);
   if(!account)fail(401,'Email or password is incorrect.');
-  if(!account.password_hash)fail(409,'This older account does not have a login password yet. Open Account on a connected device and set one first.');
+  if(!account.password_hash)fail(409,'This older account needs a first-time password. Ask the admin for a one-time setup code, then use First-time password setup.');
   const candidate=await passwordHash(password,account.salt);
   if(!equalText(candidate,account.password_hash))fail(401,'Email or password is incorrect.');
   const secret_hash=await hash(bearer(request)),stamp=now(),existing=await one(env,'SELECT id,account_id FROM devices WHERE secret_hash=?',secret_hash);
@@ -171,8 +171,36 @@ async function setAccountPassword(request,env) {
   await sql(env,`INSERT INTO account_credentials(account_id,salt,password_hash,updated) VALUES (?,?,?,?)
     ON CONFLICT(account_id) DO UPDATE SET salt=excluded.salt,password_hash=excluded.password_hash,updated=excluded.updated`,
     account.id,salt,password_hash,stamp).run();
+  await sql(env,'DELETE FROM account_password_setups WHERE account_id=?',account.id).run();
   await audit(env,'account-password',account.id,'Login password set or changed from an active device');
   return json({ok:true,password_set:true});
+}
+async function setupLegacyPassword(request,env) {
+  await rate(env,request,'legacy-password-setup',10,900);
+  const data=await body(request),email=String(data.email||'').trim().toLowerCase(),
+    code=String(data.code||'').replace(/\s/g,'').toUpperCase(),password=passwordValue(data.password);
+  if(email.length>200||!/^\S+@[^\s@]+\.[^\s@]+$/.test(email)||!/^[A-F0-9]{24}$/.test(code))
+    fail(401,'Setup code is invalid or expired.');
+  const account=await one(env,`SELECT a.*,s.token_hash,s.expires,c.account_id AS credential_account
+    FROM accounts a LEFT JOIN account_password_setups s ON s.account_id=a.id
+    LEFT JOIN account_credentials c ON c.account_id=a.id WHERE a.email=?`,email);
+  if(!account)fail(401,'Setup code is invalid or expired.');
+  if(account.credential_account)fail(409,'A password is already set. Sign in normally.');
+  if(account.status!=='active')fail(403,'This account is not active. Contact the admin.');
+  const digest=await hash(code);
+  if(!account.token_hash||account.expires<=now()||!equalText(digest,account.token_hash))fail(401,'Setup code is invalid or expired.');
+  const secret_hash=await hash(bearer(request)),existing=await one(env,'SELECT id,account_id FROM devices WHERE secret_hash=?',secret_hash);
+  if(existing&&existing.account_id!==account.id)fail(409,'This browser identity is already linked to another account.');
+  const salt=randomHex(16),password_hash=await passwordHash(password,salt),stamp=now(),deviceId=existing?.id||uid();
+  await env.DB.batch([
+    sql(env,'INSERT INTO account_credentials(account_id,salt,password_hash,updated) VALUES (?,?,?,?)',account.id,salt,password_hash,stamp),
+    sql(env,'DELETE FROM account_password_setups WHERE account_id=? AND token_hash=?',account.id,digest),
+    existing
+      ? sql(env,"UPDATE devices SET status='active',kind='signup',claimed_name=?,claimed_phone=? WHERE id=?",account.name,account.phone,deviceId)
+      : sql(env,"INSERT INTO devices VALUES (?,?,?,'active','signup',?,?,?)",deviceId,account.id,secret_hash,account.name,account.phone,stamp),
+    sql(env,'INSERT INTO audit VALUES (?,?,?,?,?)',uid(),'legacy-password-setup',account.id,stamp,'One-time admin setup code used')
+  ]);
+  return json(await me(await device(request,env),env));
 }
 async function couponQuote(env,account,rawCode) {
   const code=couponCode(rawCode);
@@ -347,8 +375,28 @@ async function adminRoutes(request,env,path) {
     await audit(env,'coupon-updated',id,record.code+' active='+active);
     return json({ok:true});
   }
+  const setupMatch=path.match(/^\/api\/admin\/accounts\/([a-zA-Z0-9_-]+)\/password-setup$/);
+  if(setupMatch&&request.method==='POST'){
+    const id=setupMatch[1],data=await body(request);
+    if(data.verified!==true)fail(400,'Verify the account owner before issuing a password setup code.');
+    const account=await one(env,`SELECT a.id,a.email,a.name,a.status,
+      EXISTS(SELECT 1 FROM account_credentials c WHERE c.account_id=a.id) AS password_set
+      FROM accounts a WHERE a.id=?`,id);
+    if(!account)fail(404,'Account not found.');
+    if(account.password_set)fail(409,'This account already has a password.');
+    if(account.status!=='active')fail(409,'Reactivate this account before issuing a setup code.');
+    const code=randomHex(12).toUpperCase(),expires=now()+1800,stamp=now();
+    await sql(env,`INSERT INTO account_password_setups(account_id,token_hash,expires,created) VALUES (?,?,?,?)
+      ON CONFLICT(account_id) DO UPDATE SET token_hash=excluded.token_hash,expires=excluded.expires,created=excluded.created`,
+      id,await hash(code),expires,stamp).run();
+    await audit(env,'password-setup-issued',id,'One-time setup code issued for '+account.email);
+    return json({code,expires,email:account.email});
+  }
   if(path==='/api/admin/overview'&&request.method==='GET')return json({
-    accounts:await rows(env,'SELECT * FROM accounts ORDER BY created DESC LIMIT 100'),
+    accounts:await rows(env,`SELECT a.*,
+      EXISTS(SELECT 1 FROM account_credentials c WHERE c.account_id=a.id) AS password_set,
+      (SELECT expires FROM account_password_setups s WHERE s.account_id=a.id AND s.expires>?) AS password_setup_expires
+      FROM accounts a ORDER BY a.created DESC LIMIT 100`,now()),
     payments:await rows(env,`SELECT p.*,a.name,a.email,d.claimed_name,d.claimed_phone,d.kind AS device_kind,
       cr.code AS coupon_code,cr.bonus_tokens,cr.discount_paise FROM payments_v2 p JOIN accounts a ON a.id=p.account_id
       JOIN devices d ON d.id=p.device_id LEFT JOIN coupon_redemptions_v2 cr ON cr.payment_id=p.id
@@ -415,6 +463,7 @@ export async function route(request,env) {
     if(path.startsWith('/api/engine/'))return proxyEngine(request,env,await device(request,env,true));
     if(path==='/api/enroll'&&request.method==='POST')return enroll(request,env);
     if(path==='/api/login'&&request.method==='POST')return loginAccount(request,env);
+    if(path==='/api/password/setup'&&request.method==='POST')return setupLegacyPassword(request,env);
     if(path==='/api/account/password'&&request.method==='POST')return setAccountPassword(request,env);
     if(path==='/api/me'&&request.method==='GET')return json(await me(await device(request,env),env));
     if(path==='/api/coupons/quote'&&request.method==='POST'){
@@ -464,6 +513,7 @@ export async function cleanup(env){
     sql(env,'UPDATE requests SET response_cipher=NULL WHERE response_cipher IS NOT NULL AND completed<?',stamp-900),
     sql(env,'DELETE FROM admin_sessions WHERE expires<?',stamp),
     sql(env,'DELETE FROM rate_windows WHERE expires<?',stamp),
+    sql(env,'DELETE FROM account_password_setups WHERE expires<?',stamp),
     sql(env,"UPDATE requests SET state='uncertain',note='Request interrupted before settlement; reconcile provider usage' WHERE state='inflight' AND created<?",stamp-600)
   ]);
 }

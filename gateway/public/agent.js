@@ -168,6 +168,7 @@ id("app").innerHTML = `
     <label for="memberEmail">Email</label><input id="memberEmail" type="email" autocomplete="email" required maxlength="200">
     <label for="memberPassword">Password</label><input id="memberPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128">
     <div class="dialog-actions"><button id="enrollAccount" class="button primary">Request new account</button></div></form>
+  <section id="legacySetupSection" hidden><h3>First-time password setup</h3><p class="settings-note">If your older account never had a password and the old browser is logged out, ask the admin for a one-time setup code. The code expires after 30 minutes.</p><form id="legacySetupForm"><label for="legacySetupEmail">Account email</label><input id="legacySetupEmail" type="email" autocomplete="email" required maxlength="200"><label for="legacySetupCode">One-time setup code</label><input id="legacySetupCode" autocomplete="one-time-code" required minlength="24" maxlength="24"><label for="legacySetupPassword">Create password</label><input id="legacySetupPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"><div class="dialog-actions"><button id="legacySetupButton" class="button secondary">Set password and sign in</button></div></form></section>
   <section id="passwordSection" hidden><h3>Login password</h3><p class="settings-note">Use this password to sign in on another browser without admin approval.</p><form id="passwordForm"><label for="newAccountPassword">Set or change password</label><input id="newAccountPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"><div class="dialog-actions"><button id="saveAccountPassword" class="button secondary">Save password</button></div></form></section>
   <section id="paymentSection" hidden><h3 id="purchaseTitle">Add 1,000,000 tokens · ₹15.00</h3><p id="purchaseInstructions">Pay ₹15.00 using GPay, PhonePe or Paytm. Check the recipient before paying.</p><label for="payUpiId">UPI ID</label><div class="folder-input"><input id="payUpiId" readonly><button type="button" id="copyUpi" class="button secondary">Copy</button></div><p id="payeeName"></p><p>After paying, enter the transaction reference below. Credits appear after the admin checks and accepts your purchase.</p>
     <form id="paymentForm"><label for="paymentCoupon">Coupon code <span>Optional</span></label><div class="folder-input"><input id="paymentCoupon" maxlength="32" autocomplete="off" placeholder="Enter coupon"><button type="button" id="applyCoupon" class="button secondary">Apply</button></div><p id="couponStatus" class="settings-note"></p><div id="paymentReferenceRow"><label for="paymentReference">UPI transaction reference / UTR</label><input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"></div><div class="dialog-actions"><button id="submitPayment" class="button primary">Submit purchase for review</button></div></form></section>
@@ -379,6 +380,8 @@ function updateAccountMode(){
   id('memberConsent').required=!login;
   id('memberPassword').autocomplete=login?'current-password':'new-password';
   id('enrollAccount').textContent=login?'Sign in':'Request new account';
+  id('legacySetupSection').hidden=!login;
+  if(login&&!id('legacySetupEmail').value)id('legacySetupEmail').value=id('memberEmail').value.trim();
 }
 async function refreshAccount() {
   clearTimeout(accountTimer);
@@ -968,7 +971,7 @@ id("experienceButton").onclick=()=>action(async()=>{await api("/experience",{exp
 id("taskMode").onchange=renderControls;
 id('efficiencyMode').onchange=()=>action(async()=>{await api('/settings',{efficiency:id('efficiencyMode').value});await refreshState();});
 id('refreshAccount').onclick=()=>action(refreshAccount);
-id('memberLogin').onchange=updateAccountMode;updateAccountMode();
+id('memberLogin').onchange=updateAccountMode;id('memberEmail').oninput=()=>{if(id('memberLogin').checked)id('legacySetupEmail').value=id('memberEmail').value;};updateAccountMode();
 id('reconnectAccount').onclick=()=>action(async()=>{if(busy())throw new Error('Stop the running task before switching accounts.');if(!window.confirm('Sign out on this browser? Your credits and projects stay with your account.'))return;appState.account=await api('/account/reconnect',{confirm:true});id('memberLogin').checked=true;updateAccountMode();renderAccount();if(isCloud)location.reload();});
 id('copyUpi').onclick=()=>action(()=>copyText(id('payUpiId').value));
 id('accountForm').onsubmit=e=>{e.preventDefault();if(id('enrollAccount').disabled)return;action(async()=>{id('enrollAccount').disabled=true;try{
@@ -979,6 +982,10 @@ id('accountForm').onsubmit=e=>{e.preventDefault();if(id('enrollAccount').disable
   id('memberPassword').value='';renderAccount();await refreshState();
 }catch(error){id('accountMessage').textContent=error.message;}finally{id('enrollAccount').disabled=false;}});};
 id('passwordForm').onsubmit=e=>{e.preventDefault();action(async()=>{appState.account=await api('/account/password',{password:id('newAccountPassword').value});id('newAccountPassword').value='';renderAccount();await refreshState();toast('Login password saved');});};
+id('legacySetupForm').onsubmit=e=>{e.preventDefault();action(async()=>{
+  appState.account=await api('/account/password/setup',{email:id('legacySetupEmail').value.trim(),code:id('legacySetupCode').value.trim(),password:id('legacySetupPassword').value});
+  id('legacySetupCode').value='';id('legacySetupPassword').value='';renderAccount();await refreshState();toast('Password created and signed in');
+});};
 id('paymentCoupon').oninput=()=>{accountCouponQuote=null;renderPurchaseQuote();};
 id('applyCoupon').onclick=()=>action(async()=>{const code=id('paymentCoupon').value.trim();if(!code){accountCouponQuote=null;renderPurchaseQuote();id('couponStatus').textContent='Enter a coupon code first.';return;}try{accountCouponQuote=await api('/account/coupon',{code});id('paymentCoupon').value=accountCouponQuote.code;renderPurchaseQuote();}catch(error){accountCouponQuote=null;renderPurchaseQuote();id('couponStatus').textContent=error.message;}});
 id('paymentForm').onsubmit=e=>{e.preventDefault();if(id('submitPayment').disabled)return;action(async()=>{id('submitPayment').disabled=true;try{appState.account=await api('/account/payment',{utr:id('paymentReference').value.trim(),coupon_code:id('paymentCoupon').value.trim()});id('paymentReference').value='';id('paymentCoupon').value='';accountCouponQuote=null;renderAccount();}catch(error){id('accountMessage').textContent=error.message;}finally{id('submitPayment').disabled=false;}});};

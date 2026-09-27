@@ -126,3 +126,19 @@ test('an overview arriving after logout cannot reopen the dashboard',async t=>{
  assert.equal(ui.elements.get('signupList').children.length,0);
  const before=ui.overviews;await ui.tick();assert.equal(ui.overviews,before);
 });
+
+test('admin can issue a one-time first-password code for a verified legacy account',async t=>{
+ const ui=await fixture(t),{secret}=await ui.signup('legacy@example.test');
+ const payment=await ui.call('/api/payments',{utr:'LEGACYADMIN1234'},secret);assert.equal(payment.status,201);
+ const paymentId=(await payment.json()).id;
+ assert.equal((await ui.call('/api/admin/payments/'+paymentId,{action:'approve',verified:true})).status,200);
+ ui.env.DB.db.prepare('DELETE FROM account_credentials').run();
+ await ui.refresh();
+ const button=ui.elements.get('accountRows').querySelectorAll('button').find(n=>n.textContent==='Create setup code');
+ assert.ok(button,'Legacy account setup button was not rendered.');
+ await button.onclick();
+ const notice=ui.elements.get('notice').textContent,match=notice.match(/: ([A-F0-9]{24}) · expires/);
+ assert.ok(match,'Setup code was not shown once to the admin: '+notice);
+ const stored=ui.env.DB.db.prepare('SELECT token_hash,expires FROM account_password_setups').get();
+ assert.ok(stored);assert.notEqual(stored.token_hash,match[1]);assert.ok(stored.expires>Math.floor(Date.now()/1000));
+});

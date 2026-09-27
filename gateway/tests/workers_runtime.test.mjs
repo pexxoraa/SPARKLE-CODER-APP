@@ -19,7 +19,7 @@ test('Workers runtime sends model/engine requests, settles exact usage, and refu
   const mf=new runtime.Miniflare(runtime.convertV4MiniflareOptions?runtime.convertV4MiniflareOptions(options):options);
   try{
     const db=await mf.getD1Database('DB');
-    for(const migration of ['0001_pilot.sql','0002_login_coupons.sql','0003_coupon_money.sql']){
+    for(const migration of ['0001_pilot.sql','0002_login_coupons.sql','0003_coupon_money.sql','0004_legacy_password_setup.sql']){
       let statement='';
       for(const line of readFileSync(new URL('../migrations/'+migration,import.meta.url),'utf8').split('\n')){
         if(!line.trim()||line.startsWith('--'))continue;statement+=line+' ';

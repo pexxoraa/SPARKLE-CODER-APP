@@ -71,7 +71,18 @@ async function refresh(background=false){
   }
   if(!el('couponList').children.length)el('couponList').append(node('p','No coupons created yet.'));
   el('accountRows').replaceChildren();
-  for(const a of data.accounts){const tr=node('tr',''),member=node('td',a.name);member.append(node('small',a.email));tr.append(member,node('td',a.status),node('td',number(a.balance-a.held)),node('td',number(a.held)));const td=node('td','');tr.append(td);if(a.status!=='pending')button(td,a.status==='suspended'?'Reactivate':'Suspend',async()=>{await api('accounts/'+a.id,{status:a.status==='suspended'?'active':'suspended'});await refresh();},'secondary');el('accountRows').append(tr);}
+  for(const a of data.accounts){
+    const tr=node('tr',''),member=node('td',a.name);member.append(node('small',a.email));
+    const login=node('td',a.password_set?'Password set':a.password_setup_expires?'Setup code issued':'Needs first password');
+    if(!a.password_set&&a.status==='active')button(login,a.password_setup_expires?'Replace setup code':'Create setup code',async()=>{
+      const result=await api('accounts/'+a.id+'/password-setup',{verified:true});await refresh();
+      el('notice').textContent='One-time password setup code for '+result.email+': '+result.code+' · expires '+new Date(result.expires*1000).toLocaleString()+'. Send it only to the verified account owner.';
+    },'secondary');
+    tr.append(member,node('td',a.status),node('td',number(a.balance-a.held)),node('td',number(a.held)),login);
+    const td=node('td','');tr.append(td);
+    if(a.status!=='pending')button(td,a.status==='suspended'?'Reactivate':'Suspend',async()=>{await api('accounts/'+a.id,{status:a.status==='suspended'?'active':'suspended'});await refresh();},'secondary');
+    el('accountRows').append(tr);
+  }
   el('deviceList').replaceChildren();
   for(const d of data.devices.filter(d=>d.kind==='recovery')){
     const c=card(el('deviceList'),d.email,'Request from '+d.claimed_name+' · '+(d.claimed_phone||'No phone'));

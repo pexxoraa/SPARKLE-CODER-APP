@@ -167,18 +167,36 @@ test('approved account signs in on a new device with password and creates no adm
  assert.equal(overview.devices.filter(x=>x.kind==='recovery').length,0);
  assert.equal(f.env.DB.db.prepare("SELECT COUNT(*) AS n FROM devices WHERE account_id=? AND status='active'").get(signed.body.id).n,2);
 });
-test('legacy active account must create a password before coding or buying, then can sign in without admin review',async()=>{
+test('logged-out legacy account uses one-time admin setup code to create its first password',async()=>{
+ const f=fixture();await f.approve();const db=f.env.DB.db,account=db.prepare('SELECT id FROM accounts').get();
+ db.prepare('DELETE FROM account_credentials').run();db.prepare("UPDATE devices SET status='revoked'").run();
+ assert.equal((await f.api('/api/me')).status,401);
+ const fresh='legacy_'+crypto.randomUUID().replaceAll('-','')+'Q'.repeat(20);
+ const blocked=await f.api('/api/login',{email:'tester@example.com',password:'LegacyPass123!'},{secret:fresh});
+ assert.equal(blocked.status,409);assert.match(blocked.body.error,/one-time setup code/i);
+ let overview=(await f.api('/api/admin/overview',undefined,{admin:true})).body;
+ assert.equal(Boolean(overview.accounts[0].password_set),false);
+ assert.equal((await f.api('/api/admin/accounts/'+account.id+'/password-setup',{verified:false},{admin:true})).status,400);
+ const issued=await f.api('/api/admin/accounts/'+account.id+'/password-setup',{verified:true},{admin:true});
+ assert.equal(issued.status,200);assert.match(issued.body.code,/^[A-F0-9]{24}$/);assert.ok(issued.body.expires>Math.floor(Date.now()/1000));
+ assert.equal((await f.api('/api/password/setup',{email:'tester@example.com',code:'0'.repeat(24),password:'LegacyPass123!'},{secret:fresh})).status,401);
+ const setup=await f.api('/api/password/setup',{email:'tester@example.com',code:issued.body.code,password:'LegacyPass123!'},{secret:fresh});
+ assert.equal(setup.status,200);assert.equal(setup.body.ready,true);assert.equal(setup.body.password_set,true);
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM account_password_setups').get().n,0);
+ const reuse='reuse_'+crypto.randomUUID().replaceAll('-','')+'R'.repeat(20);
+ assert.equal((await f.api('/api/password/setup',{email:'tester@example.com',code:issued.body.code,password:'AnotherPass123!'},{secret:reuse})).status,409);
+ const signed='signin_'+crypto.randomUUID().replaceAll('-','')+'S'.repeat(20);
+ const login=await f.api('/api/login',{email:'tester@example.com',password:'LegacyPass123!'},{secret:signed});
+ assert.equal(login.status,200);assert.equal(login.body.ready,true);
+ overview=(await f.api('/api/admin/overview',undefined,{admin:true})).body;
+ assert.equal(Boolean(overview.accounts[0].password_set),true);
+});
+test('connected legacy account can still create its first password directly',async()=>{
  const f=fixture();await f.approve();f.env.DB.db.prepare('DELETE FROM account_credentials').run();
- let me=(await f.api('/api/me')).body;assert.equal(me.password_set,false);assert.equal(me.password_required,true);assert.equal(me.ready,false);
+ let me=(await f.api('/api/me')).body;assert.equal(me.password_required,true);assert.equal(me.ready,false);
  assert.equal((await f.api('/v1/balance')).status,428);
- assert.equal((await f.api('/api/payments',{utr:'LEGACYBUY12345'})).status,428);
  const saved=await f.api('/api/account/password',{password:'LegacyPass123!'});assert.equal(saved.status,200);
- me=(await f.api('/api/me')).body;assert.equal(me.password_set,true);assert.equal(me.password_required,false);assert.equal(me.ready,true);
- const replacement='legacy_'+crypto.randomUUID().replaceAll('-','')+'Q'.repeat(20);
- const signed=await f.api('/api/login',{email:'tester@example.com',password:'LegacyPass123!'},{secret:replacement});
- assert.equal(signed.status,200);assert.equal(signed.body.ready,true);
- const overview=(await f.api('/api/admin/overview',undefined,{admin:true})).body;
- assert.equal(overview.devices.filter(x=>x.kind==='recovery').length,0);
+ me=(await f.api('/api/me')).body;assert.equal(me.password_set,true);assert.equal(me.ready,true);
 });
 test('coupon adds bonus tokens only after verified payment and enforces account use limit',async()=>{
  const f=fixture();await f.approve();await f.login();

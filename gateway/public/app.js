@@ -210,6 +210,8 @@ function updateAccountMode(){
   $("memberName").required=!login;$("memberConsent").required=!login;
   $("memberPassword").autocomplete=login?"current-password":"new-password";
   $("registerButton").textContent=login?"Sign in":"Request new account";
+  $("legacySetupSection").hidden=!login;
+  if(login&&!$("legacySetupEmail").value)$("legacySetupEmail").value=$("memberEmail").value.trim();
 }
 async function refreshAccount(){
   if(state.registering)return state.account;
@@ -244,6 +246,17 @@ async function saveAccountPassword(event){
   event.preventDefault();
   try{await authApi("/api/account/password",{method:"POST",body:JSON.stringify({password:$("newAccountPassword").value})});$("newAccountPassword").value="";await refreshAccount();toast("Login password saved");}
   catch(error){$("accountMessage").textContent=safeError(error);}
+}
+async function setupLegacyPassword(event){
+  event.preventDefault();
+  try{
+    state.account=accountReceipt(await authApi("/api/password/setup",{method:"POST",body:JSON.stringify({
+      email:$("legacySetupEmail").value.trim(),
+      code:$("legacySetupCode").value.trim(),
+      password:$("legacySetupPassword").value
+    })}));
+    $("legacySetupCode").value="";$("legacySetupPassword").value="";renderAccount();toast("Password created and signed in");
+  }catch(error){$("accountMessage").textContent=safeError(error);}
 }
 async function applyCoupon(){
   const code=$("paymentCoupon").value.trim();if(!code){state.couponQuote=null;renderPurchaseQuote();$("couponStatus").textContent="Enter a coupon code first.";return;}
@@ -378,10 +391,10 @@ $("folderInput").onchange=event=>{const files=[...event.target.files];if(files.l
 $("accountButton").onclick=()=>{renderAccount();$("accountDialog").showModal();refreshAccount().catch(()=>{});};
 $("refreshAccountButton").onclick=()=>refreshAccount().catch(error=>toast(safeError(error)));
 $("reconnectButton").onclick=reconnectAccount;
-$("loginMode").onchange=updateAccountMode;updateAccountMode();
+$("loginMode").onchange=updateAccountMode;$("memberEmail").oninput=()=>{if($("loginMode").checked)$("legacySetupEmail").value=$("memberEmail").value;};updateAccountMode();
 $("paymentCoupon").oninput=()=>{state.couponQuote=null;renderPurchaseQuote();};
 $("applyCoupon").onclick=applyCoupon;
-$("registerForm").onsubmit=registerAccount;$("passwordForm").onsubmit=saveAccountPassword;$("paymentForm").onsubmit=submitPayment;$("promptForm").onsubmit=sendPrompt;$("clearChatButton").onclick=clearChat;
+$("registerForm").onsubmit=registerAccount;$("legacySetupForm").onsubmit=setupLegacyPassword;$("passwordForm").onsubmit=saveAccountPassword;$("paymentForm").onsubmit=submitPayment;$("promptForm").onsubmit=sendPrompt;$("clearChatButton").onclick=clearChat;
 $("confirmApply").onclick=confirmApply;
 document.querySelectorAll("[data-close]").forEach(button=>button.addEventListener("click",()=>closeDialog(button)));
 window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();state.installPrompt=event;$("installButton").hidden=false;});
