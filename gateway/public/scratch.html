@@ -73,6 +73,17 @@
         <label>Password<input id="memberPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
         <button id="registerButton" class="button primary" type="submit">Request new account</button>
       </form>
+      <button id="forgotPassword" class="text-button" type="button" hidden>Forgot password?</button>
+      <div id="passwordResetSection" hidden>
+        <h3>Reset password</h3>
+        <p class="hint">Ask the admin for a one-time password reset code after they verify you. It expires after 30 minutes.</p>
+        <form id="passwordResetForm">
+          <label>Account email<input id="passwordResetEmail" type="email" autocomplete="email" required maxlength="200"></label>
+          <label>One-time reset code<input id="passwordResetCode" autocomplete="one-time-code" required minlength="24" maxlength="24"></label>
+          <label>New password<input id="passwordResetPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
+          <button id="passwordResetButton" class="button secondary" type="submit">Reset password and sign in</button>
+        </form>
+      </div>
       <div id="legacySetupSection" hidden>
         <h3>First-time password setup</h3>
         <p class="hint">Older account and the old browser is logged out? Ask the admin for a one-time setup code. It expires after 30 minutes.</p>

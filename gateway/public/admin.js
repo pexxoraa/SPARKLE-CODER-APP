@@ -73,15 +73,21 @@ async function refresh(background=false){
   el('accountRows').replaceChildren();
   for(const a of data.accounts){
     const tr=node('tr',''),member=node('td',a.name);member.append(node('small',a.email));
-    const login=node('td',a.password_set?'Password set':a.password_setup_expires?'Setup code issued':'Needs first password');
-    if(!a.password_set&&a.status==='active')button(login,a.password_setup_expires?'Replace setup code':'Create setup code',async()=>{
-      const result=await api('accounts/'+a.id+'/password-setup',{verified:true});
+    const login=node('td',a.password_set?(a.password_reset_expires?'Password set · Reset code issued':'Password set'):a.password_setup_expires?'Setup code issued':'Needs first password');
+    const showPasswordCode=(result,title,notice)=>{
+      el('passwordCodeTitle').textContent=title;
       el('passwordSetupCode').value=result.code;
       el('passwordSetupRecipient').textContent='For '+result.email;
       el('passwordSetupExpiry').textContent='Expires '+new Date(result.expires*1000).toLocaleString()+'. Send it only to the verified account owner.';
       el('passwordSetupResult').hidden=false;
-      el('notice').textContent='Setup code created. Copy it now; SPARKLE stores only its hash.';
-      refresh().catch(error=>{el('syncStatus').textContent='Refresh failed, but the setup code above is valid. '+error.message;});
+      el('notice').textContent=notice;
+      refresh().catch(error=>{el('syncStatus').textContent='Refresh failed, but the password code above is valid. '+error.message;});
+    };
+    if(!a.password_set&&a.status==='active')button(login,a.password_setup_expires?'Replace setup code':'Create setup code',async()=>{
+      showPasswordCode(await api('accounts/'+a.id+'/password-setup',{verified:true}),'One-time first-password setup code','Setup code created. Copy it now; SPARKLE stores only its hash.');
+    },'secondary');
+    if(a.password_set&&a.status==='active')button(login,a.password_reset_expires?'Replace reset code':'Create reset code',async()=>{
+      showPasswordCode(await api('accounts/'+a.id+'/password-reset',{verified:true}),'One-time password reset code','Reset code created. Copy it now; SPARKLE stores only its hash.');
     },'secondary');
     tr.append(member,node('td',a.status),node('td',number(a.balance-a.held)),node('td',number(a.held)),login);
     const td=node('td','');tr.append(td);

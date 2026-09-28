@@ -148,6 +148,23 @@ test('admin can issue a one-time first-password code for a verified legacy accou
  const stored=ui.env.DB.db.prepare('SELECT token_hash,expires FROM account_password_setups').get();
  assert.ok(stored);assert.notEqual(stored.token_hash,code);assert.ok(stored.expires>Math.floor(Date.now()/1000));
  await new Promise(resolve=>setTimeout(resolve,0));
- assert.match(ui.elements.get('syncStatus').textContent,/Refresh failed, but the setup code above is valid/);
+ assert.match(ui.elements.get('syncStatus').textContent,/Refresh failed, but the password code above is valid/);
  assert.equal(ui.elements.get('passwordSetupCode').value,code);
+});
+
+test('admin can issue a one-time password reset code for a verified account',async t=>{
+ const ui=await fixture(t),{secret}=await ui.signup('reset@example.test');
+ const payment=await ui.call('/api/payments',{utr:'RESETADMIN12345'},secret);assert.equal(payment.status,201);
+ const paymentId=(await payment.json()).id;
+ assert.equal((await ui.call('/api/admin/payments/'+paymentId,{action:'approve',verified:true})).status,200);
+ await ui.refresh();
+ const button=ui.elements.get('accountRows').querySelectorAll('button').find(n=>n.textContent==='Create reset code');
+ assert.ok(button,'Password reset button was not rendered.');
+ await button.onclick();
+ const code=ui.elements.get('passwordSetupCode').value;
+ assert.match(code,/^[A-F0-9]{24}$/);
+ assert.equal(ui.elements.get('passwordCodeTitle').textContent,'One-time password reset code');
+ assert.match(ui.elements.get('notice').textContent,/Reset code created/);
+ const stored=ui.env.DB.db.prepare('SELECT token_hash,expires FROM account_password_resets').get();
+ assert.ok(stored);assert.notEqual(stored.token_hash,code);assert.ok(stored.expires>Math.floor(Date.now()/1000));
 });

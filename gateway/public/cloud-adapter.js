@@ -53,6 +53,9 @@ window.SparkleCloud=(()=>{
     if(path==='/account/password/setup'){
       version++;const result=receipt(await read(await send('/api/password/setup',body)));account=result;return Response.json(result);
     }
+    if(path==='/account/password/reset'){
+      version++;const result=receipt(await read(await send('/api/password/reset',body)));account=result;return Response.json(result);
+    }
     if(path==='/account/coupon')return Response.json(await read(await send('/api/coupons/quote',body)));
     if(path==='/account/payment'){
       const result=await read(await send('/api/payments',body));

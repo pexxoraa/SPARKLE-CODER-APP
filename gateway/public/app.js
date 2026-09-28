@@ -181,8 +181,8 @@ function renderPurchaseQuote(){
   const typedCode=$("paymentCoupon")?.value.trim()||"",quotePending=Boolean(typedCode)&&(!quote||quote.code!==typedCode.toUpperCase());
   const upi=a.upi_id||info.upi_id||"",payee=a.payee_name||info.payee_name||"",configured=Boolean(upi&&payee),free=amount===0;
   $("purchaseTitle").textContent=`Add ${(credits+bonus).toLocaleString()} tokens · ${money(amount)}`;
-  $("purchaseInstructions").textContent=free?"This coupon covers the full price. No UPI payment or transaction reference is needed. Submit the ₹0 coupon claim for admin review.":configured?`Scan the QR code with any UPI app, or pay the UPI ID shown below.`:"UPI payment details are not configured. You can still apply a coupon that reduces the price to ₹0.";
-  $("upiPaymentBlock").hidden=free||!configured;$("paymentReferenceRow").hidden=free||!configured;$("paymentReference").required=!free&&configured&&!quotePending;
+  $("purchaseInstructions").textContent=quotePending?"Coupon entered. Check it to calculate the final amount before paying.":free?"This coupon covers the full price. No UPI payment or transaction reference is needed. Submit the ₹0 coupon claim for admin review.":configured?`Scan the QR code with any UPI app, or pay the UPI ID shown below.`:"UPI payment details are not configured. You can still apply a coupon that reduces the price to ₹0.";
+  $("upiPaymentBlock").hidden=free||!configured||quotePending;$("paymentReferenceRow").hidden=free||!configured||quotePending;$("paymentReference").required=!free&&configured&&!quotePending;
   $("paymentButton").disabled=!free&&!configured&&!quotePending;$("paymentButton").textContent=free?"Submit ₹0 coupon for review":quotePending?"Check coupon and continue":"Submit purchase";
   $("upiId").textContent=upi||"Not configured";$("payeeName").textContent=payee||"Not configured";renderUpiQr($("upiQr"),upi,payee,free?0:amount);
   $("couponStatus").textContent=quote?`Coupon ${quote.code}: ${money(discount)} off${bonus?" + "+bonus.toLocaleString()+" bonus tokens":""}${quote.expires?" · expires "+new Date(quote.expires*1000).toLocaleString():""}.`:"";
@@ -217,8 +217,11 @@ function updateAccountMode(){
   $("memberName").required=!login;$("memberConsent").required=!login;
   $("memberPassword").autocomplete=login?"current-password":"new-password";
   $("registerButton").textContent=login?"Sign in":"Request new account";
+  $("forgotPassword").hidden=!login;
   $("legacySetupSection").hidden=!login;
   if(login&&!$("legacySetupEmail").value)$("legacySetupEmail").value=$("memberEmail").value.trim();
+  if(login&&!$("passwordResetEmail").value)$("passwordResetEmail").value=$("memberEmail").value.trim();
+  if(!login)$("passwordResetSection").hidden=true;
 }
 async function refreshAccount(){
   if(state.registering)return state.account;
@@ -263,6 +266,17 @@ async function setupLegacyPassword(event){
       password:$("legacySetupPassword").value
     })}));
     $("legacySetupCode").value="";$("legacySetupPassword").value="";renderAccount();toast("Password created and signed in");
+  }catch(error){$("accountMessage").textContent=safeError(error);}
+}
+async function resetPassword(event){
+  event.preventDefault();
+  try{
+    state.account=accountReceipt(await authApi("/api/password/reset",{method:"POST",body:JSON.stringify({
+      email:$("passwordResetEmail").value.trim(),
+      code:$("passwordResetCode").value.trim(),
+      password:$("passwordResetPassword").value
+    })}));
+    $("passwordResetCode").value="";$("passwordResetPassword").value="";$("passwordResetSection").hidden=true;renderAccount();toast("Password reset and signed in");
   }catch(error){$("accountMessage").textContent=safeError(error);}
 }
 async function resolveCouponQuote(requireCode=false){
@@ -407,10 +421,12 @@ $("folderInput").onchange=event=>{const files=[...event.target.files];if(files.l
 $("accountButton").onclick=()=>{renderAccount();$("accountDialog").showModal();refreshAccount().catch(()=>{});};
 $("refreshAccountButton").onclick=()=>refreshAccount().catch(error=>toast(safeError(error)));
 $("reconnectButton").onclick=reconnectAccount;
-$("loginMode").onchange=updateAccountMode;$("memberEmail").oninput=()=>{if($("loginMode").checked)$("legacySetupEmail").value=$("memberEmail").value;};updateAccountMode();
+$("loginMode").onchange=updateAccountMode;updateAccountMode();
 $("paymentCoupon").oninput=()=>{state.couponQuote=null;renderPurchaseQuote();};
 $("applyCoupon").onclick=applyCoupon;$("copyUpi").onclick=()=>copyText($("upiId").textContent).then(()=>toast("UPI ID copied")).catch(error=>toast(safeError(error)));
-$("registerForm").onsubmit=registerAccount;$("legacySetupForm").onsubmit=setupLegacyPassword;$("passwordForm").onsubmit=saveAccountPassword;$("paymentForm").onsubmit=submitPayment;$("promptForm").onsubmit=sendPrompt;$("clearChatButton").onclick=clearChat;
+$("forgotPassword").onclick=()=>{$("passwordResetSection").hidden=!$("passwordResetSection").hidden;if(!$("passwordResetEmail").value)$("passwordResetEmail").value=$("memberEmail").value.trim();};
+$("memberEmail").oninput=()=>{if($("loginMode").checked){$("legacySetupEmail").value=$("memberEmail").value;$("passwordResetEmail").value=$("memberEmail").value;}};
+$("registerForm").onsubmit=registerAccount;$("legacySetupForm").onsubmit=setupLegacyPassword;$("passwordResetForm").onsubmit=resetPassword;$("passwordForm").onsubmit=saveAccountPassword;$("paymentForm").onsubmit=submitPayment;$("promptForm").onsubmit=sendPrompt;$("clearChatButton").onclick=clearChat;
 $("confirmApply").onclick=confirmApply;
 document.querySelectorAll("[data-close]").forEach(button=>button.addEventListener("click",()=>closeDialog(button)));
 window.addEventListener("beforeinstallprompt",event=>{event.preventDefault();state.installPrompt=event;$("installButton").hidden=false;});

@@ -175,6 +175,34 @@ test('approved account signs in on a new device with password and creates no adm
  assert.equal(overview.devices.filter(x=>x.kind==='recovery').length,0);
  assert.equal(f.env.DB.db.prepare("SELECT COUNT(*) AS n FROM devices WHERE account_id=? AND status='active'").get(signed.body.id).n,2);
 });
+test('forgot password reset code changes password, revokes old devices, and cannot be reused',async()=>{
+ const f=fixture();await f.approve();await f.login();const db=f.env.DB.db,account=db.prepare('SELECT id FROM accounts').get();
+ const oldExtra='old_'+crypto.randomUUID().replaceAll('-','')+'O'.repeat(20);
+ assert.equal((await f.api('/api/login',{email:'tester@example.com',password:'TestPass123!'},{secret:oldExtra})).status,200);
+ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM devices WHERE account_id=? AND status='active'").get(account.id).n,2);
+ assert.equal((await f.api('/api/admin/accounts/'+account.id+'/password-reset',{verified:false},{admin:true})).status,400);
+ const issued=await f.api('/api/admin/accounts/'+account.id+'/password-reset',{verified:true},{admin:true});
+ assert.equal(issued.status,200);assert.match(issued.body.code,/^[A-F0-9]{24}$/);
+ const stored=db.prepare('SELECT token_hash,expires FROM account_password_resets WHERE account_id=?').get(account.id);
+ assert.ok(stored);assert.notEqual(stored.token_hash,issued.body.code);assert.ok(stored.expires>Math.floor(Date.now()/1000));
+ const fresh='reset_'+crypto.randomUUID().replaceAll('-','')+'N'.repeat(20);
+ assert.equal((await f.api('/api/password/reset',{email:'tester@example.com',code:'0'.repeat(24),password:'NewPass123!'},{secret:fresh})).status,401);
+ const reset=await f.api('/api/password/reset',{email:'tester@example.com',code:issued.body.code,password:'NewPass123!'},{secret:fresh});
+ assert.equal(reset.status,200);assert.equal(reset.body.ready,true);assert.equal(reset.body.password_set,true);
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM account_password_resets').get().n,0);
+ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM devices WHERE account_id=? AND status='active'").get(account.id).n,1);
+ assert.equal((await f.api('/api/me')).status,401);
+ assert.equal((await f.api('/api/me',undefined,{secret:oldExtra})).status,401);
+ const oldLogin='oldpass_'+crypto.randomUUID().replaceAll('-','')+'P'.repeat(20);
+ assert.equal((await f.api('/api/login',{email:'tester@example.com',password:'TestPass123!'},{secret:oldLogin})).status,401);
+ const newLogin='newpass_'+crypto.randomUUID().replaceAll('-','')+'Q'.repeat(20);
+ assert.equal((await f.api('/api/login',{email:'tester@example.com',password:'NewPass123!'},{secret:newLogin})).status,200);
+ const reuse='reuse_'+crypto.randomUUID().replaceAll('-','')+'R'.repeat(20);
+ assert.equal((await f.api('/api/password/reset',{email:'tester@example.com',code:issued.body.code,password:'OtherPass123!'},{secret:reuse})).status,401);
+ const overview=(await f.api('/api/admin/overview',undefined,{admin:true})).body;
+ assert.equal(overview.accounts[0].password_reset_expires,null);
+ assert.match(overview.audit.map(x=>x.action).join(' '),/account-password-reset/);
+});
 test('logged-out legacy account uses one-time admin setup code to create its first password',async()=>{
  const f=fixture();await f.approve();const db=f.env.DB.db,account=db.prepare('SELECT id FROM accounts').get();
  db.prepare('DELETE FROM account_credentials').run();db.prepare("UPDATE devices SET status='revoked'").run();

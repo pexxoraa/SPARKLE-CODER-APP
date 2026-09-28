@@ -180,8 +180,7 @@ before coding or buying more tokens. A still-connected approved browser can set 
 If that browser was logged out, the owner verifies the user in the admin panel and issues a
 single-use setup code that expires after 30 minutes; the user can then create the first
 password from any browser. Only the setup-code hash is stored, and successful use deletes it.
-Manual admin recovery remains a lost-access fallback after a password exists. Purchase coupons may reduce the ₹15 price,
-add bonus tokens, or combine both; a full discount still requires an admin-reviewed claim.
+For a forgotten existing password, the user opens **Forgot password?** and the owner verifies the account holder before issuing a one-time reset code in the admin panel. The reset code expires after 30 minutes, is stored only as a hash, is deleted after successful use, and a successful reset revokes older browser sessions. Purchase coupons may reduce the ₹15 price, add bonus tokens, or combine both; a full discount requires no UPI payment or UPI reference/UTR but still requires an admin-reviewed claim.
 
 ## Prompt and tunnel recovery update
 

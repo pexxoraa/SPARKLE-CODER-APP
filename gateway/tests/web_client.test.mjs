@@ -78,6 +78,8 @@ test('typing a free coupon and submitting needs no Apply click or UPI reference'
   const created=await f.call('/api/admin/coupons',{code:'FREEUI',bonus_tokens:0,discount_paise:1500,max_uses:1,one_per_account:true},null,true);
   assert.equal(created.status,201);
   f.el('paymentCoupon').value='FREEUI';f.el('paymentCoupon').oninput();f.el('paymentReference').value='';
+  assert.equal(f.el('paymentReferenceRow').hidden,true);assert.equal(f.el('upiPaymentBlock').hidden,true);
+  assert.equal(f.el('paymentReference').required,false);
   await f.el('paymentForm').onsubmit({preventDefault(){}});
   const payment=f.env.DB.db.prepare('SELECT amount_paise,utr FROM payments_v2').get();
   assert.equal(payment.amount_paise,0);assert.match(payment.utr,/^FREE/);
