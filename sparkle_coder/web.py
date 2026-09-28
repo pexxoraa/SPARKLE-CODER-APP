@@ -21,7 +21,8 @@ from .workspace import Redactor, write_json
 
 
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
-          "/app.css": ("app.css", "text/css"), "/favicon.svg": ("favicon.svg", "image/svg+xml")}
+          "/qrcode.js": ("qrcode.js", "text/javascript"), "/app.css": ("app.css", "text/css"),
+          "/favicon.svg": ("favicon.svg", "image/svg+xml")}
 
 
 def website_origin(value):

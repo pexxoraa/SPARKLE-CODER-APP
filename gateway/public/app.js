@@ -10,6 +10,7 @@ let toastTimer;
 const money=paise=>"₹"+(Number(paise||0)/100).toFixed(2);
 
 function toast(message){clearTimeout(toastTimer);$("toast").textContent=message;$("toast").classList.add("show");toastTimer=setTimeout(()=>$("toast").classList.remove("show"),4000);}
+async function copyText(text){if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(text);else{const field=document.createElement("textarea");field.value=text;document.body.append(field);field.select();document.execCommand("copy");field.remove();}}
 function safeError(error){return error?.message||"Something went wrong.";}
 function escapeName(path){return path.split("/").pop()||path;}
 function isTextFile(name){const lower=name.toLowerCase();if(lower==="dockerfile"||lower.startsWith(".")&&[".gitignore",".env",".editorconfig"].includes(lower))return true;const dot=lower.lastIndexOf(".");return dot>=0&&textExtensions.has(lower.slice(dot+1));}
@@ -172,12 +173,17 @@ async function importFolder(files){
 function downloadActive(){if(!state.activePath)return;const blob=new Blob([$("editor").value],{type:"text/plain;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=escapeName(state.activePath);document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 
 function accountReady(){return Boolean(state.account?.ready);}
+function upiPaymentUri(upi,payee,amount){const params=new URLSearchParams({pa:upi,pn:payee,am:(Number(amount)/100).toFixed(2),cu:"INR",tn:"SPARKLE CODER tokens"});return "upi://pay?"+params.toString();}
+function renderUpiQr(target,upi,payee,amount){target.replaceChildren();if(!upi||!payee||amount<=0)return;if(typeof qrcode!=="function"){target.textContent="QR code unavailable. Use the UPI ID below.";return;}const qr=qrcode(0,"M");qr.addData(upiPaymentUri(upi,payee,amount));qr.make();target.innerHTML=qr.createSvgTag({cellSize:4,margin:0,scalable:true});}
 function renderPurchaseQuote(){
-  const a=state.account||state.info||{},quote=state.couponQuote,base=Number(a.price_paise||1500),credits=Number(a.credit_tokens||1000000);
+  const a=state.account||state.info||{},info=state.info||{},quote=state.couponQuote,base=Number(a.price_paise||info.price_paise||1500),credits=Number(a.credit_tokens||info.credit_tokens||1000000);
   const amount=quote?Number(quote.final_amount_paise):base,bonus=quote?Number(quote.bonus_tokens||0):0,discount=quote?Number(quote.discount_paise||0):0;
+  const upi=a.upi_id||info.upi_id||"",payee=a.payee_name||info.payee_name||"",configured=Boolean(upi&&payee),free=amount===0;
   $("purchaseTitle").textContent=`Add ${(credits+bonus).toLocaleString()} tokens · ${money(amount)}`;
-  $("purchaseInstructions").textContent=amount===0?"This coupon covers the full price. No UPI payment is required; submit the coupon claim for admin review.":`Pay ${money(amount)} only after checking the recipient details below. Credits appear after the admin verifies the purchase.`;
-  $("paymentReferenceRow").hidden=amount===0;$("paymentReference").required=amount>0;
+  $("purchaseInstructions").textContent=free?"This coupon covers the full price. No UPI payment or transaction reference is needed. Submit the ₹0 coupon claim for admin review.":configured?`Scan the QR code with any UPI app, or pay the UPI ID shown below.`:"UPI payment details are not configured. You can still apply a coupon that reduces the price to ₹0.";
+  $("upiPaymentBlock").hidden=free||!configured;$("paymentReferenceRow").hidden=free||!configured;$("paymentReference").required=!free&&configured;
+  $("paymentButton").disabled=!free&&!configured;$("paymentButton").textContent=free?"Submit ₹0 coupon for review":"Submit purchase";
+  $("upiId").textContent=upi||"Not configured";$("payeeName").textContent=payee||"Not configured";renderUpiQr($("upiQr"),upi,payee,free?0:amount);
   $("couponStatus").textContent=quote?`Coupon ${quote.code}: ${money(discount)} off${bonus?" + "+bonus.toLocaleString()+" bonus tokens":""}${quote.expires?" · expires "+new Date(quote.expires*1000).toLocaleString():""}.`:"";
 }
 function renderAccount(){
@@ -189,20 +195,19 @@ function renderAccount(){
   const upi=a.upi_id||info.upi_id,payee=a.payee_name||info.payee_name,configured=Boolean(upi&&payee);
   $("accountBalance").textContent=available.toLocaleString();$("tokenBalance").textContent=available.toLocaleString()+" tokens";
   $("heldBalance").textContent=a.held_tokens?`${Number(a.held_tokens).toLocaleString()} tokens temporarily reserved`:"";
-  $("upiId").textContent=upi||"Not configured";$("payeeName").textContent=payee||"Not configured";
   $("supportLine").textContent=(a.support_email||info.support_email)?`Support: ${a.support_email||info.support_email}`:"";
   $("passwordSection").hidden=a.device_status!=="active";
-  $("paymentSection").hidden=a.password_required||pending||a.status==="suspended"||!configured||recovering;
+  $("paymentSection").hidden=a.password_required||pending||a.status==="suspended"||recovering;
   if(a.request_id)$("requestReceipt").textContent=`Request ID: ${a.request_id}${a.requested_at?" · Received "+new Date(a.requested_at*1000).toLocaleString():""}`;
   const history=$("paymentHistory");history.replaceChildren();
-  for(const payment of a.payments||[]){const row=document.createElement("div");row.className="history-row";row.textContent=`${money(payment.amount_paise)} · ${payment.utr} · ${payment.status}${payment.coupon_code?" · "+payment.coupon_code+" · "+money(payment.discount_paise)+" off"+(payment.bonus_tokens?" · +"+Number(payment.bonus_tokens).toLocaleString()+" bonus tokens":""):""}${payment.note?" — "+payment.note:""}`;history.append(row);}
+  for(const payment of a.payments||[]){const row=document.createElement("div");row.className="history-row";row.textContent=`${money(payment.amount_paise)} · ${Number(payment.amount_paise)===0?"Coupon claim":payment.utr} · ${payment.status}${payment.coupon_code?" · "+payment.coupon_code+" · "+money(payment.discount_paise)+" off"+(payment.bonus_tokens?" · +"+Number(payment.bonus_tokens).toLocaleString()+" bonus tokens":""):""}${payment.note?" — "+payment.note:""}`;history.append(row);}
   if(!history.children.length){const row=document.createElement("div");row.className="history-row";row.textContent="No payments submitted yet.";history.append(row);}
   $("connectionPill").className=a.ready?"pill":"pill warn";
   if(a.status==="suspended"){$("connectionPill").textContent="Suspended";$("accountMessage").textContent="This account is suspended. Contact support.";}
   else if(a.password_required){$("connectionPill").textContent="Password required";$("accountMessage").textContent="Create a login password below to continue using SPARKLE. This is required once for existing accounts.";}
   else if(a.ready){$("connectionPill").textContent=`Ready · ${available.toLocaleString()} tokens`;$("accountMessage").textContent=`Connected as ${a.name}. Your model access is active.`;}
   else if(recovering){$("connectionPill").textContent="Recovery pending";$("accountMessage").textContent="Manual account recovery is waiting for admin verification.";}
-  else{$("connectionPill").textContent=pending?"Purchase pending":"Account requested";$("accountMessage").textContent=pending?"Your purchase is waiting for admin verification. This page checks automatically.":configured?"Your new account request was received. Apply a coupon if you have one, then submit the required payment for verification.":"Your account request was received. Payment details are not configured yet; contact support before paying.";}
+  else{$("connectionPill").textContent=pending?"Purchase pending":"Account requested";$("accountMessage").textContent=pending?"Your purchase is waiting for admin verification. This page checks automatically.":configured?"Your new account request was received. Apply a coupon if you have one, then pay or submit the coupon claim for verification.":"Your account request was received. UPI payment details are not configured, but you can still use a coupon that reduces the price to ₹0.";}
   renderPurchaseQuote();
   if(a.password_required&&!$("accountDialog").open)queueMicrotask(()=>{if(!$("accountDialog").open)$("accountDialog").showModal();});
 }
@@ -274,7 +279,7 @@ async function submitPayment(event){
     toast(message);$("accountMessage").textContent=message;
     await refreshAccount().catch(()=>{});
   }catch(error){$("accountMessage").textContent=safeError(error);}
-  finally{state.paying=false;$("paymentButton").disabled=false;}
+  finally{state.paying=false;renderPurchaseQuote();}
 }
 function reconnectAccount(){
   if(state.registering||state.paying||state.sending)return;
@@ -394,7 +399,7 @@ $("refreshAccountButton").onclick=()=>refreshAccount().catch(error=>toast(safeEr
 $("reconnectButton").onclick=reconnectAccount;
 $("loginMode").onchange=updateAccountMode;$("memberEmail").oninput=()=>{if($("loginMode").checked)$("legacySetupEmail").value=$("memberEmail").value;};updateAccountMode();
 $("paymentCoupon").oninput=()=>{state.couponQuote=null;renderPurchaseQuote();};
-$("applyCoupon").onclick=applyCoupon;
+$("applyCoupon").onclick=applyCoupon;$("copyUpi").onclick=()=>copyText($("upiId").textContent).then(()=>toast("UPI ID copied")).catch(error=>toast(safeError(error)));
 $("registerForm").onsubmit=registerAccount;$("legacySetupForm").onsubmit=setupLegacyPassword;$("passwordForm").onsubmit=saveAccountPassword;$("paymentForm").onsubmit=submitPayment;$("promptForm").onsubmit=sendPrompt;$("clearChatButton").onclick=clearChat;
 $("confirmApply").onclick=confirmApply;
 document.querySelectorAll("[data-close]").forEach(button=>button.addEventListener("click",()=>closeDialog(button)));

@@ -3,7 +3,7 @@
 import {readFile,writeFile,copyFile} from 'node:fs/promises';
 const source=new URL('../sparkle_coder/ui/',import.meta.url);
 const target=new URL('../gateway/public/',import.meta.url);
-for(const name of ['app.js','app.css'])await copyFile(new URL(name,source),new URL(name==='app.js'?'agent.js':'agent.css',target));
+for(const name of ['app.js','app.css','qrcode.js'])await copyFile(new URL(name,source),new URL(name==='app.js'?'agent.js':name==='app.css'?'agent.css':name,target));
 let html=await readFile(new URL('index.html',source),'utf8');
 html=html.replace('<html lang="en">','<html lang="en" data-runtime="cloud">')
   .replace('/app.css','/agent.css')

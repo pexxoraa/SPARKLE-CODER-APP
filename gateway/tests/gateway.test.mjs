@@ -224,6 +224,7 @@ test('money-only and 100 percent coupons change the payable amount without inven
  created=await f.api('/api/admin/coupons',{code:'FREEPACK',bonus_tokens:0,discount_paise:1500,max_uses:1,one_per_account:true,expires:Math.floor(Date.now()/1000)+3600,note:'100% off'},{admin:true});
  assert.equal(created.status,201);
  quote=await f.api('/api/coupons/quote',{code:'FREEPACK'});assert.equal(quote.body.final_amount_paise,0);
+ f.env.UPI_ID='';f.env.PAYEE_NAME='';
  payment=await f.api('/api/payments',{utr:'',coupon_code:'FREEPACK'});assert.equal(payment.status,201);assert.equal(payment.body.amount_paise,0);assert.equal(payment.body.payment_required,false);
  assert.match(f.env.DB.db.prepare('SELECT utr FROM payments_v2 WHERE id=?').get(payment.body.id).utr,/^FREE/);
  await f.api('/api/admin/payments/'+payment.body.id,{action:'approve',verified:true},{admin:true});

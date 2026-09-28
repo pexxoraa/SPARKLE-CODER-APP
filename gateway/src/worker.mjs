@@ -476,12 +476,14 @@ export async function route(request,env) {
       if(account.status==='suspended')fail(403,'Account suspended. Contact the admin.');
       if(account.kind==='recovery'&&account.device_status!=='active')fail(403,'Complete manual account recovery before requesting credits.');
       if(account.device_status==='active'&&!account.password_set)fail(428,'Create a login password in Account before buying tokens.');
-      if(!env.UPI_ID||!env.PAYEE_NAME)fail(503,'The admin has not added payment details yet. Do not send payment.');
       const data=await body(request),quote=await couponQuote(env,account,data.coupon_code),
         amount=quote?.final_amount_paise??PRICE,id=uid(),stamp=now();
       let utr=String(data.utr||'').replace(/\s/g,'').toUpperCase();
       if(amount===0)utr='FREE'+id.replace(/[^A-Z0-9]/gi,'').toUpperCase();
-      else if(!/^[A-Z0-9]{8,40}$/.test(utr))fail(400,'Enter the UPI transaction reference from your payment app.');
+      else {
+        if(!env.UPI_ID||!env.PAYEE_NAME)fail(503,'The admin has not added payment details yet. Do not send payment.');
+        if(!/^[A-Z0-9]{8,40}$/.test(utr))fail(400,'Enter the UPI transaction reference from your payment app.');
+      }
       const old=await one(env,'SELECT id,status,account_id FROM payments_v2 WHERE utr=?',utr);
       if(old){if(old.account_id!==account.id)fail(409,'This transaction reference has already been submitted.');return json({id:old.id,status:old.status});}
       if(await one(env,"SELECT id FROM payments_v2 WHERE account_id=? AND status='pending'",account.id))fail(409,'One payment is already waiting for review.');
