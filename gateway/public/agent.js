@@ -86,7 +86,7 @@ id("app").innerHTML = `
     </header>
     <div id="missingProjectsNotice" class="missing-projects-notice" role="status" hidden><span id="missingProjectsText"></span><button id="findProjectFolder" class="button secondary">Find folder</button></div>
     <div id="pendingMigrationNotice" class="missing-projects-notice" role="status" hidden><span>Some projects are waiting to move. You can keep working in another project.</span><button id="showProjectMigration" class="button secondary">Review project move</button></div>
-    <section id="browserWorkspacePanel" class="browser-workspace-panel" hidden aria-label="Browser files workspace"><iframe id="browserWorkspaceFrame" src="/scratch.html?embedded=1" title="Browser files workspace"></iframe></section>
+    <section id="browserWorkspacePanel" class="browser-workspace-panel" hidden aria-label="Browser files workspace"><iframe id="browserWorkspaceFrame" src="/scratch?embedded=1" title="Browser files workspace"></iframe></section>
     <div class="work-area" id="cloudWorkArea">
       <section class="main-column">
         <div id="buildView" class="page-view build-view">
@@ -173,7 +173,7 @@ id("app").innerHTML = `
   <section id="passwordSection" hidden><h3>Login password</h3><p class="settings-note">Use this password to sign in on another browser without admin approval.</p><form id="passwordForm"><label for="newAccountPassword">Set or change password</label><input id="newAccountPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"><div class="dialog-actions"><button id="saveAccountPassword" class="button secondary">Save password</button></div></form></section>
   <section id="paymentSection" hidden><h3 id="purchaseTitle">Add 1,000,000 tokens · ₹15.00</h3><p id="purchaseInstructions">Pay ₹15.00 using GPay, PhonePe or Paytm.</p>
     <div id="upiPaymentBlock" class="upi-payment-block"><div id="upiQr" class="upi-qr" aria-label="UPI payment QR code"></div><span class="upi-caption">Scan to pay</span><div class="upi-id-row"><span>UPI ID</span><strong id="payUpiId">—</strong><button type="button" id="copyUpi" class="button secondary">Copy</button></div><p id="payeeName"></p><p>After paying, enter the transaction reference below. Credits appear after the admin checks and accepts your purchase.</p></div>
-    <form id="paymentForm"><label for="paymentCoupon">Coupon code <span>Optional</span></label><div class="folder-input"><input id="paymentCoupon" maxlength="32" autocomplete="off" placeholder="Enter coupon"><button type="button" id="applyCoupon" class="button secondary">Apply</button></div><p id="couponStatus" class="settings-note"></p><div id="paymentReferenceRow"><label for="paymentReference">UPI transaction reference / UTR</label><input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"></div><div class="dialog-actions"><button id="submitPayment" class="button primary">Submit purchase for review</button></div></form></section>
+    <form id="paymentForm" novalidate><label for="paymentCoupon">Coupon code <span>Optional</span></label><div class="folder-input"><input id="paymentCoupon" maxlength="32" autocomplete="off" placeholder="Enter coupon"><button type="button" id="applyCoupon" class="button secondary">Apply</button></div><p id="couponStatus" class="settings-note"></p><div id="paymentReferenceRow"><label for="paymentReference">UPI transaction reference / UTR</label><input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"></div><div class="dialog-actions"><button id="submitPayment" class="button primary">Submit purchase for review</button></div></form></section>
   <div id="accountPayments"></div><p class="settings-note">Input and output tokens both count. A temporary reservation is released when a request finishes. Your connection is remembered on this computer.</p><p id="accountSupport" class="settings-note"></p><div class="dialog-actions"><button id="reconnectAccount" class="text-button">Sign out / switch account</button><button id="refreshAccount" class="button secondary">Refresh account</button></div>
 </dialog>
 <dialog id="settingsDialog">
@@ -371,6 +371,7 @@ function renderUpiQr(target,upi,payee,amount) {
 function renderPurchaseQuote(quote=accountCouponQuote) {
   const a=appState?.account||{},base=Number(a.price_paise||1500),credits=Number(a.credit_tokens||1000000);
   const amount=quote?Number(quote.final_amount_paise):base,bonus=quote?Number(quote.bonus_tokens||0):0,discount=quote?Number(quote.discount_paise||0):0;
+  const typedCode=id('paymentCoupon')?.value.trim()||'',quotePending=Boolean(typedCode)&&(!quote||quote.code!==typedCode.toUpperCase());
   const upi=a.upi_id||'',payee=a.payee_name||'',configured=Boolean(upi&&payee),free=amount===0;
   id('purchaseTitle').textContent='Add '+(credits+bonus).toLocaleString()+' tokens · '+money(amount);
   id('purchaseInstructions').textContent=free
@@ -378,15 +379,23 @@ function renderPurchaseQuote(quote=accountCouponQuote) {
     :configured?'Scan the QR code with any UPI app, or pay the UPI ID shown below.':'UPI payment details are not configured. You can still apply a coupon that reduces the price to ₹0.';
   id('upiPaymentBlock').hidden=free||!configured;
   id('paymentReferenceRow').hidden=free||!configured;
-  id('paymentReference').required=!free&&configured;
-  id('submitPayment').disabled=!free&&!configured;
-  id('submitPayment').textContent=free?'Submit ₹0 coupon for review':'Submit purchase for review';
+  id('paymentReference').required=!free&&configured&&!quotePending;
+  id('submitPayment').disabled=!free&&!configured&&!quotePending;
+  id('submitPayment').textContent=free?'Submit ₹0 coupon for review':quotePending?'Check coupon and continue':'Submit purchase for review';
   id('payUpiId').textContent=upi||'Not configured';
   id('payeeName').textContent=payee?'Recipient: '+payee:'';
   renderUpiQr(id('upiQr'),upi,payee,free?0:amount);
   if(quote)id('couponStatus').textContent='Coupon '+quote.code+': '+money(discount)+' off'+(bonus?' + '+bonus.toLocaleString()+' bonus tokens':'')+(quote.expires?' · expires '+new Date(quote.expires*1000).toLocaleString():'')+'.';
   else id('couponStatus').textContent='';
 }
+async function resolveAccountCoupon(requireCode=false) {
+  const code=id('paymentCoupon').value.trim();
+  if(!code){accountCouponQuote=null;renderPurchaseQuote();if(requireCode)id('couponStatus').textContent='Enter a coupon code first.';return null;}
+  if(accountCouponQuote?.code===code.toUpperCase())return accountCouponQuote;
+  accountCouponQuote=await api('/account/coupon',{code});
+  id('paymentCoupon').value=accountCouponQuote.code;renderPurchaseQuote();return accountCouponQuote;
+}
+function currentAccountPaymentAmount(){return accountCouponQuote?Number(accountCouponQuote.final_amount_paise):Number(appState?.account?.price_paise||1500);}
 function renderAccount() {
   const a=appState?.account||{};
   document.body.classList.toggle('pilot-mode',!!a.enabled);
@@ -1024,8 +1033,14 @@ id('legacySetupForm').onsubmit=e=>{e.preventDefault();action(async()=>{
   id('legacySetupCode').value='';id('legacySetupPassword').value='';renderAccount();await refreshState();toast('Password created and signed in');
 });};
 id('paymentCoupon').oninput=()=>{accountCouponQuote=null;renderPurchaseQuote();};
-id('applyCoupon').onclick=()=>action(async()=>{const code=id('paymentCoupon').value.trim();if(!code){accountCouponQuote=null;renderPurchaseQuote();id('couponStatus').textContent='Enter a coupon code first.';return;}try{accountCouponQuote=await api('/account/coupon',{code});id('paymentCoupon').value=accountCouponQuote.code;renderPurchaseQuote();}catch(error){accountCouponQuote=null;renderPurchaseQuote();id('couponStatus').textContent=error.message;}});
-id('paymentForm').onsubmit=e=>{e.preventDefault();if(id('submitPayment').disabled)return;action(async()=>{id('submitPayment').disabled=true;try{appState.account=await api('/account/payment',{utr:id('paymentReference').value.trim(),coupon_code:id('paymentCoupon').value.trim()});id('paymentReference').value='';id('paymentCoupon').value='';accountCouponQuote=null;renderAccount();}catch(error){id('accountMessage').textContent=error.message;}finally{renderPurchaseQuote();}});};
+id('applyCoupon').onclick=()=>action(async()=>{try{await resolveAccountCoupon(true);}catch(error){accountCouponQuote=null;renderPurchaseQuote();id('couponStatus').textContent=error.message;}});
+id('paymentForm').onsubmit=e=>{e.preventDefault();action(async()=>{id('submitPayment').disabled=true;try{
+  if(id('paymentCoupon').value.trim())await resolveAccountCoupon();
+  else{accountCouponQuote=null;renderPurchaseQuote();}
+  const amount=currentAccountPaymentAmount(),utr=id('paymentReference').value.trim().replace(/\s/g,'').toUpperCase();
+  if(amount>0&&!/^[A-Z0-9]{8,40}$/.test(utr))throw new Error('Enter the UPI transaction reference from your payment app.');
+  appState.account=await api('/account/payment',{utr,coupon_code:id('paymentCoupon').value.trim()});id('paymentReference').value='';id('paymentCoupon').value='';accountCouponQuote=null;renderAccount();
+}catch(error){id('accountMessage').textContent=error.message;}finally{renderPurchaseQuote();}});};
 id("showApiKey").onclick=()=>{const show=id("apiKey").type==="password";id("apiKey").type=show?"text":"password";id("showApiKey").textContent=show?"Hide":"Show";id("showApiKey").setAttribute("aria-pressed",String(show));};
 id("clearApiKey").onclick=()=>action(async()=>{await api("/settings",{base_url:id("baseUrl").value.trim(),clear_key:true});await refreshState();id("apiKey").value="";id("keyHint").textContent="Key removed for this app session";id("clearApiKey").disabled=true;});
 id("removeRunCaps").onclick=()=>{["maxSteps","maxSeconds","maxTotalTokens","commandTimeout"].forEach(name=>id(name).value="");id("capsHint").textContent="All run caps cleared. Click Save connection to apply.";};

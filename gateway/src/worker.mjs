@@ -30,11 +30,12 @@ const sql = (env, query, ...args) => env.DB.prepare(query).bind(...args);
 const one = (env, query, ...args) => sql(env, query, ...args).first();
 const rows = async (env, query, ...args) => (await sql(env, query, ...args).all()).results;
 const json = (value, status = 200, headers = {}) => Response.json(value, {status, headers});
-function security(response) {
+function security(response,request) {
   const result = new Response(response.body, response);
+  const scratchPath=request&&new URL(request.url).pathname,scratchFrame=scratchPath==='/scratch'||scratchPath==='/scratch.html';
   Object.entries({'Cache-Control':'no-store','Referrer-Policy':'no-referrer',
-    'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
-    'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"})
+    'X-Content-Type-Options':'nosniff','X-Frame-Options':scratchFrame?'SAMEORIGIN':'DENY',
+    'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors "+(scratchFrame?"'self'":"'none'")+"; form-action 'self'"})
     .forEach(([key,value]) => result.headers.set(key,value));
   return result;
 }
@@ -520,5 +521,5 @@ export async function cleanup(env){
     sql(env,"UPDATE requests SET state='uncertain',note='Request interrupted before settlement; reconcile provider usage' WHERE state='inflight' AND created<?",stamp-600)
   ]);
 }
-export default {async scheduled(event,env,ctx){ctx.waitUntil(cleanup(env));},async fetch(request,env){try{return security(await route(request,env));}
-  catch(error){return security(json({error:error instanceof HttpError?error.message:'The service could not finish this request. Try again or contact the admin.'},error.status||500));}}};
+export default {async scheduled(event,env,ctx){ctx.waitUntil(cleanup(env));},async fetch(request,env){try{return security(await route(request,env),request);}
+  catch(error){return security(json({error:error instanceof HttpError?error.message:'The service could not finish this request. Try again or contact the admin.'},error.status||500),request);}}};

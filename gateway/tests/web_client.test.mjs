@@ -73,6 +73,16 @@ test('browser signup receipt is in admin before payment; polling shows approved 
   await f.timers[0]();assert.equal(f.run('state.account.ready'),true);assert.equal(f.el('accountBalance').textContent,'1,000,000');
 });
 
+test('typing a free coupon and submitting needs no Apply click or UPI reference',async t=>{
+  const f=await fixture(t);await f.signup();await f.login();
+  const created=await f.call('/api/admin/coupons',{code:'FREEUI',bonus_tokens:0,discount_paise:1500,max_uses:1,one_per_account:true},null,true);
+  assert.equal(created.status,201);
+  f.el('paymentCoupon').value='FREEUI';f.el('paymentCoupon').oninput();f.el('paymentReference').value='';
+  await f.el('paymentForm').onsubmit({preventDefault(){}});
+  const payment=f.env.DB.db.prepare('SELECT amount_paise,utr FROM payments_v2').get();
+  assert.equal(payment.amount_paise,0);assert.match(payment.utr,/^FREE/);
+  assert.equal(f.run('state.account.payments[0].amount_paise'),0);
+});
 test('a lost signup response retries the same saved identity without creating another account',async t=>{
   const f=await fixture(t),fetch=f.context.fetch;let drop=true;
   f.context.fetch=async(path,opts)=>{const response=await fetch(path,opts);if(path==='/api/enroll'&&drop){drop=false;throw Error('Connection interrupted');}return response;};

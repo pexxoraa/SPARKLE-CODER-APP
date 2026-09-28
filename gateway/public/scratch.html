@@ -95,7 +95,7 @@
         <h3 id="purchaseTitle">Add 1,000,000 tokens · ₹15.00</h3>
         <p id="purchaseInstructions">Pay ₹15.00 only after checking the recipient details below. Credits appear after the admin verifies the purchase.</p>
         <div id="upiPaymentBlock" class="upi-payment-block"><div id="upiQr" class="upi-qr" aria-label="UPI payment QR code"></div><span class="upi-caption">Scan to pay</span><div class="upi-id-row"><span>UPI ID</span><strong id="upiId">—</strong><button id="copyUpi" class="button secondary" type="button">Copy</button></div><p class="hint">Recipient: <strong id="payeeName">—</strong></p></div>
-        <form id="paymentForm">
+        <form id="paymentForm" novalidate>
           <label>Coupon code <span>(optional)</span><input id="paymentCoupon" maxlength="32" autocomplete="off"></label>
           <div class="dialog-actions"><button id="applyCoupon" class="button secondary" type="button">Apply coupon</button></div>
           <p id="couponStatus" class="hint"></p>

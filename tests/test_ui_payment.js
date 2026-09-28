@@ -20,11 +20,16 @@ assert.ok(index.includes('/qrcode.js'));
 assert.ok(scratchHtml.includes('/qrcode.js'));
 assert.ok(app.includes("id('upiPaymentBlock').hidden=free||!configured"));
 assert.ok(app.includes("id('paymentReferenceRow').hidden=free||!configured"));
+assert.ok(app.includes("quotePending"));
+assert.ok(app.includes("resolveAccountCoupon"));
+assert.ok(app.includes("Check coupon and continue"));
 assert.ok(app.includes("Submit ₹0 coupon for review"));
 assert.ok(app.includes("No UPI payment or transaction reference is needed"));
 assert.ok(app.includes("<strong id=\"payUpiId\">—</strong>"));
 assert.ok(scratchJs.includes('$("upiPaymentBlock").hidden=free||!configured'));
 assert.ok(scratchJs.includes('$("paymentReferenceRow").hidden=free||!configured'));
+assert.ok(scratchJs.includes('resolveCouponQuote'));
+assert.ok(scratchJs.includes('Check coupon and continue'));
 assert.ok(scratchJs.includes('Submit ₹0 coupon for review'));
 assert.ok(scratchHtml.indexOf('id="upiQr"') < scratchHtml.indexOf('id="upiId"'));
 

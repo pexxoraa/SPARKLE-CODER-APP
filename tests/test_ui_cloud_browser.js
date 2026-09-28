@@ -8,7 +8,7 @@ assert.match(agent,/id="cloudWorkspaceMode"[^>]*>Cloud</);
 assert.match(agent,/id="browserWorkspaceMode"[^>]*>Browser files</);
 assert.match(agent,/id="topAccountButton"[^>]*>Account</);
 assert.match(agent,/id="browserWorkspacePanel"/);
-assert.match(agent,/src="\/scratch\.html\?embedded=1"/);
+assert.match(agent,/src="\/scratch\?embedded=1"/);
 assert.doesNotMatch(agent,/Open browser scratch files/);
 assert.doesNotMatch(agent,/Cloud workspace · files and saved tasks stay with your account/);
 assert.doesNotMatch(agent,/Retry cloud/);

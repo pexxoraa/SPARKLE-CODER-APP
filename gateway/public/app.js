@@ -178,11 +178,12 @@ function renderUpiQr(target,upi,payee,amount){target.replaceChildren();if(!upi||
 function renderPurchaseQuote(){
   const a=state.account||state.info||{},info=state.info||{},quote=state.couponQuote,base=Number(a.price_paise||info.price_paise||1500),credits=Number(a.credit_tokens||info.credit_tokens||1000000);
   const amount=quote?Number(quote.final_amount_paise):base,bonus=quote?Number(quote.bonus_tokens||0):0,discount=quote?Number(quote.discount_paise||0):0;
+  const typedCode=$("paymentCoupon")?.value.trim()||"",quotePending=Boolean(typedCode)&&(!quote||quote.code!==typedCode.toUpperCase());
   const upi=a.upi_id||info.upi_id||"",payee=a.payee_name||info.payee_name||"",configured=Boolean(upi&&payee),free=amount===0;
   $("purchaseTitle").textContent=`Add ${(credits+bonus).toLocaleString()} tokens · ${money(amount)}`;
   $("purchaseInstructions").textContent=free?"This coupon covers the full price. No UPI payment or transaction reference is needed. Submit the ₹0 coupon claim for admin review.":configured?`Scan the QR code with any UPI app, or pay the UPI ID shown below.`:"UPI payment details are not configured. You can still apply a coupon that reduces the price to ₹0.";
-  $("upiPaymentBlock").hidden=free||!configured;$("paymentReferenceRow").hidden=free||!configured;$("paymentReference").required=!free&&configured;
-  $("paymentButton").disabled=!free&&!configured;$("paymentButton").textContent=free?"Submit ₹0 coupon for review":"Submit purchase";
+  $("upiPaymentBlock").hidden=free||!configured;$("paymentReferenceRow").hidden=free||!configured;$("paymentReference").required=!free&&configured&&!quotePending;
+  $("paymentButton").disabled=!free&&!configured&&!quotePending;$("paymentButton").textContent=free?"Submit ₹0 coupon for review":quotePending?"Check coupon and continue":"Submit purchase";
   $("upiId").textContent=upi||"Not configured";$("payeeName").textContent=payee||"Not configured";renderUpiQr($("upiQr"),upi,payee,free?0:amount);
   $("couponStatus").textContent=quote?`Coupon ${quote.code}: ${money(discount)} off${bonus?" + "+bonus.toLocaleString()+" bonus tokens":""}${quote.expires?" · expires "+new Date(quote.expires*1000).toLocaleString():""}.`:"";
 }
@@ -264,15 +265,24 @@ async function setupLegacyPassword(event){
     $("legacySetupCode").value="";$("legacySetupPassword").value="";renderAccount();toast("Password created and signed in");
   }catch(error){$("accountMessage").textContent=safeError(error);}
 }
+async function resolveCouponQuote(requireCode=false){
+  const code=$("paymentCoupon").value.trim();
+  if(!code){state.couponQuote=null;renderPurchaseQuote();if(requireCode)$("couponStatus").textContent="Enter a coupon code first.";return null;}
+  if(state.couponQuote?.code===code.toUpperCase())return state.couponQuote;
+  state.couponQuote=await authApi("/api/coupons/quote",{method:"POST",body:JSON.stringify({code})});$("paymentCoupon").value=state.couponQuote.code;renderPurchaseQuote();return state.couponQuote;
+}
 async function applyCoupon(){
-  const code=$("paymentCoupon").value.trim();if(!code){state.couponQuote=null;renderPurchaseQuote();$("couponStatus").textContent="Enter a coupon code first.";return;}
-  try{state.couponQuote=await authApi("/api/coupons/quote",{method:"POST",body:JSON.stringify({code})});$("paymentCoupon").value=state.couponQuote.code;renderPurchaseQuote();}
+  try{await resolveCouponQuote(true);}
   catch(error){state.couponQuote=null;renderPurchaseQuote();$("couponStatus").textContent=safeError(error);}
 }
+function currentPaymentAmount(){const a=state.account||state.info||{},info=state.info||{};return state.couponQuote?Number(state.couponQuote.final_amount_paise):Number(a.price_paise||info.price_paise||1500);}
 async function submitPayment(event){
   event.preventDefault();if(state.paying)return;state.paying=true;$("paymentButton").disabled=true;
   try{
-    const receipt=await authApi("/api/payments",{method:"POST",body:JSON.stringify({utr:$("paymentReference").value.trim(),coupon_code:$("paymentCoupon").value.trim()})});
+    if($("paymentCoupon").value.trim())await resolveCouponQuote();else{state.couponQuote=null;renderPurchaseQuote();}
+    const amount=currentPaymentAmount(),utr=$("paymentReference").value.trim().replace(/\s/g,"").toUpperCase();
+    if(amount>0&&!/^[A-Z0-9]{8,40}$/.test(utr))throw new Error("Enter the UPI transaction reference from your payment app.");
+    const receipt=await authApi("/api/payments",{method:"POST",body:JSON.stringify({utr,coupon_code:$("paymentCoupon").value.trim()})});
     if(typeof receipt.id!=="string"||!['pending','approved','rejected'].includes(receipt.status))throw new Error("Server did not confirm the payment reference. Retry the same reference.");
     $("paymentReference").value="";$("paymentCoupon").value="";state.couponQuote=null;renderPurchaseQuote();
     const message=`Purchase received (${receipt.status}). Amount: ${money(receipt.amount_paise)}. Receipt: ${receipt.id}`;
