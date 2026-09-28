@@ -98,6 +98,36 @@ class EfficiencyTests(unittest.TestCase):
             self.assertIn('web_search',names)
             self.assertIn('read_web_page',names)
 
+    def test_old_saved_profile_is_reclassified_under_current_efficiency_rules(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace=Workspace(Path(temporary));config=Config()
+            session=Session.create(workspace,'build a static website for a luxurious hotel',[],config.public_info())
+            session.state['task_profile']={'name':'standard'}
+            session.save()
+            agent=Agent(workspace,session,config,None,lambda _:True,emit=lambda _:None)
+            self.assertEqual(agent.task_profile['name'],'simple_web')
+            self.assertEqual(agent.task_profile['version'],2)
+            names={item['function']['name'] for item in agent.schemas}
+            self.assertNotIn('web_search',names)
+            self.assertNotIn('read_web_page',names)
+
+    def test_ask_mode_only_carries_web_schemas_when_the_question_needs_web(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace=Workspace(Path(temporary));config=Config()
+            session=Session.create(workspace,'explain this function',[],config.public_info())
+            session.state['task_mode']='ask'
+            session.save()
+            agent=Agent(workspace,session,config,None,lambda _:True,emit=lambda _:None)
+            names={item['function']['name'] for item in agent.schemas}
+            self.assertNotIn('web_search',names)
+            session2=Session.create(workspace,'search the latest official Python docs',[],config.public_info())
+            session2.state['task_mode']='ask'
+            session2.save()
+            agent2=Agent(workspace,session2,Config(),None,lambda _:True,emit=lambda _:None)
+            names2={item['function']['name'] for item in agent2.schemas}
+            self.assertIn('web_search',names2)
+            self.assertIn('read_web_page',names2)
+
     def test_plain_site_verification_rechecks_edits_without_commands(self):
         with tempfile.TemporaryDirectory() as temporary:
             workspace=Workspace(Path(temporary));config=Config()

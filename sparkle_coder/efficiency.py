@@ -4,6 +4,8 @@ import json
 import re
 
 
+PROFILE_VERSION = 2
+
 SIMPLE_TOOL_NAMES = frozenset({
     "inspect_static_site", "inspect_setup", "request_input", "list_files", "read_file",
     "search_files", "write_file", "edit_file", "delete_file", "verify", "update_delivery",
@@ -39,14 +41,14 @@ def task_profile(goal, *, has_project_brief=False):
     """Choose a conservative hard budget only for clearly small requests."""
     text = " ".join(str(goal or "").split())
     if not text or len(text) > 400 or has_project_brief or _COMPLEX_TASK.search(text):
-        return {"name": "standard"}
+        return {"version": PROFILE_VERSION, "name": "standard"}
     if _MICRO_TASK.search(text):
-        return {"name": "micro", "max_steps": 5, "max_total_tokens": 24000,
+        return {"version": PROFILE_VERSION, "name": "micro", "max_steps": 5, "max_total_tokens": 24000,
                 "max_tokens": 3072, "context_chars": 12000}
     if _SIMPLE_WEB.search(text):
-        return {"name": "simple_web", "max_steps": 6, "max_total_tokens": 40000,
+        return {"version": PROFILE_VERSION, "name": "simple_web", "max_steps": 6, "max_total_tokens": 40000,
                 "max_tokens": 6144, "context_chars": 14000}
-    return {"name": "standard"}
+    return {"version": PROFILE_VERSION, "name": "standard"}
 
 
 def preview(text, limit):

@@ -10,7 +10,7 @@ import sys
 import time
 
 from .provider import ModelError
-from .efficiency import SIMPLE_TOOL_NAMES, WEB_TOOL_NAMES, compact_group, needs_web, task_profile
+from .efficiency import PROFILE_VERSION, SIMPLE_TOOL_NAMES, WEB_TOOL_NAMES, compact_group, needs_web, task_profile
 from .explanations import check_title, explain_checks, simple_recovery
 from .verification import active_checks, proof_summary
 from .state import now
@@ -100,14 +100,14 @@ class Agent:
                              self.observe, self.checkpoint, approve_edit)
         self.failures = {}
         profile = session.state.get("task_profile")
-        if not isinstance(profile, dict) or "name" not in profile:
+        if not isinstance(profile, dict) or profile.get("version") != PROFILE_VERSION or "name" not in profile:
             brief = session.state.get("project_brief") or {}
             requests = session.state.get("user_requests", [session.state.get("goal", "")])
             has_brief = bool(session.state.get("requirements") or brief.get("purpose") or brief.get("constraints")
                              or len(requests) > 1)
             profile = (task_profile(requests[-1], has_project_brief=has_brief)
                        if config.efficiency == "efficient" and session.state.get("task_mode") != "ask"
-                       else {"name": "standard"})
+                       else {"version": PROFILE_VERSION, "name": "standard"})
             session.state["task_profile"] = profile
             session.save()
         self.task_profile = profile
@@ -118,10 +118,10 @@ class Agent:
                 setattr(config, field, min(current, limit) if current is not None else limit)
             config.max_tokens = min(config.max_tokens, profile["max_tokens"])
             config.context_chars = min(config.context_chars, profile["context_chars"])
+        goal_text = " ".join(session.state.get("user_requests", [session.state.get("goal", "")])[-2:])
         if session.state.get("task_mode") == "ask":
-            allowed = READ_ONLY_TOOLS
+            allowed = READ_ONLY_TOOLS if needs_web(goal_text) else (READ_ONLY_TOOLS - WEB_TOOL_NAMES)
         elif profile.get("name") != "standard":
-            goal_text = " ".join(session.state.get("user_requests", [session.state.get("goal", "")])[-2:])
             allowed = SIMPLE_TOOL_NAMES | (WEB_TOOL_NAMES if needs_web(goal_text) else frozenset())
         else:
             allowed = None
