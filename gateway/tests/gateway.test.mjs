@@ -27,16 +27,13 @@ function fixture(){
  const infer=(id='request_1234567890',data=payload,options={})=>api('/v1/chat/completions',data,{...options,extra:{'Idempotency-Key':id}});
  return {env,api,enroll,login,approve,infer,device,payload,get calls(){return calls;}};
 }
-test('only the embedded scratch page allows same-origin framing',async()=>{
+test('public pages refuse framing',async()=>{
  const f=fixture();
- for(const path of ['/scratch?embedded=1','/scratch.html?embedded=1']){
-  const scratch=await worker.fetch(new Request('https://sparkle.example'+path),f.env);
-  assert.equal(scratch.headers.get('X-Frame-Options'),'SAMEORIGIN');
-  assert.match(scratch.headers.get('Content-Security-Policy'),/frame-ancestors 'self'/);
+ for(const path of ['/','/scratch','/scratch.html']){
+  const response=await worker.fetch(new Request('https://sparkle.example'+path),f.env);
+  assert.equal(response.headers.get('X-Frame-Options'),'DENY');
+  assert.match(response.headers.get('Content-Security-Policy'),/frame-ancestors 'none'/);
  }
- const root=await worker.fetch(new Request('https://sparkle.example/'),f.env);
- assert.equal(root.headers.get('X-Frame-Options'),'DENY');
- assert.match(root.headers.get('Content-Security-Policy'),/frame-ancestors 'none'/);
 });
 test('registration, manual payment approval, exact credit pack and no double credit',async()=>{
  const f=fixture(),id=await f.approve();let me=(await f.api('/api/me')).body;

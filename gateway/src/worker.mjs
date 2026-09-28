@@ -32,10 +32,9 @@ const rows = async (env, query, ...args) => (await sql(env, query, ...args).all(
 const json = (value, status = 200, headers = {}) => Response.json(value, {status, headers});
 function security(response,request) {
   const result = new Response(response.body, response);
-  const scratchPath=request&&new URL(request.url).pathname,scratchFrame=scratchPath==='/scratch'||scratchPath==='/scratch.html';
   Object.entries({'Cache-Control':'no-store','Referrer-Policy':'no-referrer',
-    'X-Content-Type-Options':'nosniff','X-Frame-Options':scratchFrame?'SAMEORIGIN':'DENY',
-    'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors "+(scratchFrame?"'self'":"'none'")+"; form-action 'self'"})
+    'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
+    'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"})
     .forEach(([key,value]) => result.headers.set(key,value));
   return result;
 }
