@@ -107,20 +107,21 @@ id("app").innerHTML = `
             <section id="repairPanel" class="delivery-panel" aria-label="Repair history" hidden></section>
           </div>
           <div id="approvalCard" class="approval-card" hidden>
-            <div class="approval-heading"><span data-icon="shield"></span><strong id="approvalTitle">Permission to run a command</strong></div>
-            <p id="approvalDescription">This command runs with your configured permissions and may change files. Review it before allowing.</p>
-            <p id="approvalPurpose" class="approval-purpose" hidden></p><details id="approvalDetails"><summary>View the exact command or file changes</summary><pre id="approvalCommand"></pre></details>
-            <div class="approval-actions"><button id="denyCommand" class="button secondary">Deny</button><button id="allowCommand" class="button primary">Allow once</button></div>
+            <div class="approval-heading"><span data-icon="shield"></span><strong id="approvalTitle">SPARKLE needs your permission</strong></div>
+            <p id="approvalDescription">SPARKLE wants to do one protected action for this task. Nothing will happen until you choose.</p>
+            <p id="approvalPurpose" class="approval-purpose" hidden></p><details id="approvalDetails"><summary>Technical details</summary><pre id="approvalCommand"></pre></details>
+            <div class="approval-help"><span class="approval-safety"><strong>Why am I seeing this?</strong> This is SPARKLE’s safety check before a protected project action — not a browser or terminal permission.</span><span><strong>Allow this time</strong> lets SPARKLE do only this action.</span><span><strong>Don’t allow</strong> skips it and keeps your project unchanged by this action.</span></div>
+            <div class="approval-actions"><button id="denyCommand" class="button secondary">Don’t allow</button><button id="allowCommand" class="button primary">Allow this time</button></div>
           </div>
           <form id="taskForm" class="composer">
             <div class="task-mode-row"><label for="taskMode">Mode</label><select id="taskMode"><option value="build">Build</option><option value="ask">Ask</option></select><label for="efficiencyMode">Effort</label><select id="efficiencyMode"><option value="efficient">Fast</option><option value="thorough">Thorough</option></select><span id="runBudgetLabel">Unlimited run</span></div>
             <label class="sr-only" for="goal">Task for SPARKLE</label>
             <textarea id="goal" rows="3" maxlength="12000" placeholder="Describe what you want to build or change…"></textarea>
             <div id="verificationFields" class="verification-fields" hidden><label for="verifyCommands">Required checks <span>One command per line</span></label><textarea id="verifyCommands" rows="2" placeholder="For example: python3 -m unittest discover -s tests -v"></textarea><p>These checks run automatically when the agent proposes completion.</p></div>
-            <div class="supervision-choice"><label><input type="checkbox" id="reviewEdits"> Review each file edit</label><span>Command approvals remain on</span></div><div class="composer-toolbar"><button type="button" id="modelButton" class="model-button"><span data-icon="bolt"></span><span id="modelName">SPARKLE Core</span><span class="chevron">⌄</span></button><button type="button" id="toggleChecks" class="text-button"><span data-icon="check"></span><span>Checks</span></button><span class="composer-spacer"></span><button type="button" id="pauseButton" class="button secondary" hidden>Pause</button><button type="button" id="stopButton" class="button danger" hidden><span data-icon="stop"></span>Stop</button><button type="submit" id="runButton" class="button primary">Run agent<span data-icon="arrow"></span></button></div>
+            <div class="supervision-choice"><label><input type="checkbox" id="reviewEdits"> Review each file edit</label><span>SPARKLE will still ask before protected actions</span></div><div class="composer-toolbar"><button type="button" id="modelButton" class="model-button"><span data-icon="bolt"></span><span id="modelName">SPARKLE Core</span><span class="chevron">⌄</span></button><button type="button" id="toggleChecks" class="text-button"><span data-icon="check"></span><span>Checks</span></button><span class="composer-spacer"></span><button type="button" id="pauseButton" class="button secondary" hidden>Pause</button><button type="button" id="stopButton" class="button danger" hidden><span data-icon="stop"></span>Stop</button><button type="submit" id="runButton" class="button primary">Run agent<span data-icon="arrow"></span></button></div>
           </form>
           <div id="taskError" class="inline-result" role="alert" hidden></div>
-          <div class="composer-note"><span id="taskNote">Files stay in your project. Commands need your approval.</span><span class="keyboard-hint">Ctrl / ⌘ + Enter</span></div>
+          <div class="composer-note"><span id="taskNote">Files stay in your project. SPARKLE asks before protected actions.</span><span class="keyboard-hint">Ctrl / ⌘ + Enter</span></div>
         </div>
         <div id="filesView" class="page-view files-view" hidden>
           <div class="view-heading"><div><span class="eyebrow" id="fileLocation">ON YOUR DEVICE</span><h1>Project files</h1></div><button id="openProjectFolder" class="button secondary">Open folder ↗</button></div>
@@ -423,15 +424,17 @@ function renderControls() {
   id("runStatus").textContent=currentRun?.mode==="demo" && working ? "Demo · "+friendly(status) : friendly(status);
   id("runStatus").className="status-badge "+(status||"");
   id("undoButton").disabled=!!working || !currentSession?.changed_files?.length || currentSession?.undone;
-  id("taskNote").textContent=working ? (currentRun.status==="stopping" ? "Stopping commands; an in-flight model request may need to finish." : currentRun.mode==="demo" ? "Offline demo · scripted responses, real file edits and tests." : "Working in your project. You can stop the task at any time.") : "Files stay in your project. Commands need your approval.";
+  id("taskNote").textContent=working ? (currentRun.status==="stopping" ? "Stopping commands; an in-flight model request may need to finish." : currentRun.mode==="demo" ? "Offline demo · scripted responses, real file edits and tests." : "Working in your project. You can stop the task at any time.") : "Files stay in your project. SPARKLE asks before protected actions.";
   id("goal").placeholder=currentSession ? "Give this task a follow-up, or continue where it stopped…" : "Describe what you want to build or change…";
   id("approvalCard").hidden=!(currentRun?.approval && currentRun.status==="approval");
   if(currentRun?.approval) {
     const a=currentRun.approval, editing=a.kind==="file edit";
-    id("approvalPurpose").hidden=!a.purpose;id("approvalPurpose").textContent=a.purpose?"Why this step: "+a.purpose:"";
+    id("approvalPurpose").hidden=!a.purpose;id("approvalPurpose").textContent=a.purpose?"Why SPARKLE wants this: "+a.purpose:"";
     if(id("approvalDetails").dataset.approval!==a.id){id("approvalDetails").dataset.approval=a.id;id("approvalDetails").open=editing;}
-    id("approvalTitle").textContent=editing?"Review file edit: "+a.path:"Permission to run a command";
-    id("approvalDescription").textContent=editing?(a.truncated?"Preview is truncated. Deny and request a smaller edit for a complete review.":"Review the proposed diff. Allow once applies this edit."):"This command runs with your configured permissions and may change files. Review it before allowing.";
+    id("approvalTitle").textContent=editing?"Review this file change":"SPARKLE needs your permission";
+    id("approvalDescription").textContent=editing
+      ?(a.truncated?"This preview is too large to show completely. Don’t allow it unless you are comfortable with the partial preview.":"SPARKLE wants to change "+a.path+". Review the preview below before deciding.")
+      :"SPARKLE wants to run one project command. It may read files, test your project, or make changes depending on the command. Nothing will run until you allow it.";
     id("approvalCommand").textContent=editing?a.diff:a.command;
   }
   renderSupervision();
