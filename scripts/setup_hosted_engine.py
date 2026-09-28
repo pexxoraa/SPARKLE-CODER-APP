@@ -13,6 +13,8 @@ import subprocess
 import sys
 import urllib.request
 import urllib.error
+import re
+from urllib.parse import urlsplit
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -40,6 +42,23 @@ def read_config():
     if type(value.get('max_running',1)) is not int or not 1<=value.get('max_running',1)<=3:
         raise ValueError('Use 1–3 concurrent runs.')
     return value
+
+
+def sync_gateway_pairing(engine,config):
+    # A workers.dev account subdomain can change while the Worker name stays the same.
+    deployment=OWNER/'deployment.json'
+    if not deployment.exists():return engine,False
+    deployed=https_origin(json.loads(deployment.read_text())['gateway_url'])
+    if deployed==engine['gateway_url']:return engine,False
+    worker=str(config.get('name','')).strip()
+    def same_worker(value):
+        host=(urlsplit(https_origin(value)).hostname or '').lower()
+        return bool(worker and re.fullmatch(re.escape(worker)+r'\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.workers\.dev',host))
+    if not same_worker(engine['gateway_url']) or not same_worker(deployed):
+        raise ValueError('This owner configuration points to a different Worker than the engine. No cloud changes were made.')
+    updated={**engine,'gateway_url':deployed}
+    save(ENGINE,updated)
+    return updated,True
 
 
 def initialize(gateway,max_running=1):
@@ -73,9 +92,7 @@ def connect(origin):
     path=OWNER/'wrangler.json'
     if not path.exists():raise ValueError('Keep the existing gateway/.owner/wrangler.json from owner setup. Do not create a new database.')
     config=json.loads(path.read_text())
-    deployment=OWNER/'deployment.json'
-    if deployment.exists() and https_origin(json.loads(deployment.read_text())['gateway_url'])!=engine['gateway_url']:
-        raise ValueError('This owner configuration points to a different Worker than the engine. No cloud changes were made.')
+    engine,gateway_changed=sync_gateway_pairing(engine,config)
     binding=config['d1_databases'][0]
     if not binding.get('database_id') or binding['database_id']=='REPLACE_AFTER_DATABASE_CREATE':
         raise ValueError('Finish the existing Worker/D1 setup first.')
@@ -101,13 +118,14 @@ def connect(origin):
             health=json.loads(response.read(8192))
     except (urllib.error.URLError,TimeoutError) as error:
         print('Worker deployed and HTTPS engine verified. The public Worker health check could not be confirmed ('+type(error).__name__+'). Verify the app in your browser.')
-        return
+        return gateway_changed
     if health.get('version')!='0.8.0' or health.get('engine_configured') is not True:
         save(OWNER/'engine-deployment.json',{'gateway_url':url,'engine_origin':origin,'deployed':False,'health_verified':False})
         raise ValueError('Worker deployed but the engine binding was not confirmed. Keep this configuration and retry connect.')
     save(OWNER/'engine-deployment.json',{'gateway_url':url,'engine_origin':origin,'deployed':True,'health_verified':True})
     print('Full cloud interface deployed: '+url)
     print('Engine health and Worker configuration verified. Open an approved account and run the smoke test in HOSTED_ENGINE.md.')
+    return gateway_changed
 
 
 def main(argv=None):

@@ -63,6 +63,26 @@ class HostedSetupTests(unittest.TestCase):
         self.assertNotIn(secret,self.output.getvalue());self.assertNotIn(secret,(self.owner/'wrangler.json').read_text())
         self.assertEqual(command.call_count,2)
 
+    def test_same_worker_workers_dev_subdomain_change_is_synchronized(self):
+        old_url='https://saved-pilot.sparklecoder.workers.dev'
+        new_url='https://saved-pilot.blindrobots.workers.dev'
+        setup.initialize(old_url);self.owner_config()
+        (self.owner/'deployment.json').write_text(json.dumps({'gateway_url':new_url}))
+        response=io.BytesIO(json.dumps({'ok':True,'version':'0.8.0','engine_configured':True}).encode())
+        with patch.object(setup,'check_engine'),patch.object(setup,'run_wrangler'),\
+                patch.object(setup.subprocess,'run'),patch.object(setup,'deploy_worker',return_value=new_url),\
+                patch.object(setup.urllib.request,'urlopen',return_value=response):
+            changed=setup.connect('https://engine.example')
+        self.assertTrue(changed)
+        self.assertEqual(setup.read_config()['gateway_url'],new_url)
+
+    def test_different_worker_name_is_still_rejected(self):
+        setup.initialize('https://saved-pilot.sparklecoder.workers.dev');self.owner_config()
+        (self.owner/'deployment.json').write_text(json.dumps({'gateway_url':'https://other-pilot.blindrobots.workers.dev'}))
+        with patch.object(setup,'check_engine') as check:
+            with self.assertRaisesRegex(ValueError,'different Worker'):setup.connect('https://engine.example')
+        check.assert_not_called()
+
     def test_invalid_origins_and_redirects_do_not_forward_secret(self):
         for value in ('http://engine.example','https://user:pass@engine.example','https://engine.example/path'):
             with self.assertRaises(ValueError):setup.https_origin(value)

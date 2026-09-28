@@ -22,7 +22,8 @@ class TunnelRecoveryTests(unittest.TestCase):
         self.stack.enter_context(patch.object(recovery.setup,'read_config',return_value={'relay_secret':'R'*64}))
         self.clock=self.stack.enter_context(patch.object(recovery.time,'time',return_value=1000))
         self.restart=self.stack.enter_context(patch.object(recovery.subprocess,'run'))
-        self.connect=self.stack.enter_context(patch.object(recovery.setup,'connect'))
+        self.connect=self.stack.enter_context(patch.object(recovery.setup,'connect'));self.connect.return_value=False
+        self.sync=self.stack.enter_context(patch.object(recovery.setup,'sync_gateway_pairing',side_effect=lambda engine,config:(engine,False)))
         self.health=self.stack.enter_context(patch.object(recovery,'healthy',side_effect=lambda url,secret:url=='http://127.0.0.1:8788'))
 
     def test_expired_tunnel_restarts_after_three_failures_then_publishes_new_origin(self):
@@ -55,6 +56,16 @@ class TunnelRecoveryTests(unittest.TestCase):
         self.clock.return_value=1121;self.connect.side_effect=None
         self.assertEqual(recovery.recover()['status'],'reconnected')
         self.assertEqual(self.connect.call_count,2)
+
+    def test_same_worker_gateway_update_restarts_hosted_engine_before_marking_healthy(self):
+        self.sync.side_effect=lambda engine,config:({**engine,'gateway_url':'https://saved-pilot.new.workers.dev'},True)
+        self.health.side_effect=lambda url,secret:url in ('http://127.0.0.1:8788',self.old)
+        (self.owner/'engine-deployment.json').write_text(json.dumps({'engine_origin':self.old,'deployed':True}))
+        result=recovery.recover()
+        self.assertEqual(result['status'],'healthy');self.assertFalse(result['engine_restart_needed'])
+        self.restart.assert_called_once()
+        self.assertIn('sparkle-hosted-engine.service',self.restart.call_args.args[0])
+        self.connect.assert_not_called()
 
     def test_log_cannot_supply_arbitrary_origins(self):
         self.assertIsNone(recovery.latest_origin('https://attacker.example\nhttp://localhost:9000'))

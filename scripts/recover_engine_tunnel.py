@@ -43,6 +43,23 @@ def recover():
     if not healthy('http://127.0.0.1:8788',secret):
         return finish('local engine unavailable')
     config=json.loads((owner/'wrangler.json').read_text())
+    try:engine,gateway_changed=setup.sync_gateway_pairing(engine,config)
+    except (OSError,ValueError,KeyError):
+        return finish('gateway pairing mismatch; owner configuration needs attention')
+    if gateway_changed:state['engine_restart_needed']=True
+    if state.get('engine_restart_needed'):
+        env={**os.environ,'XDG_RUNTIME_DIR':f'/run/user/{os.getuid()}',
+             'DBUS_SESSION_BUS_ADDRESS':f'unix:path=/run/user/{os.getuid()}/bus'}
+        try:
+            subprocess.run(['systemctl','--user','restart','sparkle-hosted-engine.service'],
+                           env=env,check=True,timeout=30)
+        except (OSError,subprocess.SubprocessError):
+            return finish('gateway updated; hosted engine restart failed',engine_restart_needed=True)
+        for _ in range(30):
+            if healthy('http://127.0.0.1:8788',secret):break
+            time.sleep(1)
+        else:return finish('gateway updated; hosted engine restart pending',engine_restart_needed=True)
+        state['engine_restart_needed']=False;setup.save(status_path,state)
     current=config.get('vars',{}).get('ENGINE_ORIGIN')
     log_path=owner/'engine-tunnel.log'
     if not log_path.exists():return finish('tunnel log unavailable')
@@ -66,7 +83,10 @@ def recover():
     if target:
         if stamp-state.get('last_connect',0)<120:return finish('waiting before reconnect')
         state['last_connect']=stamp;setup.save(status_path,state)
-        try:setup.connect(target)
+        try:
+            gateway_changed=bool(setup.connect(target))
+            if gateway_changed:
+                state['engine_restart_needed']=True;setup.save(status_path,state)
         except (OSError,ValueError,subprocess.SubprocessError):
             return finish('publish failed; owner login or deployment needs attention')
         (owner/'pilot-origin.txt').write_text(target);(owner/'pilot-origin.txt').chmod(0o600)
