@@ -15,5 +15,8 @@ assert.doesNotMatch(agent,/Open browser scratch files/);
 assert.doesNotMatch(agent,/Use browser files here/);
 assert.match(agent,/id\("workspaceModeSwitch"\)\.hidden=false/);
 assert.match(agent,/id\("topAccountButton"\)\.onclick=openAccount/);
+assert.match(agent,/No cloud projects yet/);
+assert.match(agent,/appState\?\.account\?\.ready&&appState\?\.engine\?\.available/);
+assert.match(agent,/isCloud&&!\(appState\.account\?\.ready&&appState\.engine\?\.available\)/);
 
 console.log('Cloud workspace UI: only Cloud and Account are exposed; Browser files mode is removed.');

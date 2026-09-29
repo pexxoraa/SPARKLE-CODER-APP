@@ -322,7 +322,7 @@ function setTab(name) { tab = name; ["activity","changes","checks"].forEach(t =>
 
 function renderProjects() {
   id("projectSelect").replaceChildren();
-  if(!appState.projects.length){const option=node("option","",isCloud?"Cloud projects unavailable":"No project selected");option.value="";id("projectSelect").append(option);}
+  if(!appState.projects.length){const cloudReady=Boolean(appState?.account?.ready&&appState?.engine?.available);const label=isCloud?(cloudReady?"No cloud projects yet":"Cloud projects unavailable"):"No project selected";const option=node("option","",label);option.value="";id("projectSelect").append(option);}
   appState.projects.forEach(p => { const option = node("option","",p.name+(p.migration_pending?" (waiting to move)":p.available===false?" (folder not found)":"")); option.value=p.id; option.selected=p.id===projectId; id("projectSelect").append(option); });
   const project = appState.projects.find(p=>p.id===projectId);
   id("projectPath").textContent = project ? project.path : "";
@@ -436,7 +436,7 @@ function renderControls() {
   id("investigateSetup").disabled=!!working;
   id("reviewEdits").disabled=!!working||id("taskMode").value==="ask";
   id("stopButton").hidden=!working; id("stopButton").disabled=currentRun?.status==="stopping";
-  id("projectSelect").disabled=startingRun || !!working || transferBusy; id("addProject").disabled=startingRun||!!working||transferBusy||(isCloud&&!appState.engine?.available); id("newTask").disabled=startingRun||!!working||transferBusy;
+  id("projectSelect").disabled=startingRun || !!working || transferBusy; id("addProject").disabled=startingRun||!!working||transferBusy||(isCloud&&!(appState.account?.ready&&appState.engine?.available)); id("newTask").disabled=startingRun||!!working||transferBusy;
   id("findProjectFolder").disabled=!!working||transferBusy;
   id("showProjectMigration").disabled=!!working||transferBusy;
   const status=working ? currentRun.status : currentSession?.status;
