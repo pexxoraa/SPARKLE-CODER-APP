@@ -292,6 +292,35 @@ class CloudSetupTests(unittest.TestCase):
         self.assertEqual(json.loads((self.owner/'deployment.json').read_text())['gateway_url'],url)
         self.assertIn('Live release 0.8.0 verified',self.output.getvalue())
 
+    def test_web_redeploy_syncs_current_tunnel_and_same_worker_hostname_immediately(self):
+        previous=self.saved_config()
+        source=Path(__file__).resolve().parents[1]/'Deploy_Web_App.sh'
+        script=source.read_text().split("python3 - <<'PY'\n",1)[1].rsplit('\nPY',1)[0]
+        old_url='https://saved-pilot.oldacct.workers.dev'
+        new_url='https://saved-pilot.newacct.workers.dev'
+        tunnel='https://current-engine.trycloudflare.com'
+        setup_cloud.save(self.owner/'engine.json',{'gateway_url':old_url,'relay_secret':'R'*64,'image':'tools','max_running':1})
+        (self.owner/'engine-tunnel.log').write_text(tunnel+'\n')
+        class Opener:
+            def open(self,*args,**kwargs):
+                return io.BytesIO(b'{"ok":true,"service":"sparkle-hosted-engine","version":"0.8.0"}')
+        public=io.BytesIO(b'{"ok":true,"version":"0.8.0","engine_configured":true}')
+        with patch.dict(sys.modules,{'setup_cloud':setup_cloud}), \
+             patch.object(sys,'path',sys.path[:]), \
+             patch.object(setup_cloud,'deploy_worker',return_value=new_url), \
+             patch('urllib.request.build_opener',return_value=Opener()), \
+             patch.object(setup_cloud.urllib.request,'urlopen',return_value=public), \
+             patch('subprocess.run') as command:
+            exec(compile(script,str(source),'exec'),{})
+        saved=json.loads((self.owner/'wrangler.json').read_text())
+        self.assertEqual(saved['vars']['ENGINE_ORIGIN'],tunnel)
+        self.assertEqual(json.loads((self.owner/'engine.json').read_text())['gateway_url'],new_url)
+        receipt=json.loads((self.owner/'engine-deployment.json').read_text())
+        self.assertEqual(receipt['gateway_url'],new_url);self.assertEqual(receipt['engine_origin'],tunnel)
+        self.assertTrue(receipt['health_verified'])
+        self.assertTrue(any('sparkle-hosted-engine.service' in call.args[0] for call in command.call_args_list))
+        self.assertEqual(saved['d1_databases'][0]['database_id'],previous['d1_databases'][0]['database_id'])
+
     def test_cancelled_deploy_cannot_reuse_previous_saved_url(self):
         setup_cloud.save(self.owner/'deployment.json',{'gateway_url':'https://saved-pilot.old.workers.dev'})
         def cancelled(*args,**kwargs):

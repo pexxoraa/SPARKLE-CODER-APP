@@ -14,10 +14,15 @@ npm test
 echo "Deploying SPARKLE CODER web/PWA..."
 python3 - <<'PY'
 import json
+import os
 from pathlib import Path
+import re
 import shutil
+import subprocess
 import sys
+import time
 import urllib.request
+from urllib.parse import urlsplit
 
 sys.path.insert(0,str(Path.cwd().parent/'scripts'))
 from setup_cloud import ROOT, OWNER, save, run_wrangler, deploy_worker
@@ -31,10 +36,66 @@ if not binding.get('database_id') or binding['database_id']=='REPLACE_AFTER_DATA
 config['main']=str(ROOT/'gateway/src/worker.mjs')
 config['assets']['directory']=str(ROOT/'gateway/public')
 binding['migrations_dir']=str(ROOT/'gateway/migrations')
+
+# Temporary trycloudflare URLs can rotate independently of Worker deploys. Before
+# publishing, prefer the newest authenticated healthy tunnel so the new Worker is
+# never knowingly deployed with a stale ENGINE_ORIGIN.
+engine_path=OWNER/'engine.json';tunnel_log=OWNER/'engine-tunnel.log'
+engine=None;selected_engine_origin=None
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self,*args,**kwargs):raise ValueError('Engine health redirected.')
+def engine_healthy(origin,secret):
+    if not origin or not isinstance(secret,str) or len(secret)<43:return False
+    try:
+        request=urllib.request.Request(origin.rstrip('/')+'/healthz',headers={'X-Sparkle-Relay':secret})
+        with urllib.request.build_opener(NoRedirect).open(request,timeout=12) as response:
+            value=json.loads(response.read(8192))
+        return value.get('ok') is True and value.get('service')=='sparkle-hosted-engine' and value.get('version')=='0.8.0'
+    except Exception:return False
+if engine_path.exists():
+    engine=json.loads(engine_path.read_text())
+    secret=engine.get('relay_secret','')
+    candidate=None
+    if tunnel_log.exists():
+        with tunnel_log.open('rb') as stream:
+            stream.seek(max(0,tunnel_log.stat().st_size-262144))
+            matches=re.findall(rb'https://[a-z0-9-]+\.trycloudflare\.com\b',stream.read())
+        if matches:candidate=matches[-1].decode()
+    configured=config.get('vars',{}).get('ENGINE_ORIGIN')
+    if candidate and engine_healthy(candidate,secret):selected_engine_origin=candidate
+    elif configured and engine_healthy(configured,secret):selected_engine_origin=configured
+    if selected_engine_origin:
+        config.setdefault('vars',{})['ENGINE_ORIGIN']=selected_engine_origin
+    else:
+        print('Warning: no healthy hosted-engine tunnel was confirmed before deploy. The recovery timer will keep checking.',flush=True)
 save(OWNER/'wrangler.json',config)
 command=[shutil.which('npx') or 'npx','--no-install','wrangler']
 url=deploy_worker(lambda *args,**kwargs:run_wrangler(command,*args,**kwargs),config['name'])
 save(OWNER/'deployment.json',{'gateway_url':url,'admin_url':url+'/admin'})
+
+# Wrangler may return the same Worker name under a different workers.dev account
+# subdomain. Synchronize only that safe same-name change, then restart the hosted
+# engine so its model gateway URL changes immediately instead of a minute later.
+gateway_changed=False
+if engine is not None:
+    worker=config.get('name','')
+    def same_worker(value):
+        try:host=(urlsplit(value).hostname or '').lower()
+        except Exception:return False
+        return bool(worker and re.fullmatch(re.escape(worker)+r'\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.workers\.dev',host))
+    old_gateway=engine.get('gateway_url','')
+    if old_gateway!=url:
+        if not same_worker(old_gateway) or not same_worker(url):
+            raise SystemExit('Deployment URL changed to a different Worker name. Hosted-engine pairing was not changed.')
+        engine={**engine,'gateway_url':url};save(engine_path,engine);gateway_changed=True
+    if gateway_changed and shutil.which('systemctl') and os.name!='nt':
+        service_env={**os.environ,'XDG_RUNTIME_DIR':f'/run/user/{os.getuid()}',
+                     'DBUS_SESSION_BUS_ADDRESS':f'unix:path=/run/user/{os.getuid()}/bus'}
+        subprocess.run(['systemctl','--user','restart','sparkle-hosted-engine.service'],env=service_env,check=True,timeout=30)
+        for _ in range(30):
+            if engine_healthy('http://127.0.0.1:8788',engine.get('relay_secret','')):break
+            time.sleep(1)
+        else:raise SystemExit('Worker deployed, but the hosted engine did not restart with the new gateway URL.')
 print('\nPublished: '+url+'\nAdmin: '+url+'/admin',flush=True)
 try:
     request=urllib.request.Request(url+'/healthz',headers={
@@ -47,6 +108,11 @@ except Exception as error:
     raise SystemExit('Deployment completed, but the live health check failed: '+str(error)+
                      '\nOpen the printed URL and check the deployment before inviting members.') from error
 print('Live release 0.8.0 verified. Reload the app and admin panel to receive the update.')
-if not health.get('engine_configured'):
+if health.get('engine_configured') and engine is not None and selected_engine_origin and engine_healthy(selected_engine_origin,engine.get('relay_secret','')):
+    save(OWNER/'engine-deployment.json',{'gateway_url':url,'engine_origin':selected_engine_origin,'deployed':True,'health_verified':True})
+    print('Cloud engine pairing verified for this deployment.')
+elif not health.get('engine_configured'):
     print('Full cloud projects need an owner-hosted engine. Follow HOSTED_ENGINE.md to connect it.')
+else:
+    print('Warning: Worker is deployed, but the hosted engine tunnel still needs recovery.',flush=True)
 PY
