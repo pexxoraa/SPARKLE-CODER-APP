@@ -198,17 +198,22 @@ The admin dashboard's **Test AI connection** sends a small, fixed diagnostic pro
 checks the real response and exact usage. It requires the existing admin session, is
 rate limited, and does not change member credits. Provider usage still occurs.
 
-For an owner-managed temporary tunnel using `sparkle-engine-tunnel.service`, run
-`python3 scripts/recover_engine_tunnel.py` once per minute with a user timer. It checks
-loopback before checking the public tunnel, restarts only that app's tunnel after three
-failed checks, and reconnects the existing Worker to the new authenticated origin.
-Deployments are serialized and retries are bounded. Private deployment receipts
-separate successful publishing from an unavailable public health check. This helper
-requires the existing owner Wrangler login and configuration; it creates no new database.
+For an owner-managed temporary tunnel using `sparkle-engine-tunnel.service`, prefer
+Cloudflared HTTP/2 transport (`--protocol http2`) and run
+`python3 scripts/recover_engine_tunnel.py` every 15 seconds with a user timer. It checks
+loopback before the public tunnel and restarts only that app's tunnel after two failed
+checks. When a quick-tunnel hostname changes, recovery publishes the new authenticated
+origin into D1 runtime configuration instead of rebuilding/redeploying the Worker. The
+browser retries Cloud state automatically every five seconds while an approved account
+is temporarily disconnected, so it reconnects without a manual refresh. Recovery is
+serialized and bounded; private deployment receipts track the currently verified origin.
 
-Temporary tunnel recovery cannot keep a sleeping or disconnected owner computer online.
-For continuous availability, use a persistent host and a stable HTTPS origin. Projects
-remain in `HOSTED_DATA` across tunnel and engine restarts.
+A quick `trycloudflare.com` tunnel is still an account-less Cloudflare service with no
+uptime guarantee. These changes remove the stale-Worker-origin failure mode and shorten
+temporary outages, but they cannot keep a sleeping/offline owner computer online or make
+a quick tunnel itself permanent. A Cloudflare named tunnel or another stable HTTPS
+origin remains the production option for a fixed hostname. Projects remain in
+`HOSTED_DATA` across tunnel and engine restarts.
 
 The production prompt failure was reproduced in workerd: `redirect: 'error'` is
 rejected by the Workers runtime before an outbound request is sent. Both the
