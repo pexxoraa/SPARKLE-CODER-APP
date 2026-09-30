@@ -87,6 +87,27 @@ def check_engine(origin,secret):
         raise ValueError('The address did not return the expected authenticated engine health check.')
 
 
+def publish_origin(origin):
+    origin=https_origin(origin);engine=read_config()
+    check_engine(origin,engine['relay_secret'])
+    payload=json.dumps({'origin':origin}).encode()
+    request=urllib.request.Request(engine['gateway_url']+'/api/internal/engine-origin',data=payload,method='POST',
+        headers={'Content-Type':'application/json','X-Sparkle-Relay':engine['relay_secret'],
+                 'User-Agent':'SPARKLE-CODER/0.8.0','Accept':'application/json'})
+    try:
+        with urllib.request.build_opener(NoRedirect).open(request,timeout=20) as response:
+            value=json.loads(response.read(8192))
+    except urllib.error.HTTPError as error:
+        raise ValueError('Worker refused the runtime engine update (HTTP '+str(error.code)+').') from None
+    if value.get('ok') is not True or https_origin(value.get('origin',''))!=origin:
+        raise ValueError('Worker did not confirm the runtime engine origin.')
+    path=OWNER/'wrangler.json'
+    if path.exists():
+        config=json.loads(path.read_text());config.setdefault('vars',{})['ENGINE_ORIGIN']=origin;save(path,config)
+    save(OWNER/'engine-deployment.json',{'gateway_url':engine['gateway_url'],'engine_origin':origin,'deployed':True,'health_verified':True})
+    return origin
+
+
 def connect(origin):
     origin=https_origin(origin);engine=read_config()
     path=OWNER/'wrangler.json'
@@ -109,8 +130,10 @@ def connect(origin):
     save(path,config)
     url=deploy_worker(lambda *args,**kwargs:run_wrangler(command,*args,**kwargs),config['name'])
     save(OWNER/'deployment.json',{'gateway_url':url,'admin_url':url+'/admin'})
-    # Record the successful publish separately from a client-specific health failure.
+    engine={**engine,'gateway_url':url};save(ENGINE,engine)
+    # Record the static binding first, then publish the same healthy origin into runtime D1.
     save(OWNER/'engine-deployment.json',{'gateway_url':url,'engine_origin':origin,'deployed':True,'health_verified':False})
+    publish_origin(origin)
     try:
         request=urllib.request.Request(url+'/healthz',headers={
             'User-Agent':'SPARKLE-CODER/0.8.0','Accept':'application/json'})

@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -60,7 +61,6 @@ def recover():
             time.sleep(1)
         else:return finish('gateway updated; hosted engine restart pending',engine_restart_needed=True)
         state['engine_restart_needed']=False;setup.save(status_path,state)
-    current=config.get('vars',{}).get('ENGINE_ORIGIN')
     log_path=owner/'engine-tunnel.log'
     if not log_path.exists():return finish('tunnel log unavailable')
     with log_path.open('rb') as stream:
@@ -75,24 +75,21 @@ def recover():
                 if found:candidate=found
     receipt_path=owner/'engine-deployment.json'
     receipt=json.loads(receipt_path.read_text()) if receipt_path.exists() else {}
+    current=receipt.get('engine_origin') if receipt.get('deployed') is True else config.get('vars',{}).get('ENGINE_ORIGIN')
     current_ok=current and healthy(current,secret)
-    published=receipt.get('deployed') is True and receipt.get('engine_origin')==current
-    if current_ok and published:
+    if current_ok:
         return finish('healthy',failures=0)
-    target=current if current_ok else candidate if candidate and healthy(candidate,secret) else None
+    target=candidate if candidate and healthy(candidate,secret) else None
     if target:
-        if stamp-state.get('last_connect',0)<120:return finish('waiting before reconnect')
+        if stamp-state.get('last_connect',0)<10:return finish('waiting before reconnect')
         state['last_connect']=stamp;setup.save(status_path,state)
-        try:
-            gateway_changed=bool(setup.connect(target))
-            if gateway_changed:
-                state['engine_restart_needed']=True;setup.save(status_path,state)
-        except (OSError,ValueError,subprocess.SubprocessError):
-            return finish('publish failed; owner login or deployment needs attention')
+        try:setup.publish_origin(target)
+        except (OSError,ValueError,urllib.error.URLError):
+            return finish('runtime publish failed; retrying')
         (owner/'pilot-origin.txt').write_text(target);(owner/'pilot-origin.txt').chmod(0o600)
         return finish('reconnected',failures=0)
     failures=state.get('failures',0)+1
-    if failures<3 or stamp-state.get('last_restart',0)<300:
+    if failures<2 or stamp-state.get('last_restart',0)<60:
         return finish('waiting for tunnel recovery',failures=failures)
     # Only restart the named service installed for this app. Keep unrelated tunnels.
     env={**os.environ,'XDG_RUNTIME_DIR':f'/run/user/{os.getuid()}',

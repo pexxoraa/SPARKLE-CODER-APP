@@ -96,6 +96,18 @@ if engine is not None:
             if engine_healthy('http://127.0.0.1:8788',engine.get('relay_secret','')):break
             time.sleep(1)
         else:raise SystemExit('Worker deployed, but the hosted engine did not restart with the new gateway URL.')
+if engine is not None and selected_engine_origin:
+    payload=json.dumps({'origin':selected_engine_origin}).encode()
+    request=urllib.request.Request(url+'/api/internal/engine-origin',data=payload,method='POST',
+        headers={'Content-Type':'application/json','X-Sparkle-Relay':engine.get('relay_secret',''),
+                 'User-Agent':'SPARKLE-CODER/0.8.0','Accept':'application/json'})
+    try:
+        with urllib.request.build_opener(NoRedirect).open(request,timeout=20) as response:
+            published=json.loads(response.read(8192))
+    except Exception as error:
+        raise SystemExit('Worker deployed, but the runtime engine origin could not be synchronized: '+str(error)) from error
+    if published.get('ok') is not True or published.get('origin')!=selected_engine_origin:
+        raise SystemExit('Worker deployed, but it did not confirm the runtime engine origin.')
 print('\nPublished: '+url+'\nAdmin: '+url+'/admin',flush=True)
 try:
     request=urllib.request.Request(url+'/healthz',headers={

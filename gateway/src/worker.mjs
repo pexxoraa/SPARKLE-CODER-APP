@@ -501,14 +501,27 @@ async function adminRoutes(request,env,path) {
     sql(env,'INSERT INTO audit VALUES (?,?,?,?,?)',uid(),'request-reconciled',id,now(),String(data.note).slice(0,300))
   ]);return json({ok:true});
 }
+async function updateRuntimeEngineOrigin(request,env){
+  if(!env.ENGINE_SECRET||env.ENGINE_SECRET.length<43||!equalText(request.headers.get('x-sparkle-relay')||'',env.ENGINE_SECRET))
+    fail(401,'Engine update is not authorized.');
+  const data=await body(request),origin=String(data.origin||'').trim();
+  let parsed;try{parsed=new URL(origin);}catch{fail(400,'Invalid engine origin.');}
+  if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.pathname!=='/'||parsed.search||parsed.hash||
+     !/^[a-z0-9-]+\.trycloudflare\.com$/i.test(parsed.hostname))
+    fail(400,'Engine origin must be a root trycloudflare.com HTTPS URL.');
+  await sql(env,"INSERT INTO runtime_config(key,value,updated) VALUES ('engine_origin',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated",parsed.origin,now()).run();
+  await audit(env,'engine-origin-updated',parsed.hostname,'Owner recovery published a healthy engine origin');
+  return json({ok:true,origin:parsed.origin});
+}
 export async function route(request,env) {
   const url=new URL(request.url),path=url.pathname;
-  if(path==='/healthz')return json({ok:true,service:'sparkle-pilot',version:'0.8.0',engine_configured:engineConfigured(env)});
-  if(path==='/api/info')return json({price_paise:PRICE,credit_tokens:CREDITS,upi_id:env.UPI_ID||'',payee_name:env.PAYEE_NAME||'',support_email:env.SUPPORT_EMAIL||'',engine_configured:engineConfigured(env)});
+  if(path==='/healthz')return json({ok:true,service:'sparkle-pilot',version:'0.8.0',engine_configured:await engineConfigured(env)});
+  if(path==='/api/info')return json({price_paise:PRICE,credit_tokens:CREDITS,upi_id:env.UPI_ID||'',payee_name:env.PAYEE_NAME||'',support_email:env.SUPPORT_EMAIL||'',engine_configured:await engineConfigured(env)});
   if(path.startsWith('/api/')||path.startsWith('/v1/')){
     if(!env.DB||!env.ADMIN_SECRET||env.ADMIN_SECRET.length<43||!env.CACHE_SECRET||env.CACHE_SECRET.length<43)
       fail(503,'The admin must finish server setup before the pilot opens.');
     const origin=request.headers.get('origin');if(origin&&origin!==url.origin)fail(403,'Use the desktop app or open the admin panel directly.');
+    if(path==='/api/internal/engine-origin'&&request.method==='POST')return updateRuntimeEngineOrigin(request,env);
     if(path.startsWith('/api/admin/'))return adminRoutes(request,env,path);
     if(path.startsWith('/api/engine/'))return proxyEngine(request,env,await device(request,env,true));
     if(path==='/api/enroll'&&request.method==='POST')return enroll(request,env);

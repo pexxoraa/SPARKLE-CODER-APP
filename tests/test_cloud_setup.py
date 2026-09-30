@@ -302,7 +302,9 @@ class CloudSetupTests(unittest.TestCase):
         setup_cloud.save(self.owner/'engine.json',{'gateway_url':old_url,'relay_secret':'R'*64,'image':'tools','max_running':1})
         (self.owner/'engine-tunnel.log').write_text(tunnel+'\n')
         class Opener:
-            def open(self,*args,**kwargs):
+            def open(self,request,*args,**kwargs):
+                if request.full_url.endswith('/api/internal/engine-origin'):
+                    return io.BytesIO(json.dumps({'ok':True,'origin':tunnel}).encode())
                 return io.BytesIO(b'{"ok":true,"service":"sparkle-hosted-engine","version":"0.8.0"}')
         public=io.BytesIO(b'{"ok":true,"version":"0.8.0","engine_configured":true}')
         with patch.dict(sys.modules,{'setup_cloud':setup_cloud}), \

@@ -1,13 +1,25 @@
 // Only the gateway can assert an account to the owner-hosted coding engine.
-export function engineConfigured(env){
-  try{const url=new URL(env.ENGINE_ORIGIN);return /^[A-Za-z0-9_-]{43,}$/.test(env.ENGINE_SECRET||'')&&url.protocol==='https:'&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;}
+function validEngineOrigin(value){
+  try{const url=new URL(value);return url.protocol==='https:'&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;}
   catch{return false;}
 }
+async function runtimeEngineOrigin(env){
+  if(env.DB){
+    try{
+      const row=await env.DB.prepare("SELECT value FROM runtime_config WHERE key='engine_origin'").first();
+      if(row?.value&&validEngineOrigin(row.value))return row.value;
+    }catch{}
+  }
+  return validEngineOrigin(env.ENGINE_ORIGIN)?env.ENGINE_ORIGIN:null;
+}
+export async function engineConfigured(env){
+  return /^[A-Za-z0-9_-]{43,}$/.test(env.ENGINE_SECRET||'')&&Boolean(await runtimeEngineOrigin(env));
+}
 export async function proxyEngine(request,env,account){
-  if(!engineConfigured(env))return Response.json({error:'The owner must connect the coding server before cloud projects can run.'},{status:503});
-  const origin=new URL(env.ENGINE_ORIGIN);
-  if(origin.protocol!=='https:'||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)
-    return Response.json({error:'The owner must configure a valid HTTPS coding-server origin.'},{status:503});
+  const originValue=await runtimeEngineOrigin(env);
+  if(!/^[A-Za-z0-9_-]{43,}$/.test(env.ENGINE_SECRET||'')||!originValue)
+    return Response.json({error:'The owner must connect the coding server before cloud projects can run.'},{status:503});
+  const origin=new URL(originValue);
   if(!['GET','POST'].includes(request.method))return Response.json({error:'Method not allowed.'},{status:405});
   const url=new URL(request.url),path=url.pathname.slice('/api/engine'.length);
   if(!path.startsWith('/')||path.includes('%')||path.includes('\\'))return Response.json({error:'Invalid engine route.'},{status:400});

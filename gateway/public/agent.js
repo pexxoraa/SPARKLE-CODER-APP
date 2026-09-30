@@ -263,7 +263,7 @@ let appState = null, projectId = null, currentSession = null, currentRun = null;
 let accountTimer = null, accountCouponQuote=null, startingRun=false;
 let files = [], historyItems = [], changes = [], runEvents = [], view = "build", tab = "activity";
 let fileData=null, transferBusy=false, cancelTransfer=false, lastConsoleKey="", fileLoadError="";
-let pollTimer = null, lastMessageKey = "", lastChangeKey = "", selectedFile = "", toastTimer = null;
+let pollTimer = null, cloudReconnectTimer = null, lastMessageKey = "", lastChangeKey = "", selectedFile = "", toastTimer = null;
 let briefRevision = null, briefProjectId = null, setupProjectId = null;
 const isCloud=document.documentElement.dataset.runtime==="cloud";
 let editTarget=null, editorSaving=false;
@@ -322,7 +322,7 @@ function setTab(name) { tab = name; ["activity","changes","checks"].forEach(t =>
 
 function renderProjects() {
   id("projectSelect").replaceChildren();
-  if(!appState.projects.length){const cloudReady=Boolean(appState?.account?.ready&&appState?.engine?.available);const label=isCloud?(cloudReady?"No cloud projects yet":"Cloud projects unavailable"):"No project selected";const option=node("option","",label);option.value="";id("projectSelect").append(option);}
+  if(!appState.projects.length){const accountReady=Boolean(appState?.account?.ready),cloudReady=Boolean(accountReady&&appState?.engine?.available);const label=isCloud?(cloudReady?"No cloud projects yet":accountReady?"Reconnecting cloud projects…":"Cloud projects unavailable"):"No project selected";const option=node("option","",label);option.value="";id("projectSelect").append(option);}
   appState.projects.forEach(p => { const option = node("option","",p.name+(p.migration_pending?" (waiting to move)":p.available===false?" (folder not found)":"")); option.value=p.id; option.selected=p.id===projectId; id("projectSelect").append(option); });
   const project = appState.projects.find(p=>p.id===projectId);
   id("projectPath").textContent = project ? project.path : "";
@@ -1078,10 +1078,22 @@ function showEngineWelcome(message="") {
   id("websiteAddress").value=location.origin;id("engineConnectionError").hidden=!message;id("engineConnectionError").textContent=message;
   id("retryEngine").disabled=!accessToken||(isHosted&&!engineOrigin);
 }
+function scheduleCloudReconnect() {
+  if(!isCloud||cloudReconnectTimer)return;
+  cloudReconnectTimer=setTimeout(async()=>{
+    cloudReconnectTimer=null;
+    try{
+      await refreshState();
+      if(appState.account?.ready&&appState.engine?.available){
+        await Promise.all([loadFiles(),loadHistory()]);renderSession(null);renderControls();toast("Cloud projects reconnected");
+      }else scheduleCloudReconnect();
+    }catch{scheduleCloudReconnect();}
+  },5000);
+}
 async function openWorkspace() {
   if(isHosted&&(!engineOrigin||!accessToken)){showEngineWelcome(connectionError);return;}
   try {await refreshState();await Promise.all([loadFiles(),loadHistory()]);renderSession(null);id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;if(currentRun)schedulePoll(20);if(appState.account?.enabled){if(!appState.account.enrolled)openAccount();else refreshAccount().catch(()=>{});}}
-  catch(error){if(isCloud){id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;id("runButton").disabled=true;}else showEngineWelcome(error.message);}
+  catch(error){if(isCloud){id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;id("runButton").disabled=true;scheduleCloudReconnect();}else showEngineWelcome(error.message);}
 }
 id("websiteButtonLabel").textContent=isHosted?"Website connection":"Connect website";
 id("websiteButton").onclick=()=>{
@@ -1113,6 +1125,7 @@ function renderCloudState(){
   if(!isCloud)return;
   id("workspaceModeSwitch").hidden=false;id("topAccountButton").hidden=false;
   const available=Boolean(appState.account?.ready&&appState.engine?.available);
+  if(available){clearTimeout(cloudReconnectTimer);cloudReconnectTimer=null;}else if(appState.account?.ready)scheduleCloudReconnect();
   id("projectPath").textContent=appState.projects.find(p=>p.id===projectId)?.name||"Cloud workspace";
   id("projectPath").title="Your account's cloud project";
   for(const name of ["briefButton","setupButton","importFiles","importFolder","downloadProject"])id(name).disabled=!available||!!busy();

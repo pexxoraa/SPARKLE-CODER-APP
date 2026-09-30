@@ -44,7 +44,7 @@ class HostedSetupTests(unittest.TestCase):
     def test_connect_retains_database_payment_settings_and_uploads_secret_via_stdin(self):
         setup.initialize('https://worker.example');old=self.owner_config()
         response=io.BytesIO(json.dumps({'ok':True,'version':'0.8.0','engine_configured':True}).encode())
-        with patch.object(setup,'check_engine') as check,patch.object(setup,'run_wrangler') as cli,\
+        with patch.object(setup,'check_engine') as check,patch.object(setup,'publish_origin'),patch.object(setup,'run_wrangler') as cli,\
                 patch.object(setup.subprocess,'run') as command,\
                 patch.object(setup,'deploy_worker',return_value='https://worker.example'),\
                 patch.object(setup.urllib.request,'urlopen',return_value=response) as health:
@@ -63,13 +63,32 @@ class HostedSetupTests(unittest.TestCase):
         self.assertNotIn(secret,self.output.getvalue());self.assertNotIn(secret,(self.owner/'wrangler.json').read_text())
         self.assertEqual(command.call_count,2)
 
+    def test_publish_origin_updates_runtime_without_worker_deploy(self):
+        gateway='https://saved-pilot.example';origin='https://fresh-pilot.trycloudflare.com'
+        setup.initialize(gateway);self.owner_config()
+        response=io.BytesIO(json.dumps({'ok':True,'origin':origin}).encode())
+        class Opener:
+            def open(self,request,timeout=0):
+                self.request=request;return response
+        opener=Opener()
+        with patch.object(setup,'check_engine') as check,patch.object(setup.urllib.request,'build_opener',return_value=opener),patch.object(setup,'deploy_worker') as deploy:
+            result=setup.publish_origin(origin)
+        self.assertEqual(result,origin);deploy.assert_not_called()
+        check.assert_called_once_with(origin,setup.read_config()['relay_secret'])
+        self.assertEqual(opener.request.full_url,gateway+'/api/internal/engine-origin')
+        self.assertEqual(opener.request.get_header('X-sparkle-relay'),setup.read_config()['relay_secret'])
+        self.assertEqual(json.loads(opener.request.data),{'origin':origin})
+        self.assertEqual(json.loads((self.owner/'wrangler.json').read_text())['vars']['ENGINE_ORIGIN'],origin)
+        receipt=json.loads((self.owner/'engine-deployment.json').read_text())
+        self.assertEqual(receipt['engine_origin'],origin);self.assertTrue(receipt['health_verified'])
+
     def test_same_worker_workers_dev_subdomain_change_is_synchronized(self):
         old_url='https://saved-pilot.sparklecoder.workers.dev'
         new_url='https://saved-pilot.blindrobots.workers.dev'
         setup.initialize(old_url);self.owner_config()
         (self.owner/'deployment.json').write_text(json.dumps({'gateway_url':new_url}))
         response=io.BytesIO(json.dumps({'ok':True,'version':'0.8.0','engine_configured':True}).encode())
-        with patch.object(setup,'check_engine'),patch.object(setup,'run_wrangler'),\
+        with patch.object(setup,'check_engine'),patch.object(setup,'publish_origin'),patch.object(setup,'run_wrangler'),\
                 patch.object(setup.subprocess,'run'),patch.object(setup,'deploy_worker',return_value=new_url),\
                 patch.object(setup.urllib.request,'urlopen',return_value=response):
             changed=setup.connect('https://engine.example')
