@@ -42,6 +42,8 @@ def inspect_visual_quality(workspace, entry='index.html', domain=''):
     if missing_alt: add('image-alt',f'{missing_alt} image(s) have empty or missing alt text.','warning')
     photo=domain=='photography' or re.search(r'photograph|photo studio|photographer|portrait|wedding',source,re.I)
     real_images=[i for i in parser.images if i.get('src') and not PLACEHOLDER.search(str(i.get('src')))]
+    hotlinks=[i for i in real_images if re.match(r'^(?:https?:)?//',str(i.get('src')),re.I)]
+    if photo and hotlinks: add('external-image-hotlink',f'{len(hotlinks)} photography image(s) are remotely hotlinked; localize approved/reusable assets for a reliable finished site.','warning')
     backgrounds=re.findall(r'background(?:-image)?\s*:[^;{}]*url\(([^)]+)\)',css,re.I)
     real_visuals=len(real_images)+sum(not PLACEHOLDER.search(x) for x in backgrounds)
     if photo and real_visuals<3: add('photography-imagery',f'Photography presentation has only {real_visuals} non-placeholder image asset(s); imagery must lead the experience.')

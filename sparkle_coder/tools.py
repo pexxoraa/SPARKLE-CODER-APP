@@ -9,7 +9,8 @@ from .checks import discover_checks
 from .diagnostics import inspect_setup
 from .explanations import check_title, explain_failure
 from .execution import CommandRunner
-from .internet import read_web_page as fetch_web_page, web_search as search_web
+from .internet import (download_public_asset as fetch_public_asset, read_web_page as fetch_web_page,
+                       search_public_assets as search_assets_web, web_search as search_web)
 from .memory import normalize_store, recall, record_file, remember_fact, remember_task
 from .state import Session, now
 from .workspace import MAX_FILE_BYTES, Redactor, Workspace, WorkspaceError, write_json
@@ -42,8 +43,12 @@ SCHEMAS = [
            {"query": S, "pattern": S, "limit": I}, ["query"]),
     schema("web_search", "Search the public Internet for current documentation or facts. Use only when the task needs external/current information; basic coding tasks should not browse.",
            {"query": S, "limit": I}, ["query"]),
+    schema("search_assets", "Search Wikimedia Commons for reusable public image candidates with direct image URLs, source pages, creator and license metadata. Use a task/domain description, never project source or personal data.",
+           {"query": S, "limit": I}, ["query"]),
     schema("read_web_page", "Read bounded text from one public http(s) page returned by web_search. Local/private addresses, credentials, nonstandard ports and large/binary downloads are blocked.",
            {"url": S, "max_chars": I}, ["url"]),
+    schema("download_asset", "Download one public JPEG/PNG/WebP/GIF into the project with bounded size and SSRF/credential protections. Use only when the source is appropriate to reuse; record a short source/license note. The destination must not already exist.",
+           {"url": S, "path": S, "usage_note": S}, ["url", "path", "usage_note"]),
     schema("write_file", "Create or replace a UTF-8 file. Replacing requires the sha256 returned by read_file.",
            {"path": S, "content": S, "expected_sha256": S}, ["path", "content"]),
     schema("edit_file", "Replace one exact, unique text occurrence; requires the current full-file sha256.",
@@ -97,6 +102,11 @@ class ToolSet:
     def mutation_preview(self, name, arguments):
         relative = arguments["path"]
         path = self.workspace.path(relative)
+        if name == "download_asset":
+            if path.exists(): raise ValueError("Asset destination already exists. Keep the existing file or choose a new path.")
+            return {"tool": name, "path": relative, "url": self.redactor.text(arguments.get("url", "")),
+                    "usage_note": self.redactor.text(arguments.get("usage_note", ""))[:500],
+                    "preview": "Download a public image asset into this project."}
         before, digest = self.workspace.read(relative) if path.exists() else ("", None)
         if path.exists() and arguments.get("expected_sha256") != digest:
             raise ValueError("Stale file hash. Read the file again before proposing a change.")
@@ -125,7 +135,7 @@ class ToolSet:
                 result = {"ok": False, "error": "Ask mode only allows project inspection. Switch to Build to edit files or run commands."}
             elif self.should_stop():
                 result = {"ok": False, "cancelled": True, "error": "Stopped before this action."}
-            elif self.approve_edit and name in ("write_file", "edit_file", "delete_file") and not self.approve_edit(
+            elif self.approve_edit and name in ("write_file", "edit_file", "delete_file", "download_asset") and not self.approve_edit(
                     self.redactor.value(self.mutation_preview(name, arguments))):
                 result = {"ok": False, "denied": True, "error": "File edit denied by the user. Do not repeat it or bypass the denial with a command."}
             else:
@@ -249,11 +259,30 @@ class ToolSet:
             raise ValueError("Search query contains a configured secret.")
         return search_web(safe, limit)
 
+    def search_assets(self, query, limit=6):
+        safe=self.redactor.text(query)
+        if safe!=query: raise ValueError("Asset search query contains a configured secret.")
+        return search_assets_web(safe,limit)
+
     def read_web_page(self, url, max_chars=12000):
         safe = self.redactor.text(url)
         if safe != url:
             raise ValueError("Web URL contains a configured secret.")
         return fetch_web_page(safe, max_chars)
+
+    def download_asset(self, url, path, usage_note):
+        safe=self.redactor.text(url)
+        if safe!=url: raise ValueError("Asset URL contains a configured secret.")
+        note=" ".join(str(usage_note or "").split())
+        if not 10<=len(note)<=500: raise ValueError("Give a 10–500 character source/license or usage note for this asset.")
+        target=self.workspace.path(path)
+        if target.exists(): raise ValueError("Asset destination already exists. Keep the existing file or choose a new path.")
+        result=fetch_public_asset(safe)
+        if target.suffix.lower() not in result['extensions']:
+            raise ValueError("Asset file extension does not match the downloaded image type.")
+        mutation=self.session.mutate(path,result['data'],None)
+        self._record_file_memory(path,mutation['sha256'],result['bytes'])
+        return {**mutation,'url':result['url'],'content_type':result['content_type'],'bytes':result['bytes'],'usage_note':note}
 
     def run_command(self, command, cwd=".", timeout=None, purpose=""):
         if purpose:

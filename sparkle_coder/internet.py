@@ -8,10 +8,11 @@ import base64
 from html import unescape
 from html.parser import HTMLParser
 import ipaddress
+import json
 import re
 import socket
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, quote_plus, urlencode, unquote, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 USER_AGENT = "SPARKLE-CODER/0.8.0"
@@ -289,3 +290,72 @@ def read_web_page(url, max_chars=12000):
         title, text = parser.result()
     truncated = len(text) > max_chars
     return {"url": final, "title": title[:300], "text": text[:max_chars], "truncated": truncated}
+
+ASSET_TYPES = {
+    'image/jpeg': ('.jpg','.jpeg'),
+    'image/png': ('.png',),
+    'image/webp': ('.webp',),
+    'image/gif': ('.gif',),
+}
+ASSET_MAX_DOWNLOAD = 5_000_000
+
+def download_public_asset(url, max_bytes=ASSET_MAX_DOWNLOAD):
+    """Download one bounded public raster image without cookies, auth, or redirects to private hosts."""
+    current=_public_url(url); maximum=max(1,min(ASSET_MAX_DOWNLOAD,int(max_bytes)))
+    for _ in range(5):
+        request=Request(current,headers={'User-Agent':USER_AGENT,'Accept':'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.8,*/*;q=0.1','Accept-Encoding':'identity'})
+        try: response=_OPENER.open(request,timeout=15)
+        except HTTPError as exc:
+            if exc.code in (301,302,303,307,308) and exc.headers.get('Location'):
+                current=_public_url(urljoin(current,exc.headers['Location']));continue
+            raise ValueError(f'Asset request returned HTTP {exc.code}.') from exc
+        except (URLError,TimeoutError,OSError) as exc: raise ValueError('Asset request failed or timed out.') from exc
+        with response:
+            final=_public_url(response.geturl());content_type=response.headers.get_content_type().lower()
+            if content_type not in ASSET_TYPES: raise ValueError('Only JPEG, PNG, WebP and GIF image assets are supported.')
+            data=response.read(maximum+1)
+            if len(data)>maximum: raise ValueError('Image asset is too large to download safely.')
+        signatures={'image/jpeg':data[:3]==b'\xff\xd8\xff','image/png':data[:8]==b'\x89PNG\r\n\x1a\n','image/gif':data[:6] in (b'GIF87a',b'GIF89a'),'image/webp':len(data)>=12 and data[:4]==b'RIFF' and data[8:12]==b'WEBP'}
+        if not signatures.get(content_type): raise ValueError('Image bytes do not match the declared content type.')
+        return {'url':final,'content_type':content_type,'data':data,'bytes':len(data),'extensions':ASSET_TYPES[content_type]}
+    raise ValueError('Too many asset redirects.')
+
+
+def _plain_metadata(value):
+    if not isinstance(value,str): return ''
+    return re.sub(r'<[^>]+>',' ',unescape(value)).replace('&nbsp;',' ').strip()
+
+def search_public_assets(query, limit=6):
+    """Search Wikimedia Commons image files with source/license metadata and direct bounded download URLs."""
+    query=' '.join(str(query or '').split())
+    if not query or len(query)>300: raise ValueError('Asset search query must contain 1–300 characters.')
+    if _SECRET_TEXT.search(query): raise ValueError('Asset search query appears to contain a credential or secret.')
+    limit=max(1,min(8,int(limit)))
+    params=urlencode({'action':'query','generator':'search','gsrsearch':query,'gsrnamespace':'6','gsrlimit':str(limit),
+                      'prop':'imageinfo','iiprop':'url|size|extmetadata','iiurlwidth':'1600','format':'json','formatversion':'2'})
+    current=_public_url('https://commons.wikimedia.org/w/api.php?'+params)
+    request=Request(current,headers={'User-Agent':USER_AGENT,'Accept':'application/json','Accept-Encoding':'identity'})
+    try: response=_OPENER.open(request,timeout=12)
+    except (HTTPError,URLError,TimeoutError,OSError) as exc: raise ValueError('Public asset search failed or timed out.') from exc
+    with response:
+        if response.headers.get_content_type().lower() not in ('application/json','text/json'):
+            raise ValueError('Public asset search returned an unreadable response.')
+        data=response.read(1_000_001)
+        if len(data)>1_000_000: raise ValueError('Public asset search response was too large.')
+    try: payload=json.loads(data.decode('utf-8'))
+    except (ValueError,UnicodeDecodeError) as exc: raise ValueError('Public asset search returned invalid JSON.') from exc
+    items=[]
+    for page in payload.get('query',{}).get('pages',[]) if isinstance(payload,dict) else []:
+        info=(page.get('imageinfo') or [{}])[0]; meta=info.get('extmetadata') or {}; url=info.get('thumburl') or info.get('url')
+        try: url=_public_url(url)
+        except ValueError: continue
+        title=str(page.get('title','')).removeprefix('File:')[:300]
+        license_name=_plain_metadata((meta.get('LicenseShortName') or {}).get('value'))[:120]
+        creator=_plain_metadata((meta.get('Artist') or {}).get('value'))[:240]
+        description=_plain_metadata((meta.get('ImageDescription') or {}).get('value'))[:400]
+        source='https://commons.wikimedia.org/wiki/'+quote(str(page.get('title','')).replace(' ','_'),safe=':_()-')
+        items.append({'title':title,'url':url,'source_page':source,'license':license_name or 'Check source page','creator':creator,'description':description,
+                      'width':info.get('thumbwidth') or info.get('width'),'height':info.get('thumbheight') or info.get('height')})
+        if len(items)>=limit: break
+    if not items: raise ValueError('No reusable public image candidates were returned for this search.')
+    return {'query':query,'provider':'wikimedia_commons','results':items}

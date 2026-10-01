@@ -17,7 +17,8 @@ class SkillRoutingTests(unittest.TestCase):
         self.assertEqual(profile['name'],'simple_web')
         self.assertLessEqual(profile['max_total_tokens'],50000)
         selected=select_skills(goal,task_profile=profile['name'])
-        self.assertEqual(selected[:3],['static_web','visual_design','photography_portfolio'])
+        self.assertEqual(selected[:3],['visual_design','photography_portfolio','asset_sourcing'])
+        self.assertIn('typography_image_strategy',selected)
         self.assertIn('responsive_web',selected)
         self.assertIn('visual_qa',selected)
         self.assertLessEqual(len(selected),6)
@@ -26,8 +27,9 @@ class SkillRoutingTests(unittest.TestCase):
         selected=select_skills('build a static website for a photo studio',task_profile='simple_web')
         text=render_skills(selected,char_budget=9000)
         self.assertLessEqual(len(text),9000)
+        self.assertIn('search_assets',text)
         self.assertIn('via.placeholder.com',text)
-        self.assertIn('One excellent core page',text)
+        self.assertIn('imagery the dominant experience',text)
         self.assertNotIn('database',text.lower())
 
     def test_agent_context_injects_only_selected_skills(self):
@@ -41,6 +43,22 @@ class SkillRoutingTests(unittest.TestCase):
             self.assertIn('technical solution small',system)
             self.assertNotIn('SKILL: database',system)
             self.assertEqual(session.state['skills'],agent.skills)
+
+    def test_vertical_web_prompts_route_to_domain_specific_skills(self):
+        cases={
+            'build a landing page for a SaaS analytics platform':'saas_landing',
+            'build a website for an Italian restaurant':'restaurant_hospitality',
+            'build an ecommerce storefront for a fashion shop':'ecommerce_storefront',
+            'build a website for a creative agency':'agency_portfolio',
+            'build a real estate website for property listings':'real_estate',
+            'build a personal portfolio for a designer':'personal_portfolio',
+        }
+        for prompt,skill in cases.items():
+            with self.subTest(prompt=prompt):
+                selected=select_skills(prompt,task_profile='simple_web')
+                self.assertIn(skill,selected)
+                self.assertIn('visual_qa',selected)
+                self.assertLessEqual(len(selected),6)
 
 
 if __name__=='__main__': unittest.main()

@@ -8,9 +8,9 @@ PROFILE_VERSION = 3
 
 SIMPLE_TOOL_NAMES = frozenset({
     "inspect_static_site", "inspect_visual_site", "render_page", "inspect_setup", "request_input", "list_files", "read_file",
-    "search_files", "write_file", "edit_file", "delete_file", "verify", "update_delivery",
+    "search_files", "write_file", "edit_file", "delete_file", "download_asset", "verify", "update_delivery",
 })
-WEB_TOOL_NAMES = frozenset({"web_search", "read_web_page"})
+WEB_TOOL_NAMES = frozenset({"web_search", "read_web_page", "search_assets"})
 _WEB_NEEDED = re.compile(
     r"\b(?:internet|web\s+search|search\s+(?:the\s+)?web|online|latest|current|today|"
     r"documentation|docs|release\s+notes|changelog|official\s+site)\b", re.I

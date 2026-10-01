@@ -129,7 +129,8 @@ class Agent:
         if session.state.get("task_mode") == "ask":
             allowed = READ_ONLY_TOOLS if needs_web(goal_text) else (READ_ONLY_TOOLS - WEB_TOOL_NAMES)
         elif profile.get("name") != "standard":
-            allowed = SIMPLE_TOOL_NAMES | (WEB_TOOL_NAMES if needs_web(goal_text) else frozenset())
+            web_tools = WEB_TOOL_NAMES if needs_web(goal_text) else ({"search_assets"} if "asset_sourcing" in self.skills else frozenset())
+            allowed = SIMPLE_TOOL_NAMES | web_tools
         else:
             allowed = None
         self.schemas = [s for s in SCHEMAS if allowed is None or s["function"]["name"] in allowed]

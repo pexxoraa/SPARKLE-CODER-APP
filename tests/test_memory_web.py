@@ -129,3 +129,67 @@ class MemoryAndWebTests(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+class AssetToolTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.workspace=Workspace(Path(self.tmp.name)/'project')
+        self.session=Session.create(self.workspace,'build a static website for a photo studio',[],{})
+        self.tools=ToolSet(self.workspace,self.session,Config(auto_approve=True),lambda _:True)
+
+    def test_download_asset_is_bounded_journaled_and_requires_usage_note(self):
+        data=b'\x89PNG\r\n\x1a\n'+b'image-bytes'
+        fetched={'url':'https://upload.wikimedia.org/example.png','content_type':'image/png','data':data,'bytes':len(data),'extensions':('.png',)}
+        with patch('sparkle_coder.tools.fetch_public_asset',return_value=fetched):
+            result=self.tools.execute('download_asset',{'url':'https://upload.wikimedia.org/example.png','path':'assets/hero.png','usage_note':'Wikimedia Commons · CC BY-SA · Example Artist'})
+        self.assertTrue(result['ok']);self.assertEqual((self.workspace.root/'assets/hero.png').read_bytes(),data)
+        self.assertTrue(self.session.state['journal'][-1]['applied'])
+        self.assertFalse(self.tools.execute('download_asset',{'url':'https://example.com/x.png','path':'assets/hero.png','usage_note':'valid source note'})['ok'])
+        self.assertFalse(self.tools.execute('download_asset',{'url':'https://example.com/y.png','path':'assets/other.png','usage_note':'short'})['ok'])
+
+    def test_asset_download_rejects_private_and_credential_urls_before_network(self):
+        for url in ('http://127.0.0.1/image.png','https://example.com/image.png?access_token=secret'):
+            with self.subTest(url=url):
+                result=self.tools.execute('download_asset',{'url':url,'path':'assets/x.png','usage_note':'Public-domain test source'})
+                self.assertFalse(result['ok'])
+
+    def test_photo_skill_enables_public_asset_search_but_offline_prompt_does_not(self):
+        agent=Agent(self.workspace,self.session,Config(),None,lambda _:True,emit=lambda _:None)
+        names={item['function']['name'] for item in agent.schemas}
+        self.assertIn('search_assets',names);self.assertIn('download_asset',names)
+        other=Session.create(self.workspace,'build a static website for a photo studio using local assets only',[],{})
+        agent2=Agent(self.workspace,other,Config(),None,lambda _:True,emit=lambda _:None)
+        names2={item['function']['name'] for item in agent2.schemas}
+        self.assertNotIn('search_assets',names2)
+
+class PublicAssetSearchTests(unittest.TestCase):
+    class Headers:
+        def __init__(self,content_type): self.content_type=content_type
+        def get_content_type(self): return self.content_type
+        def get(self,key,default=None): return default
+    class Response:
+        def __init__(self,data,content_type,url='https://commons.wikimedia.org/w/api.php'):
+            self.data=data;self.headers=PublicAssetSearchTests.Headers(content_type);self.url=url
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+        def read(self,n=-1): return self.data if n<0 else self.data[:n]
+        def geturl(self): return self.url
+
+    def test_commons_asset_search_returns_license_creator_and_direct_url(self):
+        payload={'query':{'pages':[{'title':'File:Studio portrait.jpg','imageinfo':[{'thumburl':'https://upload.wikimedia.org/portrait.jpg','thumbwidth':1200,'thumbheight':800,'extmetadata':{'LicenseShortName':{'value':'CC BY-SA 4.0'},'Artist':{'value':'<b>Example Artist</b>'},'ImageDescription':{'value':'Editorial portrait'}}}]}]}}
+        response=self.Response(json.dumps(payload).encode(),'application/json')
+        with patch('sparkle_coder.internet._OPENER.open',return_value=response),patch('sparkle_coder.internet._public_url',side_effect=lambda value:value):
+            result=internet.search_public_assets('editorial portrait',limit=3)
+        item=result['results'][0]
+        self.assertEqual(item['license'],'CC BY-SA 4.0');self.assertEqual(item['creator'],'Example Artist')
+        self.assertEqual(item['url'],'https://upload.wikimedia.org/portrait.jpg')
+
+    def test_public_asset_download_validates_image_signature_and_type(self):
+        data=b'\x89PNG\r\n\x1a\n'+b'payload'
+        response=self.Response(data,'image/png','https://upload.wikimedia.org/image.png')
+        with patch('sparkle_coder.internet._OPENER.open',return_value=response),patch('sparkle_coder.internet._public_url',side_effect=lambda value:value):
+            result=internet.download_public_asset('https://upload.wikimedia.org/image.png')
+        self.assertEqual(result['content_type'],'image/png');self.assertEqual(result['data'],data)
+        bad=self.Response(b'not-an-image','image/png','https://upload.wikimedia.org/bad.png')
+        with patch('sparkle_coder.internet._OPENER.open',return_value=bad),patch('sparkle_coder.internet._public_url',side_effect=lambda value:value):
+            with self.assertRaisesRegex(ValueError,'do not match'): internet.download_public_asset('https://upload.wikimedia.org/bad.png')
