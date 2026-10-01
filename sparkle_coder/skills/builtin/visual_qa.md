@@ -1,0 +1,2 @@
+# Visual QA
+Before proposing completion, inspect the result as a visual product, not only as valid markup. Check hierarchy, spacing consistency, typography, contrast, image prominence, CTA clarity, broken/local assets, responsive intent, and obvious generic-template patterns. For creative sites, treat missing real imagery, placeholder assets, or a visually empty hero as a quality defect. Make at most two focused polish passes; do not loop endlessly or rewrite everything without evidence.

@@ -15,6 +15,7 @@ from .explanations import check_title, explain_checks, simple_recovery
 from .verification import active_checks, proof_summary
 from .state import now
 from .tools import READ_ONLY_TOOLS, SCHEMAS, ToolSet
+from .skills import SKILL_VERSION, render_skills, select_skills
 from .workspace import atomic_write, clean_terminal
 
 
@@ -111,6 +112,13 @@ class Agent:
             session.state["task_profile"] = profile
             session.save()
         self.task_profile = profile
+        goal_text = " ".join(session.state.get("user_requests", [session.state.get("goal", "")])[-2:])
+        routed = select_skills(goal_text, task_profile=profile.get("name", "standard"))
+        if session.state.get("skill_version") != SKILL_VERSION or session.state.get("skills") != routed:
+            session.state["skill_version"] = SKILL_VERSION
+            session.state["skills"] = routed
+            session.save()
+        self.skills = routed
         if profile.get("name") != "standard":
             for field in ("max_steps", "max_total_tokens"):
                 limit = profile[field]
@@ -118,7 +126,6 @@ class Agent:
                 setattr(config, field, min(current, limit) if current is not None else limit)
             config.max_tokens = min(config.max_tokens, profile["max_tokens"])
             config.context_chars = min(config.context_chars, profile["context_chars"])
-        goal_text = " ".join(session.state.get("user_requests", [session.state.get("goal", "")])[-2:])
         if session.state.get("task_mode") == "ask":
             allowed = READ_ONLY_TOOLS if needs_web(goal_text) else (READ_ONLY_TOOLS - WEB_TOOL_NAMES)
         elif profile.get("name") != "standard":
@@ -168,9 +175,14 @@ class Agent:
                        "to python3; never redesign the program merely to make your test command easier. Do not narrate "
                        "before tool calls, and do not repeatedly rewrite a file that already implements the request.")
         elif self.task_profile.get("name") == "simple_web":
-            system += ("\nSIMPLE WEB TASK MODE: Build only the requested static page. Batch the HTML/CSS edits, avoid "
-                       "unrequested JavaScript or frameworks, run one structural site check, then finish. Do not add "
-                       "extra sections or repeatedly rewrite complete files.")
+            system += ("\nSIMPLE WEB TASK MODE: Keep the technical solution small while meeting the domain's expected visual "
+                       "and UX quality. Simplicity means no unnecessary framework, JavaScript, or file sprawl; it does "
+                       "not mean generic design, missing imagery, weak hierarchy, or placeholder content. Prefer one "
+                       "strong core experience over several weak pages. Batch edits, run structural checks, apply the "
+                       "selected design skills, and make no more than two focused polish passes.")
+        skill_text = render_skills(self.skills, char_budget=9000) if self.skills else ""
+        if skill_text:
+            system += "\n\nSELECTED TASK SKILLS (apply only these; do not invent other skill rules):\n" + skill_text
         guidance = self.workspace.instructions()
         if guidance:
             system += "\n\nPROJECT GUIDANCE:\n" + guidance

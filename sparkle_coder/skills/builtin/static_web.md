@@ -1,0 +1,2 @@
+# Static Web
+Keep the implementation technically simple, not visually simplistic. Prefer semantic HTML and concise CSS; add JavaScript only for real interaction. For an underspecified marketing/portfolio request, build the smallest complete experience that represents the business credibly. One excellent core page is better than several weak pages. Use real project assets when available. Do not create filler pages just to look complete.

@@ -1,0 +1,2 @@
+# Frontend Quality Baseline
+Avoid “AI template” output: repetitive equal cards, arbitrary gradients, excessive rounded rectangles, weak gray-on-gray contrast, default Arial-only styling, filler testimonials, and duplicated sections. Every section must earn its place. Reuse a small design system for spacing, type, radius, and color. Prefer fewer stronger sections over feature inflation. Keep accessibility basics: semantic landmarks, labels, alt text, focus states, and meaningful links.

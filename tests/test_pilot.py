@@ -106,7 +106,7 @@ class EfficiencyTests(unittest.TestCase):
             session.save()
             agent=Agent(workspace,session,config,None,lambda _:True,emit=lambda _:None)
             self.assertEqual(agent.task_profile['name'],'simple_web')
-            self.assertEqual(agent.task_profile['version'],2)
+            self.assertEqual(agent.task_profile['version'],3)
             names={item['function']['name'] for item in agent.schemas}
             self.assertNotIn('web_search',names)
             self.assertNotIn('read_web_page',names)
