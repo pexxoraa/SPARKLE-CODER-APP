@@ -359,7 +359,7 @@ function preparePrompt(prompt){
   for(;;){
     const active=original.slice(0,limit);truncated=include&&active.length<original.length;
     const context=include?`\n\nActive file: ${path}\n\n\`\`\`\n${active}${truncated?"\n[File truncated; do not propose a full replacement]":""}\n\`\`\``:"";
-    payload={messages:[{role:"system",content:SYSTEM_PROMPT},...history,{role:"user",content:prompt+context}],max_tokens:4096,stream:false,chat_template_kwargs:{enable_thinking:false}};
+    const budget=Math.max(256,Math.min(8192,Number(localStorage.getItem("sparkle_task_budget")||4096)));payload={messages:[{role:"system",content:SYSTEM_PROMPT},...history,{role:"user",content:prompt+context}],max_tokens:budget,stream:false,chat_template_kwargs:{enable_thinking:localStorage.getItem("sparkle_router_mode")==="deep"}};
     if(enc.encode(JSON.stringify(payload)).length<=60000)break;
     if(history.length){history.splice(0,2);continue;}
     if(include&&limit>0){limit=Math.max(0,limit-4000);continue;}
@@ -379,7 +379,7 @@ async function executePrompt(attempt){
     if(typeof content!=="string"||!content.trim())throw new Error("The model returned no usable text. Retrying this request will retrieve the same result without a second charge.");
     attempt.done=true;
     const target=choice.finish_reason==="length"?null:attempt.target;
-    appendAssistantMessage(content,response.usage,target);
+    appendAssistantMessage(content,response.usage,target);if(typeof CustomEvent!=="undefined")window.dispatchEvent(new CustomEvent("sparkle:usage",{detail:response.usage||{}}));
     if(choice.finish_reason==="length")appendAssistantMessage("The response reached its output limit. Ask for a smaller change; applying an incomplete file is disabled.");
     if(attempt.version===state.workspaceVersion&&attempt.historyVersion===(state.historyVersion||0)){
       // Keep the conversation text, not repeated copies of private file context.
@@ -401,6 +401,7 @@ async function sendPrompt(event){
 function updateCursor(){const el=$("editor"),before=el.value.slice(0,el.selectionStart),lines=before.split("\n");$("cursorStatus").textContent=`Ln ${lines.length}, Col ${lines.at(-1).length+1}`;}
 function clearChat(){if(state.sending)return;state.history=[];state.historyVersion=(state.historyVersion||0)+1;const chat=$("chat");chat.replaceChildren();appendAssistantMessage("Chat cleared. Open a file and describe your next change.");}
 function closeDialog(button){const dialog=$(button.dataset.close);if(dialog?.open)dialog.close();}
+window.SparkleCore={getState:()=>state,getFiles:async()=>{const out={};if(state.mode==="directory"){for(const path of state.fileHandles.keys()){if(!sensitivePath(path)){try{out[path]=await readDirectoryFile(path);}catch{}}}}else Object.assign(out,state.files);return out;},getActive:()=>({path:state.activePath,content:$("#editor").value}),setActive:async(path,content)=>{if(path!==state.activePath)await selectFile(path);$("#editor").value=String(content??"");state.dirty=true;$("#saveStatus").textContent="Unsaved change";updateCursor();},save:saveActive,toast,sendPromptText:async text=>{$("#prompt").value=text;await sendPrompt({preventDefault(){}});},createTextFile:async(path,content="")=>{path=normalizeNewPath(path);if(state.mode==="directory"){if(!state.fileHandles.has(path))await createDirectoryFile(path);const handle=state.fileHandles.get(path),w=await handle.createWritable();await w.write(content);await w.close();}else{state.files[path]=content;await persistScratch();}state.activePath=path;renderWorkspace();},createCheckpoint:async()=>({projectName:state.projectName,activePath:state.activePath,files:await window.SparkleCore.getFiles(),created:Date.now()}),account:()=>state.account};
 
 async function init(){
   const info=publicApi("/api/info").catch(()=>({}));

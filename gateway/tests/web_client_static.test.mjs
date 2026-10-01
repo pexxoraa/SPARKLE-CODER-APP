@@ -17,5 +17,7 @@ test('hosted web client is zero-install and wired to pilot APIs',async()=>{
   assert.ok(js.includes('Idempotency-Key'),'model calls are idempotent');
   assert.doesNotMatch(js,/NVIDIA_API_KEY|ADMIN_SECRET|CACHE_SECRET/);
   const parsed=JSON.parse(manifest);assert.equal(parsed.display,'standalone');assert.equal(parsed.icons.length,2);
-  assert.match(sw,/sparkle-web-v5/);
+  assert.match(sw,/sparkle-web-v6/);
+  assert.match(html,/\/features\.js/);
+  assert.match(sw,/\/features\.js/);
 });

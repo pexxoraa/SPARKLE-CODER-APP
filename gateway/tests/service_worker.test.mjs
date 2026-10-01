@@ -21,7 +21,7 @@ test('PWA caches only successful shell responses and leaves admin/API requests u
   const f=fixture();for(const path of ['/admin','/admin.html','/admin.js','/api/me','/api/admin/overview','/v1/chat/completions','/missing.js'])assert.equal(await f.dispatch(path),undefined);
   await f.dispatch('/app.js');assert.deepEqual(f.writes,['/app.js']);
   f.context.fetch=async()=>new Response('Server failed',{status:503});assert.equal((await f.dispatch('/app.js')).status,503);assert.equal(f.writes.length,1);
-  let activating;f.handlers.activate({waitUntil:p=>{activating=p;}});await activating;assert.deepEqual(f.deleted,['sparkle-web-v2','sparkle-web-v3','sparkle-web-v4']);
+  let activating;f.handlers.activate({waitUntil:p=>{activating=p;}});await activating;assert.deepEqual(f.deleted,['sparkle-web-v2','sparkle-web-v3','sparkle-web-v4','sparkle-web-v5']);
 });
 
 test('offline JavaScript receives its own cached file, never the app HTML fallback',async()=>{
