@@ -385,6 +385,12 @@ class Agent:
             self.tools.inspect_static_site('index.html')
             check = self.session.state['checks'][-1]
             latest[(check['command'], check['cwd'])] = check
+        if 'visual_qa' in self.skills and self.workspace.path('index.html').is_file():
+            visual = next((c for c in reversed(active_checks(self.session.state)) if c.get('command','').startswith('builtin:visual-site ')), None)
+            if visual is None:
+                self.tools.inspect_visual_site('index.html')
+                visual = self.session.state['checks'][-1]
+            latest[(visual['command'], visual['cwd'])] = visual
         for check in candidates:
             check["source"] = "discovered"
             latest.setdefault((check["command"], check["cwd"]), check)
@@ -406,6 +412,8 @@ class Agent:
                 self.say("Checking: " + (check.get("label") or check_title(command)))
                 if check.get('source') == 'builtin' and command.startswith('builtin:static-site '):
                     self.tools.inspect_static_site(command.removeprefix('builtin:static-site '))
+                elif check.get('source') == 'builtin' and command.startswith('builtin:visual-site '):
+                    parts=command.split(' ',2); self.tools.inspect_visual_site(parts[1], parts[2] if len(parts)>2 else '')
                 else:
                     self.tools.verify(command, cwd, label=check.get("label", ""), source=check.get("source"))
                 latest[(command, cwd)] = self.session.state["checks"][-1]

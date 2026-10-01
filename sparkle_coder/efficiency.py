@@ -7,7 +7,7 @@ import re
 PROFILE_VERSION = 3
 
 SIMPLE_TOOL_NAMES = frozenset({
-    "inspect_static_site", "inspect_setup", "request_input", "list_files", "read_file",
+    "inspect_static_site", "inspect_visual_site", "render_page", "inspect_setup", "request_input", "list_files", "read_file",
     "search_files", "write_file", "edit_file", "delete_file", "verify", "update_delivery",
 })
 WEB_TOOL_NAMES = frozenset({"web_search", "read_web_page"})

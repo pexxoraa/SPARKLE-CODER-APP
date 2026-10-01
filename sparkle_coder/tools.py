@@ -26,6 +26,8 @@ S = {"type": "string"}
 I = {"type": "integer"}
 SCHEMAS = [
     schema("inspect_static_site", "Check plain HTML structure, links and local assets without running commands. Does not test rendered appearance or JavaScript behavior.", {"entry": S}, []),
+    schema("inspect_visual_site", "Run the deterministic visual-quality gate for a static site and render desktop/mobile screenshots when Chromium is available. Detects placeholder imagery, missing responsive intent, stale dates and generic visual patterns.", {"entry": S, "domain": S}, []),
+    schema("render_page", "Render one local static page with headless Chromium at a desktop or mobile viewport. Returns a saved screenshot path; it does not by itself judge visual quality.", {"entry": S, "viewport": {"type": "string", "enum": ["desktop", "mobile"]}}, []),
     schema("inspect_setup", "Inspect project manifests and locate development tools without executing code. "
            "Use to investigate missing dependencies; this is not a verification pass.", {}),
     schema("discover_checks", "Find existing test, typecheck, lint and build commands. Does not execute them.", {}),
@@ -308,6 +310,31 @@ class ToolSet:
         self.session.save()
         return {**result, "check_id": record["id"], "label": record["label"]}
 
+    def render_page(self, entry="index.html", viewport="desktop"):
+        from .visual_quality import render_page
+        return render_page(self.workspace, self.session.directory, entry, viewport)
+
+    def inspect_visual_site(self, entry="index.html", domain=""):
+        from .visual_quality import inspect_visual_quality
+        inferred = domain or ("photography" if "photography_portfolio" in self.session.state.get("skills", []) else "")
+        result = inspect_visual_quality(self.workspace, entry, inferred)
+        renders = [self.render_page(entry, viewport) for viewport in ("desktop", "mobile")]
+        result["renders"] = renders
+        unavailable = [item for item in renders if not item.get("ok")]
+        if unavailable:
+            result["output"] += "\n- RENDER NOTE: " + "; ".join(item.get("error", "render unavailable") for item in unavailable)
+        command = "builtin:visual-site " + entry + (" " + inferred if inferred else "")
+        record = {"id": "check-" + uuid.uuid4().hex[:12], "key": check_key(command),
+                  "label": "Rendered visual quality gate", "source": "builtin", "at": now(),
+                  "command": command, "cwd": ".", "required": False, "ok": result["ok"],
+                  "exit_code": result["exit_code"], "fingerprint": self.workspace.fingerprint(),
+                  "environment_revision": self.session.state.get("environment_revision", 0),
+                  "output": result["output"][-12000:]}
+        self.session.state["checks"].append(record)
+        self.session.state["verification_fingerprint"] = record["fingerprint"]
+        self.session.save()
+        return {**result, "check_id": record["id"], "label": record["label"]}
+
     def revise_check(self, check_ids, command, label, reason, evidence_path, expected_sha256, cwd="."):
         if not check_ids or len(check_ids) > 20 or not all(isinstance(x, str) for x in check_ids):
             raise ValueError("Name the existing check IDs to correct.")
@@ -438,4 +465,5 @@ class ToolSet:
 
 
 READ_ONLY_TOOLS = {"list_files", "read_file", "search_files", "web_search", "read_web_page",
-                   "discover_checks", "inspect_setup", "request_input", "update_plan"}
+                   "discover_checks", "inspect_setup", "inspect_static_site", "inspect_visual_site", "render_page",
+                   "request_input", "update_plan"}
