@@ -1,7 +1,9 @@
 {
   "name": "sparkle-pilot-gateway",
   "private": true,
-  "devDependencies": {"wrangler": "^4.0.0"},
+  "devDependencies": {
+    "wrangler": "^4.145.0"
+  },
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
