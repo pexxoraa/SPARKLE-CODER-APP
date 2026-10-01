@@ -145,6 +145,7 @@ test('deployed cloud assets match the complete shared UI, with scratch data stil
   assert.equal(readFileSync(new URL('../public/agent.js',import.meta.url),'utf8'),readFileSync(new URL('../../sparkle_coder/ui/app.js',import.meta.url),'utf8'));
   assert.equal(readFileSync(new URL('../public/agent.css',import.meta.url),'utf8'),readFileSync(new URL('../../sparkle_coder/ui/app.css',import.meta.url),'utf8'));
   const html=readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
-  assert.match(html,/data-runtime="cloud"/);assert.ok(html.indexOf('cloud-adapter.js')<html.indexOf('agent.js'));
+  assert.match(html,/data-runtime="cloud"/);assert.ok(html.indexOf('cloud-adapter.js')<html.indexOf('agent.js'));assert.ok(html.indexOf('agent.js')<html.indexOf('cloud-features.js'));
+  assert.match(html,/cloud-features\.css/);assert.match(readFileSync(new URL('../public/cloud-features.js',import.meta.url),'utf8'),/Cloud Workspace Studio/);
   assert.match(readFileSync(new URL('../public/scratch.html',import.meta.url),'utf8'),/src="\/app.js"/);
 });

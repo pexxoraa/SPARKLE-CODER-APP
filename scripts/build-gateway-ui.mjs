@@ -7,7 +7,8 @@ for(const name of ['app.js','app.css','qrcode.js'])await copyFile(new URL(name,s
 let html=await readFile(new URL('index.html',source),'utf8');
 html=html.replace('<html lang="en">','<html lang="en" data-runtime="cloud">')
   .replace('/app.css','/agent.css')
-  .replace('<script src="/app.js" defer></script>','<link rel="manifest" href="/manifest.webmanifest">\n  <meta name="theme-color" content="#0b0f14">\n  <script src="/cloud-adapter.js" defer></script>\n  <script src="/agent.js" defer></script>')
+  .replace('<link rel="stylesheet" href="/agent.css">','<link rel="stylesheet" href="/agent.css">\n  <link rel="stylesheet" href="/cloud-features.css">')
+  .replace('<script src="/app.js" defer></script>','<link rel="manifest" href="/manifest.webmanifest">\n  <meta name="theme-color" content="#0b0f14">\n  <script src="/cloud-adapter.js" defer></script>\n  <script src="/agent.js" defer></script>\n  <script src="/cloud-features.js" defer></script>')
   .replace('Build, inspect, and verify software on your own computer.','Build, inspect, and verify software in your cloud project.');
 await writeFile(new URL('index.html',target),html);
 console.log('Gateway UI built from the shared full agent interface.');
