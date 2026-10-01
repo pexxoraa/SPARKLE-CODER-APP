@@ -15,7 +15,7 @@ from .explanations import check_title, explain_checks, simple_recovery
 from .verification import active_checks, proof_summary
 from .state import now
 from .tools import READ_ONLY_TOOLS, SCHEMAS, ToolSet
-from .skills import SKILL_VERSION, render_skills, select_skills
+from .skills import SKILL_VERSION, record_skill_outcome, render_skills, resolve_project_skills, select_skills
 from .workspace import atomic_write, clean_terminal
 
 
@@ -114,6 +114,7 @@ class Agent:
         self.task_profile = profile
         goal_text = " ".join(session.state.get("user_requests", [session.state.get("goal", "")])[-2:])
         routed = select_skills(goal_text, task_profile=profile.get("name", "standard"))
+        routed = resolve_project_skills(workspace, goal_text, routed)
         if session.state.get("skill_version") != SKILL_VERSION or session.state.get("skills") != routed:
             session.state["skill_version"] = SKILL_VERSION
             session.state["skills"] = routed
@@ -181,7 +182,7 @@ class Agent:
                        "not mean generic design, missing imagery, weak hierarchy, or placeholder content. Prefer one "
                        "strong core experience over several weak pages. Batch edits, run structural checks, apply the "
                        "selected design skills, and make no more than two focused polish passes.")
-        skill_text = render_skills(self.skills, char_budget=9000) if self.skills else ""
+        skill_text = render_skills(self.skills, char_budget=9000, workspace=self.workspace) if self.skills else ""
         if skill_text:
             system += "\n\nSELECTED TASK SKILLS (apply only these; do not invent other skill rules):\n" + skill_text
         guidance = self.workspace.instructions()
@@ -296,6 +297,10 @@ class Agent:
         state["summary"] = self.tools.redactor.text(summary)
         state["recovery"] = self.tools.redactor.value(recovery)
         self.session.save()
+        try:
+            record_skill_outcome(self.workspace, self.session)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
         if status in ("checked", "answered", "needs_input"):
             try:
                 self.tools.remember_task(status, state["summary"])

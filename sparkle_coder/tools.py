@@ -91,7 +91,7 @@ SCHEMAS = [
 class ToolSet:
     def __init__(self, workspace: Workspace, session: Session, config, approve, should_stop=None,
                  observe=None, checkpoint=None, approve_edit=None):
-        self.workspace, self.session = workspace, session
+        self.workspace, self.session, self.config = workspace, session, config
         self.redactor = Redactor((config.api_key,))
         self.observe = lambda kind, data: (observe or (lambda *_: None))(kind, self.redactor.value(data))
         self.checkpoint = checkpoint or (lambda: None)
@@ -352,6 +352,23 @@ class ToolSet:
         unavailable = [item for item in renders if not item.get("ok")]
         if unavailable:
             result["output"] += "\n- RENDER NOTE: " + "; ".join(item.get("error", "render unavailable") for item in unavailable)
+        try:
+            from .skills.store import overrides
+            if overrides(self.workspace).get("vision_review"):
+                from .vision_review import review_rendered_page
+                paths=[item["screenshot"] for item in renders if item.get("ok") and item.get("screenshot")]
+                vision=review_rendered_page(paths,self.session.state.get("goal", ""),self.session.state.get("skills", []))
+                result["vision_review"]=self.redactor.value(vision)
+                if vision.get("ok"):
+                    result["output"] += "\n- VISION REVIEW: " + str(vision.get("summary", ""))[:800]
+                    for item in vision.get("findings", [])[:8]:
+                        result["output"] += "\n  - " + str(item.get("severity", "medium")).upper() + " " + str(item.get("category", "visual")) + ": " + str(item.get("message", ""))[:400]
+                elif vision.get("available"):
+                    result["output"] += "\n- VISION REVIEW NOTE: " + str(vision.get("error", "Vision review unavailable."))
+                else:
+                    result["output"] += "\n- VISION REVIEW NOTE: " + str(vision.get("reason", "Vision review is not configured."))
+        except (OSError, ValueError, TypeError):
+            result["output"] += "\n- VISION REVIEW NOTE: Optional visual review could not run; deterministic checks remain valid."
         command = "builtin:visual-site " + entry + (" " + inferred if inferred else "")
         record = {"id": "check-" + uuid.uuid4().hex[:12], "key": check_key(command),
                   "label": "Rendered visual quality gate", "source": "builtin", "at": now(),

@@ -170,6 +170,8 @@ class Handler(BaseHTTPRequestHandler):
                     result = app.project_context(project_id)
                 elif operation == "setup" and len(parts) == 4:
                     result = app.setup(project_id)
+                elif operation == "skills" and len(parts) == 4:
+                    result = app.project_skills(project_id)
                 elif operation == "file":
                     relative = query.get("path", [""])[0]
                     result = user_files.preview(relative)
@@ -304,6 +306,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = app.file_action(parts[2], parts[3], body)
             elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "brief":
                 result = app.project_context(parts[2], body)
+            elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "skills":
+                result = app.configure_project_skills(parts[2], body)
             elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "reconnect":
                 result = app.reconnect_project(parts[2], body.get("path"))
             elif len(parts) == 4 and parts[:2] == ["api", "runs"]:

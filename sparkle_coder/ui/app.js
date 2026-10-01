@@ -62,6 +62,7 @@ id("app").innerHTML = `
       <button data-view="files" class="nav-item"><span data-icon="folder"></span>Project files<span class="nav-count" id="fileCount">0</span></button>
       <button data-view="monitor" class="nav-item"><span data-icon="panel"></span>Run monitor<span class="nav-count" id="monitorLive">Live</span></button>
       <button id="briefButton" class="nav-item"><span data-icon="file"></span>Project brief</button>
+      <button id="skillsButton" class="nav-item"><span data-icon="bolt"></span>Skills</button>
       <button id="setupButton" class="nav-item"><span data-icon="check"></span>Check setup</button>
       <button id="storageButton" class="nav-item"><span data-icon="folder"></span>Device storage</button>
       <button id="websiteButton" class="nav-item"><span data-icon="link"></span><span id="websiteButtonLabel">Connect website</span></button>
@@ -220,6 +221,18 @@ id("app").innerHTML = `
   <label for="briefConstraints">Preferences and things to preserve</label><textarea id="briefConstraints" rows="3" maxlength="2000" placeholder="Explain things simply. Keep my existing data. Use local storage."></textarea>
   <p class="settings-note">No programming commands needed. Saved on your device with this project. Do not put passwords or API keys here.</p><div id="briefResult" class="inline-result" role="status" hidden></div>
   <div class="dialog-actions"><button type="submit" id="saveBrief" class="button primary">Save project brief</button></div></form></dialog>
+<dialog id="skillsDialog"><div class="dialog-header"><h2>Project skills</h2><button class="icon-button" data-close="skillsDialog" aria-label="Close project skills"><span data-icon="close"></span></button></div>
+  <p class="dialog-intro">SPARKLE auto-selects a small set of relevant skills. Override only when this project needs a specialist skill every time.</p>
+  <div id="skillsList" class="skills-list"></div>
+  <label class="check-label"><input id="visionReview" type="checkbox"> Use optional vision-model review for rendered web screenshots</label><p id="visionReviewStatus" class="settings-note"></p>
+  <div class="dialog-actions"><button id="saveSkillOverrides" class="button primary">Save skill overrides</button></div>
+  <details class="technical-details"><summary>Add a custom project skill</summary><form id="customSkillForm">
+    <label for="customSkillId">Skill ID</label><input id="customSkillId" maxlength="48" placeholder="brand_voice">
+    <label for="customSkillTitle">Title</label><input id="customSkillTitle" maxlength="80" placeholder="Brand voice">
+    <label for="customSkillTriggers">Auto-trigger phrases <span>comma separated</span></label><input id="customSkillTriggers" maxlength="500" placeholder="brand voice, marketing copy">
+    <label for="customSkillBody">Instructions</label><textarea id="customSkillBody" rows="7" maxlength="4000" placeholder="When this skill is active…"></textarea>
+    <p id="customSkillResult" class="inline-result" role="status" hidden></p><div class="dialog-actions"><button type="submit" class="button secondary">Save custom skill</button></div>
+  </form></details></dialog>
 <dialog id="setupDialog"><div class="dialog-header"><h2>Project setup</h2><button class="icon-button" data-close="setupDialog" aria-label="Close setup report"><span data-icon="close"></span></button></div>
   <p id="setupSummary" class="dialog-intro" role="status">Reading project settings…</p><div id="setupItems" class="setup-items"></div><details class="technical-details"><summary>Project map and available checks</summary><pre id="setupMap"></pre></details>
   <p class="settings-note">This scan does not run commands or install software. Finding a tool does not prove its version or the project works.</p>
@@ -488,6 +501,7 @@ function renderSession(session) {
   const usage=session?.usage; id("tokensMetric").textContent=usage ? ((usage.prompt_tokens||0)+(usage.completion_tokens||0)).toLocaleString() : "—";
   id("changeCount").textContent=session?.changed_files?.length||0; id("checkCount").textContent=session?.checks?.length||0;
   id("plan").replaceChildren();
+  if(session?.skills?.length){const wrap=node("div","active-skills");wrap.append(node("div","panel-label","ACTIVE SKILLS"));const chips=node("div","active-skill-chips");session.skills.forEach(skill=>chips.append(node("span","status-badge",skill.replaceAll("_"," "))));wrap.append(chips);id("plan").append(wrap);}
   if(session?.plan?.length) {
     id("plan").append(node("div","panel-label","PLAN"));
     session.plan.forEach(step=> { const row=node("div","plan-step "+step.status); const mark=node("span","plan-mark",step.status==="completed"?"✓":step.status==="in_progress"?"•":""); row.append(mark,node("span","",step.step)); id("plan").append(row); });
@@ -498,7 +512,7 @@ function renderActivity() {
   const target=id("activityList"); target.replaceChildren();
   const actions=currentSession?.actions||[];
   if(!actions.length && !runEvents.length) { target.append(emptyPanel("Ready when you are","The agent's progress and decisions will appear here.")); return; }
-  const names={inspect_setup:"Inspected project setup",revise_check:"Corrected a test",update_delivery:"Prepared usage instructions",discover_checks:"Found project checks",request_input:"Asked for a missing detail",list_files:"Explored project",read_file:"Read file",search_files:"Searched code",web_search:"Searched the web",read_web_page:"Read web page",write_file:"Wrote file",edit_file:"Edited file",delete_file:"Removed file",run_command:"Ran command",verify:"Ran verification",update_plan:"Updated plan",remember:"Saved project memory"};
+  const names={inspect_setup:"Inspected project setup",inspect_static_site:"Checked static site",inspect_visual_site:"Reviewed visual quality",render_page:"Rendered page",revise_check:"Corrected a test",update_delivery:"Prepared usage instructions",discover_checks:"Found project checks",request_input:"Asked for a missing detail",list_files:"Explored project",read_file:"Read file",search_files:"Searched code",web_search:"Searched the web",search_assets:"Searched public image assets",read_web_page:"Read web page",download_asset:"Downloaded project asset",write_file:"Wrote file",edit_file:"Edited file",delete_file:"Removed file",run_command:"Ran command",verify:"Ran verification",update_plan:"Updated plan",remember:"Saved project memory"};
   actions.slice(-25).reverse().forEach(a=> { const row=node("div","activity-row"); const marker=node("span","activity-marker "+(a.ok?"ok":"failed")); marker.innerHTML=icon(a.ok?"check":"close"); const detail=node("div"); detail.append(node("strong","",names[a.tool]||a.tool),node("span","",a.label||a.purpose||a.path||a.query||(a.command?"Command recorded — open Run monitor for details":a.ok?"Completed":"Needs attention"))); row.append(marker,detail); if(a.error) row.title=a.error; target.append(row); });
   if(busy()) { const latest=runEvents[runEvents.length-1]; const row=node("div","live-activity",latest?.text?.slice(0,250)||"Working…"); target.prepend(row); }
 }
@@ -740,6 +754,30 @@ async function saveProjectBrief(event) {
   } catch(error) {id("briefResult").textContent=error.message;}
   finally {id("saveBrief").disabled=!!busy();}
 }
+let projectSkillState=null;
+function renderProjectSkills(data){
+  projectSkillState=data;const target=id("skillsList");target.replaceChildren();
+  const enabled=new Set(data.overrides?.enabled||[]),disabled=new Set(data.overrides?.disabled||[]);
+  for(const skill of data.skills||[]){
+    const row=node("div","skill-row"),copy=node("div","skill-copy"),title=node("strong","",skill.title||skill.id),meta=node("span","",skill.source==="custom"?"Custom":"Built in");
+    const m=skill.metrics||{};if(m.runs)meta.textContent+=" · "+m.runs+" runs · "+m.checked+" checked · "+Number(m.tokens||0).toLocaleString()+" tokens";
+    if(skill.triggers?.length)meta.textContent+=" · triggers: "+skill.triggers.join(", ");copy.append(title,meta);
+    const mode=node("select","skill-mode");mode.dataset.skillId=skill.id;[["auto","Auto"],["on","On"],["off","Off"]].forEach(([value,label])=>{const option=node("option","",label);option.value=value;mode.append(option);});mode.value=enabled.has(skill.id)?"on":disabled.has(skill.id)?"off":"auto";row.append(copy,mode);
+    if(skill.source==="custom"){const remove=node("button","text-button","Delete");remove.type="button";remove.onclick=()=>action(()=>deleteProjectSkill(skill.id));row.append(remove);}target.append(row);
+  }
+  id("visionReview").checked=Boolean(data.overrides?.vision_review);
+  id("visionReviewStatus").textContent=data.vision?.available?("Vision reviewer configured: "+(data.vision.model||"ready")):((data.vision?.reason||"Vision reviewer is not configured on this host.")+" You can leave this off until the owner configures one.");
+}
+async function openProjectSkills(){if(!projectId)throw new Error("Create or select a project first.");const data=await api("/projects/"+projectId+"/skills");renderProjectSkills(data);id("customSkillResult").hidden=true;id("skillsDialog").showModal();}
+async function saveProjectSkillOverrides(){
+  const enabled=[],disabled=[];document.querySelectorAll("#skillsList [data-skill-id]").forEach(select=>{if(select.value==="on")enabled.push(select.dataset.skillId);if(select.value==="off")disabled.push(select.dataset.skillId);});
+  const data=await api("/projects/"+projectId+"/skills",{action:"overrides",enabled,disabled,vision_review:id("visionReview").checked});renderProjectSkills(data);toast("Project skill overrides saved.");
+}
+async function saveCustomProjectSkill(event){event.preventDefault();const triggers=id("customSkillTriggers").value.split(/[,\n]/).map(x=>x.trim()).filter(Boolean);
+  try{const data=await api("/projects/"+projectId+"/skills",{action:"save_custom",id:id("customSkillId").value,title:id("customSkillTitle").value,triggers,body:id("customSkillBody").value});renderProjectSkills(data);id("customSkillForm").reset();id("customSkillResult").hidden=false;id("customSkillResult").textContent="Custom skill saved.";}catch(error){id("customSkillResult").hidden=false;id("customSkillResult").textContent=error.message;}
+}
+async function deleteProjectSkill(skillId){if(!window.confirm("Delete this custom project skill?"))return;const data=await api("/projects/"+projectId+"/skills",{action:"delete_custom",id:skillId});renderProjectSkills(data);toast("Custom skill deleted.");}
+
 function renderSetupReport(report) {
   id("setupSummary").textContent=report.attention?report.attention+" setup item(s) need attention. Your files are saved.":"No missing tools were identified by this scan. Project tests still need to run.";
   const target=id("setupItems");target.replaceChildren();
@@ -998,6 +1036,9 @@ document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>setTab(b.datase
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>id(b.dataset.close).close());
 document.querySelectorAll(".suggestion").forEach(b=>b.onclick=()=>{id("taskMode").value=b.dataset.mode||"build";renderControls();id("goal").value=b.dataset.prompt;id("goal").focus();});
 id("briefButton").onclick=()=>action(openProjectBrief);
+id("skillsButton").onclick=()=>action(openProjectSkills);
+id("saveSkillOverrides").onclick=()=>action(saveProjectSkillOverrides);
+id("customSkillForm").onsubmit=e=>action(()=>saveCustomProjectSkill(e));
 id("briefForm").onsubmit=e=>action(()=>saveProjectBrief(e));
 id("setupButton").onclick=()=>action(openSetup);
 id("refreshSetup").onclick=()=>action(refreshSetup);
@@ -1128,7 +1169,7 @@ function renderCloudState(){
   if(available){clearTimeout(cloudReconnectTimer);cloudReconnectTimer=null;}else if(appState.account?.ready)scheduleCloudReconnect();
   id("projectPath").textContent=appState.projects.find(p=>p.id===projectId)?.name||"Cloud workspace";
   id("projectPath").title="Your account's cloud project";
-  for(const name of ["briefButton","setupButton","importFiles","importFolder","downloadProject"])id(name).disabled=!available||!!busy();
+  for(const name of ["briefButton","skillsButton","setupButton","importFiles","importFolder","downloadProject"])id(name).disabled=!available||!!busy();
   renderFilesState();
 }
 if(isCloud){

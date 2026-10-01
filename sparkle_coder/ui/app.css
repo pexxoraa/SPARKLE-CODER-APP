@@ -24,3 +24,5 @@
 .workspace-mode-switch{display:flex;align-items:center;border:1px solid var(--line);border-radius:6px;padding:2px}
 .workspace-mode-label{padding:5px 8px;border-radius:4px;background:var(--surface);color:var(--text);font-size:12px;font-weight:600}
 @media(max-width:760px){.workspace-mode-switch{margin-left:auto}}
+.skills-list{display:grid;gap:9px;margin:14px 0 18px}.skill-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.skill-copy{min-width:0}.skill-copy strong,.skill-copy span{display:block}.skill-copy strong{font-size:12px}.skill-copy span{margin-top:3px;color:var(--muted);font-size:10px;line-height:1.45}.skill-mode{min-width:82px}.skills-list+.check-label{margin-top:12px}@media(max-width:680px){.skill-row{grid-template-columns:minmax(0,1fr) auto}.skill-row>.text-button{grid-column:1/-1;justify-self:start}}
+.active-skills{margin-bottom:14px}.active-skill-chips{display:flex;flex-wrap:wrap;gap:6px}.active-skill-chips .status-badge{text-transform:capitalize}

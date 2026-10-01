@@ -1,6 +1,6 @@
 """Built-in skill metadata. Bodies stay in small markdown files and load only when selected."""
 
-SKILL_VERSION = 2
+SKILL_VERSION = 3
 
 _BUILTINS = {
     "static_web": {"file": "static_web.md", "max_chars": 2200, "priority": 90},

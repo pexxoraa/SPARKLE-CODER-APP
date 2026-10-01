@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const root=path.join(__dirname,'..');
+const app=fs.readFileSync(path.join(root,'sparkle_coder/ui/app.js'),'utf8');
+const css=fs.readFileSync(path.join(root,'sparkle_coder/ui/app.css'),'utf8');
+for(const token of ['skillsButton','skillsDialog','skillsList','saveSkillOverrides','customSkillForm','customSkillId','customSkillTriggers','customSkillBody','visionReview','visionReviewStatus'])assert.ok(app.includes(token),token);
+assert.ok(app.includes('/skills'));
+for(const label of ['Auto','On','Off'])assert.ok(app.includes('"'+label+'"'),label);
+assert.ok(app.includes('metrics||{}'));
+assert.ok(app.includes('runs · '));
+assert.ok(!app.includes('SPARKLE_VISION_API_KEY'));
+assert.ok(!app.includes('SPARKLE_VISION_BASE_URL'));
+assert.ok(css.includes('.skills-list'));
+assert.ok(css.includes('.skill-row'));
+assert.ok(css.includes('.skill-mode'));
+console.log('Skills UI: catalog, overrides, custom skills, opt-in vision review and analytics are wired without exposing vision credentials.');

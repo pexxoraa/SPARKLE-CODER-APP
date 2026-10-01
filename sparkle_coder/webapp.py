@@ -24,6 +24,8 @@ from .storage import resolve_storage, relocate, migrate_legacy, retry_migration,
 from .state import Session, now
 from .explanations import check_title, explain_failure, simple_recovery
 from .verification import proof_summary, replacements, active_checks
+from .skills import (catalog as skill_catalog, delete_custom_skill, save_custom_skill, set_overrides)
+from .vision_review import public_configuration as vision_public_configuration
 from .workspace import Redactor, Workspace, clean_terminal, write_json, sha256
 
 
@@ -348,6 +350,29 @@ class AppService:
                                self.connected_endpoint == (config.base_url, config.model))
         return Redactor((config.api_key,)).value(report)
 
+    def project_skills(self, project_id):
+        _, workspace = self.project(project_id)
+        result = skill_catalog(workspace)
+        result["vision"] = vision_public_configuration()
+        return result
+
+    def configure_project_skills(self, project_id, payload):
+        if not isinstance(payload, dict):
+            raise ValueError("Expected skill settings object.")
+        if self.active():
+            raise ValueError("Finish or stop the active task before changing project skills.")
+        _, workspace = self.project(project_id)
+        action = payload.get("action")
+        if action == "save_custom":
+            save_custom_skill(workspace, payload.get("id"), payload.get("title"), payload.get("triggers", []), payload.get("body"))
+        elif action == "delete_custom":
+            delete_custom_skill(workspace, payload.get("id"))
+        elif action == "overrides":
+            set_overrides(workspace, payload.get("enabled", []), payload.get("disabled", []), payload.get("vision_review", False))
+        else:
+            raise ValueError("Unknown skill settings action.")
+        return self.project_skills(project_id)
+
     def snapshot(self, project_id, session_id, include_events=True):
         _, workspace = self.project(project_id)
         session = Session.load(workspace, session_id)
@@ -377,7 +402,7 @@ class AppService:
                   for check in state["checks"][-60:]]
         return {key: state.get(key) for key in
                 ("id", "goal", "status", "created", "updated", "plan", "usage", "summary", "model", "undone", "task_mode", "recovery",
-                 "project_brief", "requirements", "setup", "repair_history")} | {
+                 "project_brief", "requirements", "setup", "repair_history", "skills")} | {
             "messages": messages, "actions": state["actions"][-100:], "checks": checks,
             "recovery": recovery, "proof": proof_summary(state), "delivery": state.get("delivery", {}),
             "check_revisions": state.get("check_revisions", []),
