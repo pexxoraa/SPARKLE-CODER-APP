@@ -1,0 +1,6 @@
+# Composition Mastery
+Design the page as a visual composition, not a stack of sections. Establish a grid, dominant focal point, supporting rhythm, and intentional negative space before decorating details. Use scale contrast, alignment, overlap, asymmetry, edge-to-edge moments, or restrained symmetry only when they support the concept. Avoid the default pattern of centered headline, three equal cards, another three equal cards, CTA, footer.
+
+For portfolio and image-led work, let image proportions drive the layout. Mix full-bleed, portrait, landscape, and detail crops deliberately instead of forcing everything into identical rectangles. Create at least one memorable composition on the primary page. Desktop and mobile should feel art-directed separately: on mobile, recompose rather than merely stack every desktop block.
+
+Master standard: every major section has a clear visual purpose, spacing follows a coherent rhythm, no accidental gaps or cramped clusters remain, and the page has a recognizable silhouette when viewed as a thumbnail.

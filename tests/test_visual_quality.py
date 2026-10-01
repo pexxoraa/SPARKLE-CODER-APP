@@ -28,15 +28,33 @@ class VisualQualityTests(unittest.TestCase):
         self.assertTrue({'placeholder-assets','photography-imagery','responsive-intent','stale-date'} <= codes)
         self.assertIn('generic-creative-copy',codes)
 
+    def test_uploaded_beginner_photo_site_shape_is_rejected_across_linked_pages(self):
+        workspace=self.workspace()
+        nav='<nav><a href="index.html">Home</a><a href="about.html">About</a><a href="gallery.html">Gallery</a><a href="contact.html">Contact</a></nav>'
+        (workspace.root/'index.html').write_text('<!doctype html><html><head><link rel="stylesheet" href="css/style.css"></head><body><h1>Photo Studio</h1>'+nav+'<section class="hero"><h2>Capturing Moments, Creating Memories</h2><p>Professional photography services for all occasions.</p></section><script src="js/script.js"></script></body></html>')
+        (workspace.root/'gallery.html').write_text('<!doctype html><html><head><link rel="stylesheet" href="css/style.css"></head><body><h1>Our Work</h1>'+nav+'<div class="gallery"><div class="gallery-grid">'+''.join('<div class="gallery-item"><img src="https://via.placeholder.com/400x300?text=Photo" alt="Photo"></div>' for _ in range(6))+'</div></div><script src="js/script.js"></script></body></html>')
+        (workspace.root/'about.html').write_text('<!doctype html><html><head><link rel="stylesheet" href="css/style.css"></head><body><h1>About Our Studio</h1>'+nav+'<section class="about"><p>We are a passionate team with over 10 years of experience and state-of-the-art equipment.</p></section><section class="team"><div class="team-list"><div class="team-member">John Doe</div><div class="team-member">Jane Smith</div><div class="team-member">Bob Johnson</div></div></section></body></html>')
+        (workspace.root/'contact.html').write_text('<!doctype html><html><head><link rel="stylesheet" href="css/style.css"></head><body><h1>Contact Us</h1>'+nav+'<section class="contact"><form action="#" method="post"><label>Name<input name="name"></label><button>Send Message</button></form></section></body></html>')
+        (workspace.root/'css').mkdir();(workspace.root/'css/style.css').write_text('body{font-family:Arial,sans-serif}.hero{text-align:center}.service{border:1px solid #ddd}')
+        result=inspect_visual_quality(workspace,'index.html','photography')
+        self.assertFalse(result['ok'])
+        self.assertEqual(set(result['pages']),{'index.html','about.html','gallery.html','contact.html'})
+        codes={item['code'] for item in result['findings']}
+        for code in ('placeholder-assets','missing-local-resource','homepage-photography-lead','photography-imagery','default-typography','placeholder-identity','nonfunctional-form'):
+            self.assertIn(code,codes,result['output'])
+        self.assertIn('unstyled-secondary-page',codes)
+
     def test_image_first_responsive_photo_site_passes_blocking_gate(self):
         workspace=self.workspace();year=datetime.now(timezone.utc).year
         (workspace.root/'index.html').write_text(f'''<!doctype html><html><head><link rel="stylesheet" href="/styles.css"></head><body><h1>Quiet stories, honestly framed.</h1><img src="hero.jpg" alt="Portrait at dusk"><img src="work-1.jpg" alt="Wedding portrait"><img src="work-2.jpg" alt="Editorial portrait"><footer>© {year} Northlight Studio</footer></body></html>''')
         (workspace.root/'styles.css').write_text("body{font-family:Georgia,serif} @media(max-width:700px){body{padding:1rem}}")
+        for name in ('hero.jpg','work-1.jpg','work-2.jpg'):(workspace.root/name).write_bytes(b'img')
         result=inspect_visual_quality(workspace,'index.html','photography')
         self.assertTrue(result['ok'],result['output'])
 
     def test_visual_tool_records_a_check_and_two_render_attempts(self):
         workspace=self.workspace();(workspace.root/'index.html').write_text('<h1>Studio</h1><img src="a.jpg" alt="a"><img src="b.jpg" alt="b"><img src="c.jpg" alt="c"><style>@media(max-width:600px){h1{font-size:2rem}}</style>')
+        for name in ('a.jpg','b.jpg','c.jpg'):(workspace.root/name).write_bytes(b'img')
         session=Session.create(workspace,'build a static website for a photo studio',[],{})
         tools=ToolSet(workspace,session,Config(auto_approve=True),lambda _:True)
         with patch('sparkle_coder.visual_quality.render_page',return_value={'ok':True,'available':True,'screenshot':'x.png'}):

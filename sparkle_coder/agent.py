@@ -182,7 +182,7 @@ class Agent:
                        "not mean generic design, missing imagery, weak hierarchy, or placeholder content. Prefer one "
                        "strong core experience over several weak pages. Batch edits, run structural checks, apply the "
                        "selected design skills, and make no more than two focused polish passes.")
-        skill_text = render_skills(self.skills, char_budget=9000, workspace=self.workspace) if self.skills else ""
+        skill_text = render_skills(self.skills, char_budget=16000, workspace=self.workspace) if self.skills else ""
         if skill_text:
             system += "\n\nSELECTED TASK SKILLS (apply only these; do not invent other skill rules):\n" + skill_text
         guidance = self.workspace.instructions()

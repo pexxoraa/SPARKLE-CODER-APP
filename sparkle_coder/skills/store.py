@@ -58,7 +58,7 @@ def set_overrides(workspace, enabled, disabled, vision_review=False):
     store=load_store(workspace);known=set(builtin_registry())|set(store['custom'])
     if not isinstance(enabled,list) or not isinstance(disabled,list): raise ValueError('Skill overrides must be lists.')
     enabled=list(dict.fromkeys(str(x) for x in enabled));disabled=list(dict.fromkeys(str(x) for x in disabled))
-    if len(enabled)>8 or len(disabled)>32: raise ValueError('Too many skill overrides.')
+    if len(enabled)>10 or len(disabled)>32: raise ValueError('Too many skill overrides.')
     unknown=(set(enabled)|set(disabled))-known
     if unknown: raise ValueError('Unknown skill override: '+', '.join(sorted(unknown)))
     if set(enabled)&set(disabled): raise ValueError('A skill cannot be both forced on and forced off.')
@@ -66,7 +66,7 @@ def set_overrides(workspace, enabled, disabled, vision_review=False):
     store['overrides']={'enabled':enabled,'disabled':disabled,'vision_review':vision_review};_save(workspace,store)
     return dict(store['overrides'])
 
-def resolve_project_skills(workspace, goal, automatic, limit=8):
+def resolve_project_skills(workspace, goal, automatic, limit=10):
     store=load_store(workspace);over=store['overrides'];chosen=[x for x in automatic if x not in set(over['disabled'])]
     text=' '.join(str(goal or '').lower().split())
     for skill in store['custom'].values():
@@ -74,7 +74,7 @@ def resolve_project_skills(workspace, goal, automatic, limit=8):
         if skill.get('triggers') and any(trigger in text for trigger in skill['triggers']) and skill['id'] not in chosen: chosen.append(skill['id'])
     for skill_id in over['enabled']:
         if skill_id not in chosen: chosen.append(skill_id)
-    return chosen[:max(0,min(8,int(limit)))]
+    return chosen[:max(0,min(10,int(limit)))]
 
 def custom_skill(workspace, skill_id): return load_store(workspace)['custom'].get(skill_id)
 def overrides(workspace): return dict(load_store(workspace)['overrides'])

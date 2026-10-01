@@ -27,7 +27,7 @@ S = {"type": "string"}
 I = {"type": "integer"}
 SCHEMAS = [
     schema("inspect_static_site", "Check plain HTML structure, links and local assets without running commands. Does not test rendered appearance or JavaScript behavior.", {"entry": S}, []),
-    schema("inspect_visual_site", "Run the deterministic visual-quality gate for a static site and render desktop/mobile screenshots when Chromium is available. Detects placeholder imagery, missing responsive intent, stale dates and generic visual patterns.", {"entry": S, "domain": S}, []),
+    schema("inspect_visual_site", "Audit the full linked static site, then render desktop/mobile screenshots for the primary page and one important secondary visual page when available. Detects placeholders, broken references, weak photography presentation, unfinished secondary pages, responsive defects, stale dates and generic visual patterns.", {"entry": S, "domain": S}, []),
     schema("render_page", "Render one local static page with headless Chromium at a desktop or mobile viewport. Returns a saved screenshot path; it does not by itself judge visual quality.", {"entry": S, "viewport": {"type": "string", "enum": ["desktop", "mobile"]}}, []),
     schema("inspect_setup", "Inspect project manifests and locate development tools without executing code. "
            "Use to investigate missing dependencies; this is not a verification pass.", {}),
@@ -347,7 +347,8 @@ class ToolSet:
         from .visual_quality import inspect_visual_quality
         inferred = domain or ("photography" if "photography_portfolio" in self.session.state.get("skills", []) else "")
         result = inspect_visual_quality(self.workspace, entry, inferred)
-        renders = [self.render_page(entry, viewport) for viewport in ("desktop", "mobile")]
+        render_entries = result.get("render_entries") or [entry]
+        renders = [self.render_page(page, viewport) for page in render_entries[:2] for viewport in ("desktop", "mobile")]
         result["renders"] = renders
         unavailable = [item for item in renders if not item.get("ok")]
         if unavailable:
