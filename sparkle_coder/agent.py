@@ -184,7 +184,11 @@ class Agent:
                        "selected design skills, and make no more than two focused polish passes.")
         skill_text = render_skills(self.skills, char_budget=16000, workspace=self.workspace) if self.skills else ""
         if skill_text:
-            system += "\n\nSELECTED TASK SKILLS (apply only these; do not invent other skill rules):\n" + skill_text
+            system += ("\n\nSELECTED TASK SKILLS — BINDING EXPERTISE CONTRACTS:\n"
+                       "Apply every selected skill concretely. Treat each Master standard and acceptance rule as a completion requirement, "
+                       "not optional inspiration. Do not merely mention a skill; let it change the implementation and verification. "
+                       "User requirements and observed project evidence take precedence if they conflict with a skill. "
+                       "Do not invent unselected skill rules.\n" + skill_text)
         guidance = self.workspace.instructions()
         if guidance:
             system += "\n\nPROJECT GUIDANCE:\n" + guidance
