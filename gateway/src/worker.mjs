@@ -506,9 +506,11 @@ async function updateRuntimeEngineOrigin(request,env){
     fail(401,'Engine update is not authorized.');
   const data=await body(request),origin=String(data.origin||'').trim();
   let parsed;try{parsed=new URL(origin);}catch{fail(400,'Invalid engine origin.');}
+  const hostname=parsed.hostname.toLowerCase();
+  const literalIp=/^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname)||hostname.includes(':');
   if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.pathname!=='/'||parsed.search||parsed.hash||
-     !/^[a-z0-9-]+\.trycloudflare\.com$/i.test(parsed.hostname))
-    fail(400,'Engine origin must be a root trycloudflare.com HTTPS URL.');
+     !hostname.includes('.')||hostname==='localhost'||hostname.endsWith('.localhost')||literalIp)
+    fail(400,'Engine origin must be a root HTTPS hostname.');
   await sql(env,"INSERT INTO runtime_config(key,value,updated) VALUES ('engine_origin',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated",parsed.origin,now()).run();
   await audit(env,'engine-origin-updated',parsed.hostname,'Owner recovery published a healthy engine origin');
   return json({ok:true,origin:parsed.origin});

@@ -13,7 +13,7 @@ test('Workers runtime sends model/engine requests, settles exact usage, and refu
     d1Databases:['DB'],outboundService:async request=>{
       calls.push({url:request.url,authorization:request.headers.get('authorization')});
       if(redirect)return new runtime.Response('',{status:307,headers:{Location:'https://untrusted.example/'}});
-      return runtime.Response.json(request.url.startsWith('https://engine.example')?{projects:[{id:'real-runtime-project'}]}:request.url.startsWith('https://rotated.trycloudflare.com')?{projects:[{id:'rotated-runtime-project'}]}:
+      return runtime.Response.json(request.url.startsWith('https://engine.example')?{projects:[{id:'real-runtime-project'}]}:request.url.startsWith('https://stable-engine.example')?{projects:[{id:'stable-runtime-project'}]}:
         {choices:[{message:{role:'assistant',content:'SPARKLE_READY'}}],usage:{prompt_tokens:10,completion_tokens:5}});
     }};
   const mf=new runtime.Miniflare(runtime.convertV4MiniflareOptions?runtime.convertV4MiniflareOptions(options):options);
@@ -42,10 +42,11 @@ test('Workers runtime sends model/engine requests, settles exact usage, and refu
     assert.deepEqual(await db.prepare("SELECT balance,held FROM accounts WHERE id='test'").first(),{balance:999985,held:0});
     const state=await send('/api/engine/state',undefined,auth);assert.equal(state.status,200);assert.equal((await state.json()).projects[0].id,'real-runtime-project');
     assert.equal(calls.at(-1).authorization,null);
-    const deniedOrigin=await send('/api/internal/engine-origin',{origin:'https://rotated.trycloudflare.com'},{'X-Sparkle-Relay':'wrong'});assert.equal(deniedOrigin.status,401);
-    const originUpdate=await send('/api/internal/engine-origin',{origin:'https://rotated.trycloudflare.com'},{'X-Sparkle-Relay':'R'.repeat(64)});assert.equal(originUpdate.status,200,await originUpdate.clone().text());
-    assert.deepEqual(await db.prepare("SELECT value FROM runtime_config WHERE key='engine_origin'").first(),{value:'https://rotated.trycloudflare.com'});
-    const rotatedState=await send('/api/engine/state',undefined,auth);assert.equal(rotatedState.status,200);assert.equal((await rotatedState.json()).projects[0].id,'rotated-runtime-project');
+    const deniedOrigin=await send('/api/internal/engine-origin',{origin:'https://stable-engine.example'},{'X-Sparkle-Relay':'wrong'});assert.equal(deniedOrigin.status,401);
+    const badOrigin=await send('/api/internal/engine-origin',{origin:'http://stable-engine.example'},{'X-Sparkle-Relay':'R'.repeat(64)});assert.equal(badOrigin.status,400);
+    const originUpdate=await send('/api/internal/engine-origin',{origin:'https://stable-engine.example'},{'X-Sparkle-Relay':'R'.repeat(64)});assert.equal(originUpdate.status,200,await originUpdate.clone().text());
+    assert.deepEqual(await db.prepare("SELECT value FROM runtime_config WHERE key='engine_origin'").first(),{value:'https://stable-engine.example'});
+    const rotatedState=await send('/api/engine/state',undefined,auth);assert.equal(rotatedState.status,200);assert.equal((await rotatedState.json()).projects[0].id,'stable-runtime-project');
     redirect=true;
     const rejected=await send('/api/engine/state',undefined,auth);assert.equal(rejected.status,502);assert.match((await rejected.json()).error,/redirected/);
     const providerRedirect=await send('/v1/chat/completions',body,{...auth,'Idempotency-Key':'runtime-request-0002'});assert.equal(providerRedirect.status,502);
