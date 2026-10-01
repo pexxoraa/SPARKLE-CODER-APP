@@ -1,6 +1,6 @@
 """Built-in skill metadata. Bodies stay in small markdown files and load only when selected."""
 
-SKILL_VERSION = 5
+SKILL_VERSION = 6
 
 _BUILTINS = {
     "static_web": {"file": "static_web.md", "max_chars": 2200, "priority": 90},
@@ -41,6 +41,43 @@ _BUILTINS = {
     "deployment_mastery": {"file": "deployment_mastery.md", "max_chars": 2600, "priority": 122},
     "frontend_architecture": {"file": "frontend_architecture.md", "max_chars": 2600, "priority": 118},
     "code_review_mastery": {"file": "code_review_mastery.md", "max_chars": 2600, "priority": 124},
+    "llm_engineering": {"file": "llm_engineering.md", "max_chars": 2800, "priority": 145},
+    "agent_systems": {"file": "agent_systems.md", "max_chars": 2800, "priority": 148},
+    "rag_mastery": {"file": "rag_mastery.md", "max_chars": 2800, "priority": 142},
+    "ai_evaluation": {"file": "ai_evaluation.md", "max_chars": 2600, "priority": 132},
+    "prompt_context_engineering": {"file": "prompt_context_engineering.md", "max_chars": 2600, "priority": 136},
+    "ml_engineering": {"file": "ml_engineering.md", "max_chars": 2800, "priority": 138},
+    "data_engineering": {"file": "data_engineering.md", "max_chars": 2800, "priority": 132},
+    "vector_search": {"file": "vector_search.md", "max_chars": 2600, "priority": 128},
+    "multimodal_ai": {"file": "multimodal_ai.md", "max_chars": 2600, "priority": 130},
+    "saas_architecture": {"file": "saas_architecture.md", "max_chars": 2800, "priority": 138},
+    "multi_tenant_systems": {"file": "multi_tenant_systems.md", "max_chars": 2600, "priority": 136},
+    "payments_billing": {"file": "payments_billing.md", "max_chars": 2800, "priority": 136},
+    "auth_identity": {"file": "auth_identity.md", "max_chars": 2800, "priority": 138},
+    "mobile_app_mastery": {"file": "mobile_app_mastery.md", "max_chars": 2800, "priority": 134},
+    "desktop_app_mastery": {"file": "desktop_app_mastery.md", "max_chars": 2600, "priority": 128},
+    "distributed_systems": {"file": "distributed_systems.md", "max_chars": 2800, "priority": 138},
+    "event_driven_systems": {"file": "event_driven_systems.md", "max_chars": 2600, "priority": 130},
+    "realtime_systems": {"file": "realtime_systems.md", "max_chars": 2600, "priority": 132},
+    "cloud_architecture": {"file": "cloud_architecture.md", "max_chars": 2800, "priority": 132},
+    "devops_ci_cd": {"file": "devops_ci_cd.md", "max_chars": 2600, "priority": 126},
+    "observability_mastery": {"file": "observability_mastery.md", "max_chars": 2600, "priority": 126},
+    "reliability_sre": {"file": "reliability_sre.md", "max_chars": 2800, "priority": 132},
+    "robotics_systems": {"file": "robotics_systems.md", "max_chars": 3000, "priority": 150},
+    "embedded_iot": {"file": "embedded_iot.md", "max_chars": 2800, "priority": 142},
+    "control_systems": {"file": "control_systems.md", "max_chars": 2800, "priority": 146},
+    "product_architecture": {"file": "product_architecture.md", "max_chars": 2800, "priority": 130},
+    "product_ux": {"file": "product_ux.md", "max_chars": 2600, "priority": 122},
+    "cli_tooling": {"file": "cli_tooling.md", "max_chars": 2400, "priority": 120},
+    "sdk_library_design": {"file": "sdk_library_design.md", "max_chars": 2600, "priority": 124},
+    "api_integration_mastery": {"file": "api_integration_mastery.md", "max_chars": 2600, "priority": 128},
+    "search_recommendation": {"file": "search_recommendation.md", "max_chars": 2800, "priority": 130},
+    "computer_vision": {"file": "computer_vision.md", "max_chars": 2800, "priority": 136},
+    "systems_programming": {"file": "systems_programming.md", "max_chars": 2800, "priority": 130},
+    "go_services": {"file": "go_services.md", "max_chars": 2600, "priority": 126},
+    "jvm_kotlin_mastery": {"file": "jvm_kotlin_mastery.md", "max_chars": 2600, "priority": 126},
+    "dotnet_mastery": {"file": "dotnet_mastery.md", "max_chars": 2600, "priority": 126},
+    "game_simulation": {"file": "game_simulation.md", "max_chars": 2800, "priority": 132},
 }
 
 def builtin_registry():
