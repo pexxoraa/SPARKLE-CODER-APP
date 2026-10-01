@@ -28,6 +28,47 @@ def child_environment(*, docker: bool = False) -> dict[str, str]:
     return result
 
 
+def blocked_command_reason(command: str) -> str | None:
+    """Reject high-risk commands before browser/cloud auto-execution."""
+    import shlex
+    try:
+        words = shlex.split(command, posix=os.name != "nt")
+    except ValueError:
+        return "Malformed shell command is not allowed."
+    lowered = [word.lower() for word in words]
+    if not lowered:
+        return "Empty command is not allowed."
+    system_tools = {"sudo", "su", "shutdown", "reboot", "poweroff", "halt", "fdisk", "parted"}
+    if any(word in system_tools or word.startswith("mkfs") for word in lowered):
+        return "System or privilege-management commands are not allowed."
+    if "git" in lowered:
+        try:
+            index = lowered.index("git")
+            action = lowered[index + 1] if index + 1 < len(lowered) else ""
+            args = lowered[index + 2:]
+        except ValueError:
+            action, args = "", []
+        if action == "reset" and "--hard" in args:
+            return "Discarding all project changes is not allowed."
+        if action == "clean" and any(arg.startswith("-") and "f" in arg and ("d" in arg or "x" in arg) for arg in args):
+            return "Bulk deletion of project files is not allowed."
+    for index, word in enumerate(lowered):
+        if word == "find":
+            segment = lowered[index + 1:]
+            if "-delete" in segment:
+                return "Bulk project deletion is not allowed."
+        if word != "rm":
+            continue
+        segment = lowered[index + 1:]
+        boundary = next((i for i, value in enumerate(segment) if value in {"&&", "||", ";", "|"}), len(segment))
+        segment = segment[:boundary]
+        flags = "".join(value.lstrip("-") for value in segment if value.startswith("-"))
+        targets = [value for value in segment if not value.startswith("-")]
+        if "r" in flags and "f" in flags and any(target in {"/", ".", "..", "*", "./*", "/workspace", "/workspace/*"} for target in targets):
+            return "Wiping the project or filesystem is not allowed."
+    return None
+
+
 class CommandRunner:
     def __init__(self, workspace: Workspace, config: Config, approve, should_stop=None, observe=None, checkpoint=None):
         self.workspace, self.config, self.approve = workspace, config, approve
@@ -48,6 +89,10 @@ class CommandRunner:
         caps = [value for value in (timeout, self.config.command_timeout) if value is not None]
         timeout = min(caps) if caps else None
         self.checkpoint()
+        blocked = blocked_command_reason(command)
+        if blocked:
+            return {"ok": False, "exit_code": None, "denied": True,
+                    "output": blocked + " Use a safer project-scoped command instead."}
         if (command, cwd) in self.denied:
             return {"ok": False, "exit_code": None, "denied": True,
                     "output": "You denied this command in this run. It will not be requested again until you resume."}

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from sparkle_coder.config import Config
 from sparkle_coder.demo import python_command
-from sparkle_coder.execution import CommandRunner, child_environment
+from sparkle_coder.execution import CommandRunner, blocked_command_reason, child_environment
 from sparkle_coder.workspace import Workspace
 
 
@@ -31,6 +31,13 @@ class ExecutionTests(unittest.TestCase):
         self.assertTrue(result["timed_out"])
         self.assertFalse(result["ok"])
         self.assertLess(result["seconds"], 8)
+
+    def test_high_risk_commands_are_blocked_before_execution(self):
+        self.assertIsNotNone(blocked_command_reason("git " + "reset --hard"))
+        self.assertIsNotNone(blocked_command_reason("sudo " + "echo test"))
+        self.assertIsNotNone(blocked_command_reason("rm " + "-rf ."))
+        self.assertIsNone(blocked_command_reason("npm test"))
+        self.assertIsNone(blocked_command_reason("python3 -m unittest discover -s tests -v"))
 
     def test_model_credential_is_not_in_child_environment(self):
         with patch.dict(os.environ, {"NVIDIA_API_KEY": "do-not-send-this-to-child"}):

@@ -118,10 +118,10 @@ id("app").innerHTML = `
             <label class="sr-only" for="goal">Task for SPARKLE</label>
             <textarea id="goal" rows="3" maxlength="12000" placeholder="Describe what you want to build or change…"></textarea>
             <div id="verificationFields" class="verification-fields" hidden><label for="verifyCommands">Required checks <span>One command per line</span></label><textarea id="verifyCommands" rows="2" placeholder="For example: python3 -m unittest discover -s tests -v"></textarea><p>These checks run automatically when the agent proposes completion.</p></div>
-            <div class="supervision-choice"><label><input type="checkbox" id="reviewEdits"> Review each file edit</label><span>SPARKLE will still ask before protected actions</span></div><div class="composer-toolbar"><button type="button" id="modelButton" class="model-button"><span data-icon="bolt"></span><span id="modelName">SPARKLE Core</span><span class="chevron">⌄</span></button><button type="button" id="toggleChecks" class="text-button"><span data-icon="check"></span><span>Checks</span></button><span class="composer-spacer"></span><button type="button" id="pauseButton" class="button secondary" hidden>Pause</button><button type="button" id="stopButton" class="button danger" hidden><span data-icon="stop"></span>Stop</button><button type="submit" id="runButton" class="button primary">Run agent<span data-icon="arrow"></span></button></div>
+            <div id="supervisionChoice" class="supervision-choice" hidden><label><input type="checkbox" id="reviewEdits"> Review each file edit</label><span>SPARKLE will still ask before protected actions</span></div><div class="composer-toolbar"><button type="button" id="modelButton" class="model-button"><span data-icon="bolt"></span><span id="modelName">SPARKLE Core</span><span class="chevron">⌄</span></button><button type="button" id="toggleChecks" class="text-button"><span data-icon="check"></span><span>Checks</span></button><span class="composer-spacer"></span><button type="button" id="pauseButton" class="button secondary" hidden>Pause</button><button type="button" id="stopButton" class="button danger" hidden><span data-icon="stop"></span>Stop</button><button type="submit" id="runButton" class="button primary">Run agent<span data-icon="arrow"></span></button></div>
           </form>
           <div id="taskError" class="inline-result" role="alert" hidden></div>
-          <div class="composer-note"><span id="taskNote">Files stay in your project. SPARKLE asks before protected actions.</span><span class="keyboard-hint">Ctrl / ⌘ + Enter</span></div>
+          <div class="composer-note"><span id="taskNote">Files stay in your project.</span><span class="keyboard-hint">Ctrl / ⌘ + Enter</span></div>
         </div>
         <div id="filesView" class="page-view files-view" hidden>
           <div class="view-heading"><div><span class="eyebrow" id="fileLocation">ON YOUR DEVICE</span><h1>Project files</h1></div><button id="openProjectFolder" class="button secondary">Open folder ↗</button></div>
@@ -447,7 +447,7 @@ function renderControls() {
   id('efficiencyMode').disabled=!!working;
   id("saveBrief").disabled=!!working;
   id("investigateSetup").disabled=!!working;
-  id("reviewEdits").disabled=!!working||id("taskMode").value==="ask";
+  id("supervisionChoice").hidden=isCloud; id("reviewEdits").disabled=isCloud||!!working||id("taskMode").value==="ask";
   id("stopButton").hidden=!working; id("stopButton").disabled=currentRun?.status==="stopping";
   id("projectSelect").disabled=startingRun || !!working || transferBusy; id("addProject").disabled=startingRun||!!working||transferBusy||(isCloud&&!(appState.account?.ready&&appState.engine?.available)); id("newTask").disabled=startingRun||!!working||transferBusy;
   id("findProjectFolder").disabled=!!working||transferBusy;
@@ -456,9 +456,9 @@ function renderControls() {
   id("runStatus").textContent=currentRun?.mode==="demo" && working ? "Demo · "+friendly(status) : friendly(status);
   id("runStatus").className="status-badge "+(status||"");
   id("undoButton").disabled=!!working || !currentSession?.changed_files?.length || currentSession?.undone;
-  id("taskNote").textContent=working ? (currentRun.status==="stopping" ? "Stopping commands; an in-flight model request may need to finish." : currentRun.mode==="demo" ? "Offline demo · scripted responses, real file edits and tests." : "Working in your project. You can stop the task at any time.") : "Files stay in your project. SPARKLE asks before protected actions.";
+  id("taskNote").textContent=working ? (currentRun.status==="stopping" ? "Stopping commands; an in-flight model request may need to finish." : currentRun.mode==="demo" ? "Offline demo · scripted responses, real file edits and tests." : "Working in your project. You can stop the task at any time.") : (isCloud?"Files stay in your project. Normal coding actions run automatically; protected system actions are blocked.":"Files stay in your project. SPARKLE asks before protected actions.");
   id("goal").placeholder=currentSession ? "Give this task a follow-up, or continue where it stopped…" : "Describe what you want to build or change…";
-  id("approvalCard").hidden=!(currentRun?.approval && currentRun.status==="approval");
+  id("approvalCard").hidden=isCloud||!(currentRun?.approval && currentRun.status==="approval");
   if(currentRun?.approval) {
     const a=currentRun.approval, editing=a.kind==="file edit";
     id("approvalPurpose").hidden=!a.purpose;id("approvalPurpose").textContent=a.purpose?"Why SPARKLE wants this: "+a.purpose:"";
@@ -679,7 +679,7 @@ async function startTask(event) {
   if(hostedNoKey(appState.settings.base_url)&&!appState.settings.key_configured) { openSettings(); toast("Add your API key to start a live task."); return; }
   startingRun=true;id("taskError").hidden=true;renderControls();
   try {
-    const result=await api("/runs",{project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:currentSession?.undone?null:currentSession?.id,review_edits:id("reviewEdits").checked,task_mode:id("taskMode").value});
+    const result=await api("/runs",{project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:currentSession?.undone?null:currentSession?.id,review_edits:isCloud?false:id("reviewEdits").checked,task_mode:id("taskMode").value});
     currentRun=result; runEvents=[]; lastChangeKey=""; id("goal").value=""; changeView("build"); renderControls(); schedulePoll(50);
   } catch(error) {
     id("taskError").hidden=false;id("taskError").textContent=error.message+" Your prompt is kept. Refresh the workspace to check for a running task before retrying.";
@@ -865,7 +865,7 @@ function renderSupervision() {
   id("pauseButton").disabled=!working||currentRun?.status==="stopping";
   id("monitorPause").disabled=!working||currentRun?.status==="stopping";id("monitorPause").textContent=paused?"Resume":"Pause";
   id("monitorStop").disabled=!working||currentRun?.status==="stopping";
-  id("reviewEdits").disabled=working||id("taskMode").value==="ask";
+  id("reviewEdits").disabled=isCloud||working||id("taskMode").value==="ask";
   id("headerRunStatus").textContent=friendly(currentRun?.status||currentSession?.status);
   id("monitorLive").textContent=working?"Live":"";
   id("supervisionStrip").hidden=!working;
@@ -901,7 +901,7 @@ function renderMonitor() {
   const output=events.filter(e=>["command_start","command_output","command_end"].includes(e.kind)).map(e=>e.kind==="command_start"?"\n$ "+e.command+"\n":e.kind==="command_output"?e.output:"\n[exit "+e.exit_code+(e.cancelled?", stopped":"")+"]\n").join("");
   if(output!==lastConsoleKey){id("liveConsole").textContent=output||"Command output will appear here as it is emitted.";lastConsoleKey=output;if(id("followConsole").checked)id("liveConsole").scrollTop=id("liveConsole").scrollHeight;}
   id("downloadReport").disabled=!session;id("downloadLog").disabled=!session;
-  id("monitorAttention").hidden=!(active&&currentRun?.approval);
+  id("monitorAttention").hidden=isCloud||!(active&&currentRun?.approval);
   renderSupervision();
 }
 async function togglePause() {

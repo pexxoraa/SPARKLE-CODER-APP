@@ -50,7 +50,7 @@ class HostedAppService(AppService):
         config = super().config(workspace)
         # Enforce after reading project config; a project cannot relax these caps.
         config.execution = 'docker'
-        config.auto_approve = False
+        config.auto_approve = True
         config.docker_network = False
         config.docker_image = self.manager.image
         config.base_url = self.gateway_url + '/v1'
@@ -99,6 +99,7 @@ class HostedAppService(AppService):
     def start(self, *args, **kwargs):
         if kwargs.get('demo'):
             raise ValueError('The scripted desktop demo is not a hosted task.')
+        kwargs['review_edits'] = False
         with self.manager.lock:
             if sum(bool(app.active()) for app in self.manager.apps.values()) >= self.manager.max_running:
                 raise ValueError('The coding server is busy. Retry shortly; no model call was started.')

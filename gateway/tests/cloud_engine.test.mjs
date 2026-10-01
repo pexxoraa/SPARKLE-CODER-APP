@@ -84,16 +84,14 @@ test('full cloud flow: signup/admin approval -> two-file agent -> history/downlo
   await f.api(project+'/save-file',{path:'manual.txt',content:'Manual text'});
   assert.equal((await f.api(project+'/file?path=manual.txt')).content,'Manual text');
   const run=await f.api('/runs',{project_id:state.selected_project,goal:'Create two files',review_edits:true});
-  let result,approvals=new Set();
+  let result,sawApproval=false;
   for(let i=0;i<100;i++){
     result=await f.api('/runs/'+run.id);
-    if(result.status==='approval'&&!approvals.has(result.approval.id)){
-      approvals.add(result.approval.id);await f.api('/runs/'+run.id+'/approval',{approval_id:result.approval.id,allow:true});
-    }
+    if(result.status==='approval')sawApproval=true;
     if(!['queued','running','approval','stopping'].includes(result.status))break;
     await delay(15);
   }
-  assert.equal(approvals.size,2);assert.equal(result.status,'needs_input');
+  assert.equal(sawApproval,false);assert.equal(result.status,'needs_input');
   assert.equal(f.modelCalls,2);assert.equal((await f.api('/account')).balance_tokens,1000000-240);
   assert.deepEqual(new Set((await f.api(project+'/files')).files),new Set(['manual.txt','src/hello.txt','README.md']));
   const saved=project+'/sessions/'+result.session_id;

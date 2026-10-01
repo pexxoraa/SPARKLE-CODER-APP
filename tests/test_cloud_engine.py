@@ -117,7 +117,7 @@ class CloudEngineTests(unittest.TestCase):
             config=app.config(app.project(prefix.split('/')[-1])[1])
         self.assertEqual(config.api_key,DEVICE)
         self.assertEqual(config.base_url,'https://gateway.example/v1')
-        self.assertEqual(config.execution,'docker');self.assertFalse(config.auto_approve)
+        self.assertEqual(config.execution,'docker');self.assertTrue(config.auto_approve)
         self.assertFalse(config.docker_network);self.assertEqual(config.docker_image,self.manager.image)
         self.assertEqual(config.max_steps,24);self.assertEqual(config.max_tokens,8192)
         self.assertEqual(config.request_timeout,300)
@@ -139,14 +139,11 @@ class CloudEngineTests(unittest.TestCase):
         self.assertEqual(self.api(p+'/file?path=src/edit.txt')['content'],'original')
         self.assertEqual(len(self.api(p+'/sessions')['sessions']),3)
 
-    def test_multifile_agent_edit_approvals_history_download_report_and_undo(self):
+    def test_multifile_agent_edits_auto_run_history_download_report_and_undo(self):
         p=self.project();pid=p.split('/')[-1]
         run=self.api('/api/runs',{'project_id':pid,'goal':'Create two files','review_edits':True})
-        for count in (0,1):
-            waiting=self.wait_run(run['id'],lambda r:r['status']=='approval')
-            self.assertEqual(len(self.api(p+'/files')['files']),count)
-            self.api('/api/runs/'+run['id']+'/approval',{'approval_id':waiting['approval']['id'],'allow':True})
         done=self.wait_run(run['id'],lambda r:r['status'] not in ACTIVE)
+        self.assertNotEqual(done['status'],'approval')
         self.assertEqual(set(self.api(p+'/files')['files']),{'src/main.txt','README.md'})
         saved=p+'/sessions/'+done['session_id']
         self.assertEqual(len(self.api(saved+'/changes')['changes']),2)
@@ -156,22 +153,16 @@ class CloudEngineTests(unittest.TestCase):
             self.assertEqual(set(bundle.namelist()),{'src/main.txt','README.md'})
             self.assertEqual(bundle.read('src/main.txt'),b'First real file')
         self.assertIn(b'Create two files',self.request(saved+'/report')[1])
-        self.assertIn(b'approval',self.request(saved+'/logs')[1])
+        self.assertNotIn(b'approval_requested',self.request(saved+'/logs')[1])
         self.api(saved+'/undo',{'confirm':True})
         self.assertEqual(self.api(p+'/files')['files'],[])
 
-    def test_pause_resume_stop_and_restart_preserve_saved_work(self):
+    def test_auto_run_and_restart_preserve_saved_work(self):
         p=self.project();pid=p.split('/')[-1]
         run=self.api('/api/runs',{'project_id':pid,'goal':'Write approved files','review_edits':True})
-        waiting=self.wait_run(run['id'],lambda r:r['status']=='approval')
-        self.api('/api/runs/'+run['id']+'/pause',{})
-        self.assertTrue(self.api('/api/runs/'+run['id'])['pause_requested'])
-        self.api('/api/runs/'+run['id']+'/resume',{})
-        self.api('/api/runs/'+run['id']+'/approval',{'approval_id':waiting['approval']['id'],'allow':True})
-        self.wait_run(run['id'],lambda r:r['status']=='approval')
-        self.api('/api/runs/'+run['id']+'/stop',{})
         done=self.wait_run(run['id'],lambda r:r['status'] not in ACTIVE)
-        self.assertEqual(self.api(p+'/files')['files'],['src/main.txt'])
+        self.assertNotEqual(done['status'],'approval')
+        self.assertTrue(self.api(p+'/files')['files'])
         # A new service process loads the same account and history, with no stored device key.
         self.manager.apps[ALICE].close();del self.manager.apps[ALICE]
         self.assertEqual(self.api('/api/state')['selected_project'],pid)
