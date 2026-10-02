@@ -71,6 +71,7 @@ class EfficiencyTests(unittest.TestCase):
         self.assertEqual(task_profile('build a static website for hotel')['name'], 'simple_web')
         self.assertEqual(task_profile('fix all bugs and test the existing project')['name'], 'standard')
         self.assertEqual(task_profile('simple landing page with authentication backend')['name'], 'standard')
+        self.assertEqual(task_profile('Continue the saved work on this existing project. Finish the implementation and run the relevant checks.')['name'], 'standard')
 
     def test_budget_pause_resume_promotes_small_task_to_standard_budget(self):
         state={"status":"paused","summary":"Model-call limit reached. Work is saved; resume to continue.",

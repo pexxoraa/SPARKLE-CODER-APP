@@ -546,10 +546,16 @@ function renderRecovery(session) {
   if(attention||session.status==="checked"){const checks=node("button","button secondary","See checks");checks.onclick=()=>{setTab("checks");document.body.classList.add("details-open");};actions.append(checks);}
   banner.append(actions);
 }
+function budgetResumeGoal(session) {
+  return session?.status==="paused"&&/^(Model-call|Run time|Run token) limit reached\./.test(session.summary||"")
+    ?"Continue the saved work on this existing project. Finish the implementation, run the relevant checks, and fix anything still incomplete. Preserve the original request and existing work."
+    :"";
+}
 async function resumeSavedTask(button) {
   if(startingRun||busy()||!currentSession)return;
   button.disabled=true;button.textContent="Resuming…";
-  await startTask(null,true);
+  const continuation=budgetResumeGoal(currentSession);
+  await startTask(null,!continuation,continuation||null);
   if(!busy()){button.disabled=false;button.textContent="Resume task";}
 }
 function followup(message,mode) {
@@ -687,16 +693,17 @@ async function pollRun() {
     else { await Promise.all([loadFiles(),loadHistory()]); renderControls(); if(appState.account?.enabled)await refreshAccount(); }
   } catch(error) { toast(error.message); id("monitorHeartbeat").textContent="Connection lost. Retrying; the engine may still be working."; if(busy())schedulePoll(2000); }
 }
-async function startTask(event,resumeOnly=false) {
+async function startTask(event,resumeOnly=false,goalOverride=null) {
   event?.preventDefault(); if(startingRun||busy()||transferBusy)return;
-  const goal=resumeOnly?"":id("goal").value.trim(); if(!goal&&!currentSession) { id("goal").focus(); return; }
+  const explicitGoal=goalOverride===null?null:String(goalOverride);
+  const goal=explicitGoal??(resumeOnly?"":id("goal").value.trim()); if(!goal&&!currentSession) { id("goal").focus(); return; }
   if(appState.account?.enabled&&!appState.account.ready){await openAccount();return;}
   if(!projectId||(isCloud&&!appState.engine?.available)){id("taskError").hidden=false;id("taskError").textContent=appState.engine?.message||"Select a project before starting a task.";return;}
   if(hostedNoKey(appState.settings.base_url)&&!appState.settings.key_configured) { openSettings(); toast("Add your API key to start a live task."); return; }
   startingRun=true;id("taskError").hidden=true;renderControls();
   try {
     const result=await api("/runs",{project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:currentSession?.undone?null:currentSession?.id,review_edits:isCloud?false:id("reviewEdits").checked,task_mode:id("taskMode").value});
-    currentRun=result; runEvents=[]; lastChangeKey=""; if(!resumeOnly)id("goal").value=""; changeView("build"); renderSession(currentSession); schedulePoll(50);
+    currentRun=result; runEvents=[]; lastChangeKey=""; if(!resumeOnly&&!explicitGoal)id("goal").value=""; changeView("build"); renderSession(currentSession); schedulePoll(50);
   } catch(error) {
     id("taskError").hidden=false;id("taskError").textContent=error.message+" Your prompt is kept. Refresh the workspace to check for a running task before retrying.";
     // A lost response must not cause an automatic second model request.

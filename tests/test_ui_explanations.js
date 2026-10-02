@@ -25,7 +25,7 @@ const visibleText = element => element.hidden ? "" : element.text + " " + (eleme
 let working=false, submissions=0, settingsOpened=0;
 id("taskForm").requestSubmit=()=>submissions++;
 const ui = new Function("id","node","friendly","busy","openSettings","action","api","setTab","document",
-  "let currentSession=null; const projectId='project';\n" + functions + "\nreturn {renderRecovery,renderDelivery,renderRepairHistory,checkCard,renderChecks,setSession:s=>currentSession=s};")(
+  "let currentSession=null; const projectId='project';\n" + functions + "\nreturn {renderRecovery,renderDelivery,renderRepairHistory,checkCard,renderChecks,budgetResumeGoal,setSession:s=>currentSession=s};")(
   id,node,s=>s,()=>working,()=>settingsOpened++,fn=>fn(),async()=>({}),()=>{}, {body:{classList:{add(){}}}});
 
 const recovery={title:"The vocabulary count does not match the test",what_happened:"The test expected 36 text symbols, but the program counted 54.",
@@ -60,6 +60,8 @@ connectionButtons.find(x=>x.text==="Connection settings").onclick();
 assert.equal(settingsOpened,1);
 ui.renderRecovery({status:"paused",summary:"Model-call limit reached. Work is saved; resume to continue.",recovery:null});
 assert.match(visibleText(banner),/larger standard cloud budget/);
+assert.match(ui.budgetResumeGoal({status:"paused",summary:"Model-call limit reached. Work is saved; resume to continue."}),/existing project/);
+assert.equal(ui.budgetResumeGoal({status:"paused",summary:"Waiting for input."}),"");
 
 const failed={id:"failed",active:true,ok:false,label:"Text reader checks",command:"python -c long-script",output:"Traceback",explanation:recovery};
 ui.setSession({checks:[failed,{...failed,active:false,superseded:true,correction_reason:"Corrected from source evidence"}]});
