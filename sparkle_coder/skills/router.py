@@ -79,6 +79,10 @@ def select_skills(goal, *, task_profile="standard", limit=12):
         for name in names:
             if name in known and name not in chosen: chosen.append(name)
 
+    # Shipping quality is a cross-product requirement, not a web-only concern.
+    if re.search(r"\b(?:build|create|develop|design|implement|make|ship|finish|complete)\b", text, re.I):
+        add("delivery_excellence")
+
     # Product-first expertise bundles.
     if _AGENT.search(text):
         add("agent_systems","llm_engineering","prompt_context_engineering","ai_evaluation",

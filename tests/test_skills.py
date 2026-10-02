@@ -15,15 +15,16 @@ class SkillRoutingTests(unittest.TestCase):
         goal='build a static website for a photo studio'
         profile=task_profile(goal)
         self.assertEqual(profile['name'],'simple_web')
-        self.assertLessEqual(profile['max_total_tokens'],50000)
+        self.assertGreaterEqual(profile['max_total_tokens'],90000)
         selected=select_skills(goal,task_profile=profile['name'])
-        self.assertEqual(selected[:5],['photography_portfolio','composition_mastery','typography_mastery','image_art_direction','portfolio_curation'])
+        self.assertEqual(selected[:6],['photography_portfolio','composition_mastery','typography_mastery','image_art_direction','portfolio_curation','asset_sourcing'])
         self.assertIn('asset_sourcing',selected)
         self.assertIn('responsive_web',selected)
         self.assertIn('conversion_journey',selected)
         self.assertIn('content_integrity',selected)
         self.assertIn('visual_qa',selected)
-        self.assertLessEqual(len(selected),10)
+        self.assertIn('delivery_excellence',selected)
+        self.assertLessEqual(len(selected),12)
 
     def test_skill_payload_is_bounded_and_rejects_placeholder_design(self):
         selected=select_skills('build a static website for a photo studio',task_profile='simple_web')
@@ -50,9 +51,22 @@ class SkillRoutingTests(unittest.TestCase):
             system=agent.context()[0]['content']
             self.assertIn('SELECTED TASK SKILLS',system)
             self.assertIn('SKILL: photography_portfolio',system)
-            self.assertIn('technical solution small',system)
+            self.assertIn('optimize for finished-product quality',system)
             self.assertNotIn('SKILL: database',system)
             self.assertEqual(session.state['skills'],agent.skills)
+
+
+    def test_build_tasks_always_get_delivery_excellence(self):
+        cases=[
+            'build a Python CLI',
+            'create a mobile app',
+            'implement a REST backend',
+            'develop an embedded sensor service',
+            'make a desktop application',
+        ]
+        for prompt in cases:
+            with self.subTest(prompt=prompt):
+                self.assertIn('delivery_excellence',select_skills(prompt,task_profile='standard'))
 
     def test_engineering_prompts_route_to_specialist_mastery(self):
         cases={

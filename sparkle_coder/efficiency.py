@@ -4,7 +4,7 @@ import json
 import re
 
 
-PROFILE_VERSION = 3
+PROFILE_VERSION = 4
 
 SIMPLE_TOOL_NAMES = frozenset({
     "inspect_static_site", "inspect_visual_site", "render_page", "inspect_setup", "request_input", "list_files", "read_file",
@@ -46,8 +46,8 @@ def task_profile(goal, *, has_project_brief=False):
         return {"version": PROFILE_VERSION, "name": "micro", "max_steps": 5, "max_total_tokens": 24000,
                 "max_tokens": 3072, "context_chars": 12000}
     if _SIMPLE_WEB.search(text):
-        return {"version": PROFILE_VERSION, "name": "simple_web", "max_steps": 8, "max_total_tokens": 50000,
-                "max_tokens": 6144, "context_chars": 18000}
+        return {"version": PROFILE_VERSION, "name": "simple_web", "max_steps": 14, "max_total_tokens": 90000,
+                "max_tokens": 8192, "context_chars": 24000}
     return {"version": PROFILE_VERSION, "name": "standard"}
 
 

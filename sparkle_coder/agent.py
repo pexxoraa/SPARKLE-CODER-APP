@@ -205,11 +205,13 @@ class Agent:
                        "to python3; never redesign the program merely to make your test command easier. Do not narrate "
                        "before tool calls, and do not repeatedly rewrite a file that already implements the request.")
         elif self.task_profile.get("name") == "simple_web":
-            system += ("\nSIMPLE WEB TASK MODE: Keep the technical solution small while meeting the domain's expected visual "
-                       "and UX quality. Simplicity means no unnecessary framework, JavaScript, or file sprawl; it does "
-                       "not mean generic design, missing imagery, weak hierarchy, or placeholder content. Prefer one "
-                       "strong core experience over several weak pages. Batch edits, run structural checks, apply the "
-                       "selected design skills, and make no more than two focused polish passes.")
+            system += ("\nSIMPLE WEB TASK MODE: Keep the architecture small, but optimize for finished-product quality rather "
+                       "than minimum token or file count. Simplicity means no unnecessary framework or file sprawl; it does "
+                       "not mean generic design, missing imagery, dead interactions, weak hierarchy, or placeholder content. "
+                       "Build one strong coherent experience first. Before polishing, verify that every local image/script/style "
+                       "reference actually exists and that filenames match the generated assets. Then run structural and visual "
+                       "checks, inspect desktop and mobile renders, and spend up to two focused passes fixing the highest-impact "
+                       "composition, typography, imagery, interaction, and content issues before completion.")
         skill_text = render_skills(self.skills, char_budget=20000, workspace=self.workspace) if self.skills else ""
         if skill_text:
             system += ("\n\nSELECTED TASK SKILLS — BINDING EXPERTISE CONTRACTS:\n"

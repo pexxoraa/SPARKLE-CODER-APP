@@ -78,7 +78,7 @@ class EfficiencyTests(unittest.TestCase):
                "task_profile":task_profile("build a static website for a photo studio")}
         self.assertEqual(state["task_profile"]["name"],"simple_web")
         self.assertTrue(promote_budget_resume(state))
-        self.assertEqual(state["task_profile"],{"version":3,"name":"standard"})
+        self.assertEqual(state["task_profile"],{"version":4,"name":"standard"})
         self.assertFalse(promote_budget_resume(state))
         self.assertFalse(promote_budget_resume({"status":"paused","summary":"Waiting for input."}))
         with tempfile.TemporaryDirectory() as temporary:
@@ -124,7 +124,7 @@ class EfficiencyTests(unittest.TestCase):
             session.save()
             agent=Agent(workspace,session,config,None,lambda _:True,emit=lambda _:None)
             self.assertEqual(agent.task_profile['name'],'simple_web')
-            self.assertEqual(agent.task_profile['version'],3)
+            self.assertEqual(agent.task_profile['version'],4)
             names={item['function']['name'] for item in agent.schemas}
             self.assertNotIn('web_search',names)
             self.assertNotIn('read_web_page',names)

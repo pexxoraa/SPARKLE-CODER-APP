@@ -1,8 +1,9 @@
 """Built-in skill metadata. Bodies stay in small markdown files and load only when selected."""
 
-SKILL_VERSION = 6
+SKILL_VERSION = 7
 
 _BUILTINS = {
+    "delivery_excellence": {"file": "delivery_excellence.md", "max_chars": 3400, "priority": 160},
     "static_web": {"file": "static_web.md", "max_chars": 2200, "priority": 90},
     "visual_design": {"file": "visual_design.md", "max_chars": 2600, "priority": 100},
     "photography_portfolio": {"file": "photography_portfolio.md", "max_chars": 3200, "priority": 140},
