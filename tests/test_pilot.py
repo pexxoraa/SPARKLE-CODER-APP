@@ -10,7 +10,7 @@ from unittest.mock import patch
 import urllib.error
 import urllib.request
 
-from sparkle_coder.agent import Agent
+from sparkle_coder.agent import Agent, plain_discussion_text
 from sparkle_coder.cloud import CloudAccount
 from sparkle_coder.config import Config
 from sparkle_coder.efficiency import compact_group, task_profile
@@ -110,6 +110,25 @@ class EfficiencyTests(unittest.TestCase):
             names={item['function']['name'] for item in agent.schemas}
             self.assertNotIn('web_search',names)
             self.assertNotIn('read_web_page',names)
+
+    def test_ask_mode_plain_text_instruction_and_markdown_cleanup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace=Workspace(Path(temporary));config=Config()
+            session=Session.create(workspace,'Discuss the best architecture for this project',[],config.public_info())
+            session.state['task_mode']='ask';session.save()
+            agent=Agent(workspace,session,config,None,lambda _:True,emit=lambda _:None)
+            system=agent.context()[0]['content']
+            self.assertIn('normal conversational plain text',system)
+            raw='## Best approach\n\n- **Start simple**\n- Use `PostgreSQL`\n\n| Option | Note |\n| --- | --- |\n| Monolith | Easier first step |'
+            cleaned=plain_discussion_text(raw)
+            self.assertNotIn('##',cleaned)
+            self.assertNotIn('**',cleaned)
+            self.assertNotIn('`',cleaned)
+            self.assertNotIn('|',cleaned)
+            self.assertIn('Best approach',cleaned)
+            self.assertIn('Start simple',cleaned)
+            self.assertIn('PostgreSQL',cleaned)
+            self.assertIn('Monolith',cleaned)
 
     def test_ask_mode_only_carries_web_schemas_when_the_question_needs_web(self):
         with tempfile.TemporaryDirectory() as temporary:

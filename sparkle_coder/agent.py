@@ -19,6 +19,34 @@ from .skills import SKILL_VERSION, record_skill_outcome, render_skills, resolve_
 from .workspace import atomic_write, clean_terminal
 
 
+def plain_discussion_text(text: str) -> str:
+    """Remove common Markdown decoration from Ask/Discussion answers."""
+    value=str(text or "").replace("\r\n","\n").replace("\r","\n")
+    lines=[]
+    fenced=False
+    for raw in value.split("\n"):
+        stripped=raw.strip()
+        if stripped.startswith("```"):
+            fenced=not fenced
+            continue
+        line=raw
+        line=re.sub(r"^\s{0,3}#{1,6}\s+","",line)
+        line=re.sub(r"^\s*>\s?","",line)
+        line=re.sub(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)","",line)
+        line=re.sub(r"!\[([^\]]*)\]\([^)]*\)",r"\1",line)
+        line=re.sub(r"\[([^\]]+)\]\(([^)]+)\)",r"\1 (\2)",line)
+        line=re.sub(r"\*\*([^*]+)\*\*",r"\1",line)
+        line=re.sub(r"__([^_]+)__",r"\1",line)
+        line=re.sub(r"`([^`]+)`",r"\1",line)
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells=[c.strip() for c in stripped.strip("|").split("|")]
+            if cells and all(re.fullmatch(r":?-{3,}:?",c or "") for c in cells):
+                continue
+            line=" — ".join(c for c in cells if c)
+        lines.append(line.rstrip())
+    return re.sub(r"\n{3,}","\n\n","\n".join(lines)).strip()
+
+
 SYSTEM = """You are SPARKLE CODER, a personal coding assistant.
 Complete the user's software task using the available project tools. Work in any programming
 language supported by the user's toolchain. Inspect existing projects before changing them.
@@ -150,7 +178,7 @@ class Agent:
         system = SYSTEM + "\nExecution environment: " + self.config.execution
         if state.get("task_mode") == "ask":
             system += ("\nASK MODE: inspect files and answer the user's question. Do not change files or run commands. "
-                       "A clear, evidence-based explanation completes this task; build verification is not required.")
+                       "A clear, evidence-based explanation completes this task; build verification is not required. Write the answer as normal conversational plain text by default. Do not use Markdown headings, asterisk or underscore emphasis, bullet/list markers, blockquotes, tables, or fenced code blocks. Use short natural paragraphs. Only use Markdown or code formatting when the user explicitly asks for it.")
         if self.config.execution == "docker":
             system += "\nCommands run in a Linux container using sh, with the project at /workspace."
         else:
@@ -644,7 +672,7 @@ class Agent:
                     self.feedback("Your response was empty. Use a tool or provide a concise completion/blocker report.")
                     continue
                 if state.get("task_mode") == "ask":
-                    return self.finish("answered", response.content)
+                    return self.finish("answered", plain_discussion_text(response.content))
                 passed, evidence = self.verify_completion()
                 if self.should_stop():
                     return self.finish("interrupted", "Stopped by the user. Work is saved and can be resumed.")
