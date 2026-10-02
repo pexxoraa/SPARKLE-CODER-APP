@@ -14,6 +14,7 @@ import test_web
 from sparkle_coder.config import Config
 from sparkle_coder.demo import calls, python_command
 from sparkle_coder.execution import CommandRunner
+from sparkle_coder.monitor import Run
 from sparkle_coder.provider import Completion
 from sparkle_coder.state import Session
 from sparkle_coder.tools import ToolSet
@@ -131,6 +132,21 @@ class ImprovementTests(unittest.TestCase):
         self.api('/api/runs/' + waiting['id'] + '/stop', {})
         self.await_run(waiting['id'], {'interrupted'})
         self.upload('after-stop', b'ok')
+
+    def test_orphaned_running_session_becomes_resumable_after_engine_restart(self):
+        project_id = self.app.data["selected_project"]
+        workspace = self.app.project(project_id)[1]
+        session = Session.create(workspace, "Keep working after a restart", [], self.app.config(workspace).public_info())
+        live = Run(project_id, "nemotron")
+        live.session_id = session.id
+        live.status = "running"
+        self.app.jobs[live.id] = live
+        self.assertEqual(self.app.snapshot(project_id, session.id)["status"], "running")
+        live.status = "interrupted"
+        saved = self.app.snapshot(project_id, session.id)
+        self.assertEqual(saved["status"], "interrupted")
+        self.assertIn("engine restarted", saved["summary"])
+        self.assertEqual(Session.load(workspace, session.id).state["status"], "interrupted")
 
     def test_storage_switch_preserves_history_and_persists_on_restart(self):
         data, run = self.finish_demo()

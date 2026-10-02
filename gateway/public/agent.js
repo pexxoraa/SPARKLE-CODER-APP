@@ -508,9 +508,14 @@ function renderSession(session) {
   }
   renderActivity(); renderChecks(); renderControls(); renderMonitor();
 }
+function visibleActivityActions(actions=[]) {
+  let latestSetup=-1;
+  actions.forEach((item,index)=>{if(item.tool==="inspect_setup")latestSetup=index;});
+  return actions.filter((item,index)=>item.tool!=="inspect_setup"||index===latestSetup);
+}
 function renderActivity() {
   const target=id("activityList"); target.replaceChildren();
-  const actions=currentSession?.actions||[];
+  const actions=visibleActivityActions(currentSession?.actions||[]);
   if(!actions.length && !runEvents.length) { target.append(emptyPanel("Ready when you are","The agent's progress and decisions will appear here.")); return; }
   const names={inspect_setup:"Inspected project setup",inspect_static_site:"Checked static site",inspect_visual_site:"Reviewed visual quality",render_page:"Rendered page",revise_check:"Corrected a test",update_delivery:"Prepared usage instructions",discover_checks:"Found project checks",request_input:"Asked for a missing detail",list_files:"Explored project",read_file:"Read file",search_files:"Searched code",web_search:"Searched the web",search_assets:"Searched public image assets",read_web_page:"Read web page",download_asset:"Downloaded project asset",write_file:"Wrote file",edit_file:"Edited file",delete_file:"Removed file",run_command:"Ran command",verify:"Ran verification",update_plan:"Updated plan",remember:"Saved project memory"};
   actions.slice(-25).reverse().forEach(a=> { const row=node("div","activity-row"); const marker=node("span","activity-marker "+(a.ok?"ok":"failed")); marker.innerHTML=icon(a.ok?"check":"close"); const detail=node("div"); detail.append(node("strong","",names[a.tool]||a.tool),node("span","",a.label||a.purpose||a.path||a.query||(a.command?"Command recorded — open Run monitor for details":a.ok?"Completed":"Needs attention"))); row.append(marker,detail); if(a.error) row.title=a.error; target.append(row); });
@@ -531,12 +536,18 @@ function renderRecovery(session) {
   if(attention||["paused","interrupted"].includes(session.status)) {
     const fix=recovery?.can_auto_fix!==false&&attention;
     const resume=node("button","button primary",fix?"Try fixing it":"Resume task");
-    resume.onclick=()=>fix?followup("Please investigate and fix the failed checks. Check whether the code or the test is wrong, preserve my requirements, and explain the result simply.","build"):id("taskForm").requestSubmit();actions.append(resume);
+    resume.onclick=()=>fix?followup("Please investigate and fix the failed checks. Check whether the code or the test is wrong, preserve my requirements, and explain the result simply.","build"):action(()=>resumeSavedTask(resume));actions.append(resume);
   }
   if(recovery?.action==="connection"){const settings=node("button","button secondary","Connection settings");settings.onclick=openSettings;actions.prepend(settings);}
   if(attention){const explain=node("button","button secondary","Explain this simply");explain.onclick=()=>followup("Explain the current problem in simple words. Tell me what happened, what is still unknown, and exactly what I need to do, if anything. Do not change files.","ask");actions.append(explain);}
   if(attention||session.status==="checked"){const checks=node("button","button secondary","See checks");checks.onclick=()=>{setTab("checks");document.body.classList.add("details-open");};actions.append(checks);}
   banner.append(actions);
+}
+async function resumeSavedTask(button) {
+  if(startingRun||busy()||!currentSession)return;
+  button.disabled=true;button.textContent="Resuming…";
+  await startTask(null,true);
+  if(!busy()){button.disabled=false;button.textContent="Resume task";}
 }
 function followup(message,mode) {
   if(busy())return;
@@ -653,7 +664,7 @@ async function loadHistory() {
 async function loadSession(sessionId) { if(startingRun||busy()) { toast("Finish or stop the current task first."); return; } currentRun=null; runEvents=[]; const data=await api("/projects/"+projectId+"/sessions/"+sessionId); runEvents=data.events||[]; id("taskMode").value=data.task_mode||"build"; renderSession(data); id("verifyCommands").value=(data.required_checks||[]).join("\n"); changeView("build"); if(tab==="changes")await loadChanges(); }
 async function newTask() { if(startingRun||busy()||transferBusy)return; currentRun=null; runEvents=[]; id("taskError").hidden=true; id("taskMode").value="build"; renderSession(null); id("goal").value=""; id("verifyCommands").value=""; id("verificationFields").hidden=true; changeView("build"); setTab("activity"); id("goal").focus(); }
 async function selectProject(next) { if(startingRun||busy()||transferBusy)return; const project=appState.projects.find(p=>p.id===next); if(project?.migration_pending){renderProjects();openMigration();return;} if(project?.available===false){renderProjects();openReconnect(next);return;} await api("/select-project",{project_id:next}); projectId=next; selectedFile=""; fileData=null; id("fileSearch").value=""; id("fileName").textContent="Select a file"; id("filePreview").textContent="Select a file to inspect its contents."; renderProjects(); await newTask(); await Promise.all([loadFiles(),loadHistory()]); }
-async function refreshState() { appState=await api("/state"); projectId=appState.projects.some(p=>p.id===projectId)?projectId:appState.selected_project; renderProjects(); renderProvider(); renderExperience();renderCloudState(); if(appState.active_run&&(!currentRun||currentRun.id!==appState.active_run.id)) { currentRun=appState.active_run; projectId=currentRun.project_id; renderProjects(); schedulePoll(50); } }
+async function refreshState() { appState=await api("/state"); projectId=appState.projects.some(p=>p.id===projectId)?projectId:appState.selected_project; renderProjects(); renderProvider(); renderExperience();renderCloudState(); if(appState.active_run&&(!currentRun||currentRun.id!==appState.active_run.id)) { currentRun=appState.active_run; projectId=currentRun.project_id; renderProjects(); schedulePoll(50); } else if(!appState.active_run&&busy()) { currentRun=null; renderControls(); } }
 
 function schedulePoll(ms=isCloud?2500:600) { clearTimeout(pollTimer); pollTimer=setTimeout(()=>action(pollRun),ms); }
 async function pollRun() {
@@ -662,8 +673,10 @@ async function pollRun() {
   try {
     const result=await api("/runs/"+runId+"?after="+after); if(currentRun?.id!==runId)return;
     currentRun=result; runEvents.push(...result.events); runEvents=runEvents.slice(-600);
-    if(result.session){id("taskMode").value=result.session.task_mode||"build";renderSession(result.session);}else renderControls();
-    if(result.error)toast(result.error);
+    if(result.session){id("taskMode").value=result.session.task_mode||"build";renderSession(result.session);}
+    else if(result.error&&!busy()){currentRun=null;renderSession(currentSession);}
+    else renderControls();
+    if(result.error){id("taskError").hidden=false;id("taskError").textContent=result.error+" The saved task was not changed. Fix the problem and try Resume task again.";toast(result.error);}
     renderMonitor();
     const changeKey=(result.session?.changed_files||[]).join()+":"+(result.session?.actions?.length||0);
     if(tab==="changes"&&changeKey!==lastChangeKey) { lastChangeKey=changeKey; await loadChanges(); }
@@ -671,16 +684,16 @@ async function pollRun() {
     else { await Promise.all([loadFiles(),loadHistory()]); renderControls(); if(appState.account?.enabled)await refreshAccount(); }
   } catch(error) { toast(error.message); id("monitorHeartbeat").textContent="Connection lost. Retrying; the engine may still be working."; if(busy())schedulePoll(2000); }
 }
-async function startTask(event) {
-  event.preventDefault(); if(startingRun||busy()||transferBusy)return;
-  const goal=id("goal").value.trim(); if(!goal&&!currentSession) { id("goal").focus(); return; }
+async function startTask(event,resumeOnly=false) {
+  event?.preventDefault(); if(startingRun||busy()||transferBusy)return;
+  const goal=resumeOnly?"":id("goal").value.trim(); if(!goal&&!currentSession) { id("goal").focus(); return; }
   if(appState.account?.enabled&&!appState.account.ready){await openAccount();return;}
   if(!projectId||(isCloud&&!appState.engine?.available)){id("taskError").hidden=false;id("taskError").textContent=appState.engine?.message||"Select a project before starting a task.";return;}
   if(hostedNoKey(appState.settings.base_url)&&!appState.settings.key_configured) { openSettings(); toast("Add your API key to start a live task."); return; }
   startingRun=true;id("taskError").hidden=true;renderControls();
   try {
     const result=await api("/runs",{project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:currentSession?.undone?null:currentSession?.id,review_edits:isCloud?false:id("reviewEdits").checked,task_mode:id("taskMode").value});
-    currentRun=result; runEvents=[]; lastChangeKey=""; id("goal").value=""; changeView("build"); renderControls(); schedulePoll(50);
+    currentRun=result; runEvents=[]; lastChangeKey=""; if(!resumeOnly)id("goal").value=""; changeView("build"); renderSession(currentSession); schedulePoll(50);
   } catch(error) {
     id("taskError").hidden=false;id("taskError").textContent=error.message+" Your prompt is kept. Refresh the workspace to check for a running task before retrying.";
     // A lost response must not cause an automatic second model request.

@@ -5,6 +5,11 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const source = fs.readFileSync(path.join(__dirname, "../sparkle_coder/ui/app.js"), "utf8");
+const activitySource = source.slice(source.indexOf("function visibleActivityActions("), source.indexOf("function renderActivity("));
+const visibleActivityActions = new Function(activitySource+";return visibleActivityActions;")();
+assert.deepEqual(visibleActivityActions([
+  {tool:"inspect_setup",at:"1"},{tool:"read_file",path:"a",at:"2"},{tool:"inspect_setup",at:"3"},{tool:"write_file",path:"b",at:"4"}
+]).map(item=>item.tool),["read_file","inspect_setup","write_file"]);
 const functions = source.slice(source.indexOf("function renderRecovery("), source.indexOf("async function loadChanges("));
 class Element {
   constructor(tag, className="", text="") {this.tag=tag;this.className=className;this.text=text;this.children=[];this.open=false;this.hidden=false;this.value="";}

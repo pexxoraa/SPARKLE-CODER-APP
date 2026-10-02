@@ -310,6 +310,20 @@ class AppService:
             return next((job for job in self.jobs.values()
                          if job.status in ACTIVE), None)
 
+    def _repair_orphaned_session(self, session):
+        if session.state.get("status") != "running":
+            return session
+        active = self.active()
+        # A freshly queued run has not bound its session yet. Do not rewrite any
+        # saved session while that handoff is in progress.
+        if active and (active.session_id is None or active.session_id == session.id):
+            return session
+        session.state["status"] = "interrupted"
+        session.state["summary"] = "The coding engine restarted while this task was active. Work is saved; resume to continue."
+        session.state["recovery"] = None
+        session.save()
+        return session
+
     def state(self):
         with self.lock:
             job = self.active()
@@ -375,7 +389,7 @@ class AppService:
 
     def snapshot(self, project_id, session_id, include_events=True):
         _, workspace = self.project(project_id)
-        session = Session.load(workspace, session_id)
+        session = self._repair_orphaned_session(Session.load(workspace, session_id))
         state = session.state
         # A saved result may be opened after a manual edit or file import. Do
         # not label that evidence current just because the task has not resumed.
@@ -419,7 +433,8 @@ class AppService:
         result = []
         for path in directory.glob("*/state.json"):
             try:
-                state = Session.load(workspace, path.parent.name).state
+                session = self._repair_orphaned_session(Session.load(workspace, path.parent.name))
+                state = session.state
                 result.append({k: state.get(k) for k in ("id", "goal", "status", "created", "updated", "undone")})
             except (OSError, ValueError):
                 continue
