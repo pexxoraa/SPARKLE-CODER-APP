@@ -16,7 +16,7 @@ from sparkle_coder.config import Config
 from sparkle_coder.efficiency import compact_group, task_profile
 from sparkle_coder.provider import ModelError, NemotronClient
 from sparkle_coder.state import Session
-from sparkle_coder.webapp import AppService
+from sparkle_coder.webapp import AppService, promote_budget_resume
 from sparkle_coder.workspace import Workspace
 
 
@@ -71,6 +71,23 @@ class EfficiencyTests(unittest.TestCase):
         self.assertEqual(task_profile('build a static website for hotel')['name'], 'simple_web')
         self.assertEqual(task_profile('fix all bugs and test the existing project')['name'], 'standard')
         self.assertEqual(task_profile('simple landing page with authentication backend')['name'], 'standard')
+
+    def test_budget_pause_resume_promotes_small_task_to_standard_budget(self):
+        state={"status":"paused","summary":"Model-call limit reached. Work is saved; resume to continue.",
+               "task_profile":task_profile("build a static website for a photo studio")}
+        self.assertEqual(state["task_profile"]["name"],"simple_web")
+        self.assertTrue(promote_budget_resume(state))
+        self.assertEqual(state["task_profile"],{"version":3,"name":"standard"})
+        self.assertFalse(promote_budget_resume(state))
+        self.assertFalse(promote_budget_resume({"status":"paused","summary":"Waiting for input."}))
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace=Workspace(Path(temporary));config=Config(max_steps=24,max_total_tokens=200000)
+            session=Session.create(workspace,"build a static website for a photo studio",[],config.public_info())
+            session.state.update(state);session.save()
+            agent=Agent(workspace,session,config,None,lambda _:True,emit=lambda _:None)
+            self.assertEqual(agent.task_profile["name"],"standard")
+            self.assertEqual(config.max_steps,24)
+            self.assertEqual(config.max_total_tokens,200000)
 
     def test_micro_agent_uses_small_context_budget_and_tool_set(self):
         with tempfile.TemporaryDirectory() as temporary:

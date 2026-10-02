@@ -58,6 +58,8 @@ assert(connectionButtons.some(x=>x.text==="Resume task"));
 assert(!connectionButtons.some(x=>x.text==="Try fixing it"));
 connectionButtons.find(x=>x.text==="Connection settings").onclick();
 assert.equal(settingsOpened,1);
+ui.renderRecovery({status:"paused",summary:"Model-call limit reached. Work is saved; resume to continue.",recovery:null});
+assert.match(visibleText(banner),/larger standard cloud budget/);
 
 const failed={id:"failed",active:true,ok:false,label:"Text reader checks",command:"python -c long-script",output:"Traceback",explanation:recovery};
 ui.setSession({checks:[failed,{...failed,active:false,superseded:true,correction_reason:"Corrected from source evidence"}]});

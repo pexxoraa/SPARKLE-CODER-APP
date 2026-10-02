@@ -15,6 +15,7 @@ from .agent import Agent
 from .config import Config, load_config, SPARKLE_GATEWAY_URL
 from .brief import read_brief, save_brief
 from .diagnostics import inspect_setup
+from .efficiency import PROFILE_VERSION
 from .demo import DemoProvider, calls, python_command
 from .provider import NemotronClient
 from .cloud import CloudAccount, distribution
@@ -41,6 +42,25 @@ def application_root() -> Path:
 
 def default_app_dir() -> Path:
     return application_root() / "APP_DATA"
+
+
+_BUDGET_PAUSE_PREFIXES = (
+    "Model-call limit reached.",
+    "Run time budget reached.",
+    "Run token budget reached.",
+)
+
+
+def promote_budget_resume(state):
+    """A resumed auto-budget task gets the standard run budget instead of looping."""
+    summary = str(state.get("summary") or "")
+    if state.get("status") != "paused" or not any(summary.startswith(prefix) for prefix in _BUDGET_PAUSE_PREFIXES):
+        return False
+    profile = state.get("task_profile")
+    if isinstance(profile, dict) and profile.get("name") == "standard" and profile.get("version") == PROFILE_VERSION:
+        return False
+    state["task_profile"] = {"version": PROFILE_VERSION, "name": "standard"}
+    return True
 
 
 def legacy_app_dirs() -> tuple[Path, Path]:
@@ -503,6 +523,8 @@ class AppService:
                             if session.state.get("undone"):
                                 raise ValueError("This task was undone. Start a new task.")
                             session.repair_interrupted_calls()
+                            if not goal.strip():
+                                promote_budget_resume(session.state)
                             if goal.strip():
                                 session.state["messages"].append({"role": "user", "content": goal})
                                 session.state.setdefault("user_requests", [session.state["goal"]]).append(goal)

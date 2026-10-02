@@ -530,7 +530,10 @@ function renderRecovery(session) {
     if(recovery?.meaning)banner.append(node("p","recovery-meaning",recovery.meaning));
     banner.append(node("p","recovery-next",recovery?.next_step||"Ask SPARKLE CODER to investigate, or add a missing detail below."));
     const details=node("details","technical-details");details.append(node("summary","","Technical details (optional)"),node("pre","",recovery?.technical_details||session.summary||"See the recorded checks for details."));banner.append(details);
-  } else banner.append(node("p","",session.status==="checked"?"The recorded checks passed. See what they cover below.":session.status==="answered"?"Switch to Build when you want changes.":"Your work is saved. Continue when you are ready."));
+  } else {
+    const budgetPause=session.status==="paused"&&/^(Model-call|Run time|Run token) limit reached\./.test(session.summary||"");
+    banner.append(node("p","",session.status==="checked"?"The recorded checks passed. See what they cover below.":session.status==="answered"?"Switch to Build when you want changes.":budgetPause?"This run reached its automatic Fast budget. Your work is saved; Resume task continues it with the larger standard cloud budget.":"Your work is saved. Continue when you are ready."));
+  }
   if(session.status==="undone")return;
   const actions=node("div","recovery-actions");
   if(attention||["paused","interrupted"].includes(session.status)) {
