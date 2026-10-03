@@ -63,6 +63,8 @@ class Run:
                 self.current_action = f"Reconnecting in {data['delay']}s · attempt {data['attempt']} · {data['reason']}"
             elif kind == "verification_start":
                 self.current_action = "Checking: " + check_title(data["command"])
+            elif kind == "budget_upgrade":
+                self.current_action = "Fast pass complete · continuing with Standard effort"
             elif kind == "repair":
                 self.current_action = "Diagnosing check failures and continuing repairs"
             elif kind == "tool_start":

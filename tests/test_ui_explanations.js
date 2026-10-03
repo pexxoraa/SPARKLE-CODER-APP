@@ -59,7 +59,7 @@ assert(!connectionButtons.some(x=>x.text==="Try fixing it"));
 connectionButtons.find(x=>x.text==="Connection settings").onclick();
 assert.equal(settingsOpened,1);
 ui.renderRecovery({status:"paused",summary:"Model-call limit reached. Work is saved; resume to continue.",recovery:null});
-assert.match(visibleText(banner),/larger standard cloud budget/);
+assert.match(visibleText(banner),/full automatic work limit/);
 assert.match(ui.budgetResumeGoal({status:"paused",summary:"Model-call limit reached. Work is saved; resume to continue."}),/existing project/);
 assert.equal(ui.budgetResumeGoal({status:"paused",summary:"Waiting for input."}),"");
 

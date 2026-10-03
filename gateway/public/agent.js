@@ -99,7 +99,10 @@ id("app").innerHTML = `
                 <button class="suggestion" data-prompt="Build a simple to-do list that works offline. Let me add, complete, and delete tasks, and keep them after refreshing. Use a simple web page. Test the behavior and give me easy steps to open and use it. I do not have programming experience."><span data-icon="code"></span><strong>Start with a to-do list</strong><span>A small first project with clear checks</span></button>
                 <button class="suggestion" data-prompt="Inspect this project, identify a concrete bug, reproduce it with a test, and fix it without changing unrelated behavior."><span data-icon="bug"></span><strong>Fix a bug</strong><span>Find the cause and verify a fix</span></button>
                 <button class="suggestion" data-mode="ask" data-prompt="Explore this project. Explain its architecture and how to build and test it. Do not change files yet."><span data-icon="folder"></span><strong>Explore a project</strong><span>Understand the code you have</span></button>
+                <button class="suggestion" data-prompt="Review this project end-to-end and improve its product quality. Preserve the intended behavior, fix the highest-impact UX, reliability, accessibility, performance, and maintainability issues you can verify, then run the relevant checks."><span data-icon="bolt"></span><strong>Improve quality</strong><span>Polish the product, not just the code</span></button>
+                <button class="suggestion" data-prompt="Run the project's meaningful tests and checks, diagnose real failures, fix their root causes without weakening the tests, and keep going until the important checks pass or there is a concrete blocker."><span data-icon="check"></span><strong>Test & fix</strong><span>Find failures and repair them</span></button>
               </div>
+              <button id="continueLastTask" class="continue-task-card" hidden><span data-icon="history"></span><span><strong id="continueLastTaskTitle">Continue saved work</strong><span id="continueLastTaskMeta">Pick up where you stopped</span></span><span>↗</span></button>
               <button id="demoButton" class="demo-button"><span class="demo-play" data-icon="play"></span><span><strong>Take it for a test run</strong><span>A local demo. No API key needed.</span></span><span class="demo-arrow">↗</span></button>
             </div>
             <div id="messages" class="messages" aria-live="polite"></div>
@@ -114,14 +117,14 @@ id("app").innerHTML = `
             <div class="approval-actions"><button id="denyCommand" class="button secondary">Don’t allow</button><button id="allowCommand" class="button primary">Allow this time</button></div>
           </div>
           <form id="taskForm" class="composer">
-            <div class="task-mode-row"><label for="taskMode">Mode</label><select id="taskMode"><option value="build">Build</option><option value="ask">Ask</option></select><label for="efficiencyMode">Effort</label><select id="efficiencyMode"><option value="efficient">Fast</option><option value="thorough">Thorough</option></select><span id="runBudgetLabel">Unlimited run</span></div>
+            <div class="task-mode-row"><label for="taskMode">Mode</label><select id="taskMode"><option value="build">Build</option><option value="ask">Ask</option></select><label for="efficiencyMode">Effort</label><select id="efficiencyMode"><option value="efficient">Auto</option><option value="thorough">Thorough</option></select><span id="runBudgetLabel">Unlimited run</span></div>
             <label class="sr-only" for="goal">Task for SPARKLE</label>
             <textarea id="goal" rows="3" maxlength="12000" placeholder="Describe what you want to build or change…"></textarea>
             <div id="verificationFields" class="verification-fields" hidden><label for="verifyCommands">Required checks <span>One command per line</span></label><textarea id="verifyCommands" rows="2" placeholder="For example: python3 -m unittest discover -s tests -v"></textarea><p>These checks run automatically when the agent proposes completion.</p></div>
             <div id="supervisionChoice" class="supervision-choice" hidden><label><input type="checkbox" id="reviewEdits"> Review each file edit</label><span>SPARKLE will still ask before protected actions</span></div><div class="composer-toolbar"><button type="button" id="modelButton" class="model-button"><span data-icon="bolt"></span><span id="modelName">SPARKLE Core</span><span class="chevron">⌄</span></button><button type="button" id="toggleChecks" class="text-button"><span data-icon="check"></span><span>Checks</span></button><span class="composer-spacer"></span><button type="button" id="pauseButton" class="button secondary" hidden>Pause</button><button type="button" id="stopButton" class="button danger" hidden><span data-icon="stop"></span>Stop</button><button type="submit" id="runButton" class="button primary">Run agent<span data-icon="arrow"></span></button></div>
           </form>
           <div id="taskError" class="inline-result" role="alert" hidden></div>
-          <div class="composer-note"><span id="taskNote">Files stay in your project.</span><span class="keyboard-hint">Ctrl / ⌘ + Enter</span></div>
+          <div class="composer-note"><span id="taskNote">Files stay in your project.</span><span id="draftStatus" class="draft-hint">Drafts save automatically</span><span class="keyboard-hint">Ctrl / ⌘ + Enter</span></div>
         </div>
         <div id="filesView" class="page-view files-view" hidden>
           <div class="view-heading"><div><span class="eyebrow" id="fileLocation">ON YOUR DEVICE</span><h1>Project files</h1></div><button id="openProjectFolder" class="button secondary">Open folder ↗</button></div>
@@ -278,6 +281,34 @@ let files = [], historyItems = [], changes = [], runEvents = [], view = "build",
 let fileData=null, transferBusy=false, cancelTransfer=false, lastConsoleKey="", fileLoadError="";
 let pollTimer = null, cloudReconnectTimer = null, lastMessageKey = "", lastChangeKey = "", selectedFile = "", toastTimer = null;
 let briefRevision = null, briefProjectId = null, setupProjectId = null;
+const DRAFT_PREFIX="sparkleDraft:v1:";
+let draftTimer=null;
+function draftKey(pid=projectId){return pid?DRAFT_PREFIX+pid:"";}
+function readDraft(pid=projectId){
+  const key=draftKey(pid);if(!key)return null;
+  try{const value=JSON.parse(localStorage.getItem(key)||"null");return value&&typeof value==="object"?value:null;}catch(_){return null;}
+}
+function saveDraftNow(){
+  clearTimeout(draftTimer);draftTimer=null;if(!projectId||busy())return;
+  const payload={goal:id("goal").value,task_mode:id("taskMode").value,verify:id("verifyCommands").value,checks:!id("verificationFields").hidden};
+  const key=draftKey();try{
+    if(payload.goal||payload.verify){localStorage.setItem(key,JSON.stringify(payload));id("draftStatus").textContent="Draft saved";}
+    else{localStorage.removeItem(key);id("draftStatus").textContent="Drafts save automatically";}
+  }catch(_){id("draftStatus").textContent="Draft stays in this tab";}
+}
+function scheduleDraftSave(){clearTimeout(draftTimer);id("draftStatus").textContent="Saving draft…";draftTimer=setTimeout(saveDraftNow,250);}
+function restoreDraft(pid=projectId){
+  const value=readDraft(pid);if(!value||currentSession||busy())return false;
+  if(!id("goal").value&&typeof value.goal==="string")id("goal").value=value.goal;
+  if(value.task_mode==="build"||value.task_mode==="ask")id("taskMode").value=value.task_mode;
+  if(typeof value.verify==="string")id("verifyCommands").value=value.verify;
+  id("verificationFields").hidden=!value.checks;
+  id("draftStatus").textContent="Draft restored";return Boolean(value.goal||value.verify);
+}
+function clearDraft(pid=projectId){
+  clearTimeout(draftTimer);draftTimer=null;const key=draftKey(pid);try{if(key)localStorage.removeItem(key);}catch(_){}
+  if(id("draftStatus"))id("draftStatus").textContent="Drafts save automatically";
+}
 const isCloud=document.documentElement.dataset.runtime==="cloud";
 let editTarget=null, editorSaving=false;
 function engineAddress(value) {
@@ -352,7 +383,7 @@ function renderProvider() {
   id("connectionSub").textContent=s.connected ? shortModel(s.model) : "Connection settings";
   id("settingsButton").classList.toggle("connected",s.connected);
   id("appVersion").textContent="PERSONAL EDITION · "+appState.version;
-  id("runBudgetLabel").textContent=[s.max_steps,s.max_seconds,s.max_total_tokens,s.command_timeout].some(v=>v!=null)?"Custom run caps":"Unlimited run";
+  id("runBudgetLabel").textContent=s.efficiency==="efficient"?"Auto expands when needed":[s.max_steps,s.max_seconds,s.max_total_tokens,s.command_timeout].some(v=>v!=null)?"Custom run caps":"Thorough run";
   id('efficiencyMode').value=s.efficiency||'efficient';
   renderAccount();
 }
@@ -532,7 +563,7 @@ function renderRecovery(session) {
     const details=node("details","technical-details");details.append(node("summary","","Technical details (optional)"),node("pre","",recovery?.technical_details||session.summary||"See the recorded checks for details."));banner.append(details);
   } else {
     const budgetPause=session.status==="paused"&&/^(Model-call|Run time|Run token) limit reached\./.test(session.summary||"");
-    banner.append(node("p","",session.status==="checked"?"The recorded checks passed. See what they cover below.":session.status==="answered"?"Switch to Build when you want changes.":budgetPause?"This run reached its automatic Fast budget. Your work is saved; Resume task continues it with the larger standard cloud budget.":"Your work is saved. Continue when you are ready."));
+    banner.append(node("p","",session.status==="checked"?"The recorded checks passed. See what they cover below.":session.status==="answered"?"Switch to Build when you want changes.":budgetPause?"This run reached the full automatic work limit. Your work is saved; Resume task continues from the same point.":"Your work is saved. Continue when you are ready."));
   }
   if(session.status==="undone")return;
   const actions=node("div","recovery-actions");
@@ -663,6 +694,11 @@ async function openFile(path) {
 async function loadHistory() {
   if(!projectId)return; historyItems=(await api("/projects/"+projectId+"/sessions")).sessions;
   id("recentTasks").replaceChildren(); id("historyList").replaceChildren(); id("historyCount").textContent=historyItems.length+" saved";
+  const unfinished=historyItems.find(s=>["paused","interrupted","needs_input","blocked","unverified"].includes(s.status));
+  id("continueLastTask").hidden=!unfinished;
+  id("continueLastTask").dataset.sessionId=unfinished?.id||"";
+  id("continueLastTaskTitle").textContent=unfinished?"Continue: "+unfinished.goal.slice(0,62):"Continue saved work";
+  id("continueLastTaskMeta").textContent=unfinished?friendly(unfinished.status)+" · "+new Date(unfinished.updated).toLocaleString():"Pick up where you stopped";
   if(!historyItems.length) { id("recentTasks").append(node("p","muted","Your tasks will appear here.")); id("historyList").append(emptyPanel("A fresh start","Every task is saved here so you can review or continue it.")); }
   historyItems.forEach((s,index)=> {
     const date=new Date(s.updated).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
@@ -671,8 +707,8 @@ async function loadHistory() {
   });
 }
 async function loadSession(sessionId) { if(startingRun||busy()) { toast("Finish or stop the current task first."); return; } currentRun=null; runEvents=[]; const data=await api("/projects/"+projectId+"/sessions/"+sessionId); runEvents=data.events||[]; id("taskMode").value=data.task_mode||"build"; renderSession(data); id("verifyCommands").value=(data.required_checks||[]).join("\n"); changeView("build"); if(tab==="changes")await loadChanges(); }
-async function newTask() { if(startingRun||busy()||transferBusy)return; currentRun=null; runEvents=[]; id("taskError").hidden=true; id("taskMode").value="build"; renderSession(null); id("goal").value=""; id("verifyCommands").value=""; id("verificationFields").hidden=true; changeView("build"); setTab("activity"); id("goal").focus(); }
-async function selectProject(next) { if(startingRun||busy()||transferBusy)return; const project=appState.projects.find(p=>p.id===next); if(project?.migration_pending){renderProjects();openMigration();return;} if(project?.available===false){renderProjects();openReconnect(next);return;} await api("/select-project",{project_id:next}); projectId=next; selectedFile=""; fileData=null; id("fileSearch").value=""; id("fileName").textContent="Select a file"; id("filePreview").textContent="Select a file to inspect its contents."; renderProjects(); await newTask(); await Promise.all([loadFiles(),loadHistory()]); }
+async function newTask(clearSaved=false) { if(startingRun||busy()||transferBusy)return; if(clearSaved)clearDraft(); currentRun=null; runEvents=[]; id("taskError").hidden=true; id("taskMode").value="build"; renderSession(null); id("goal").value=""; id("verifyCommands").value=""; id("verificationFields").hidden=true; if(!clearSaved)restoreDraft(); changeView("build"); setTab("activity"); id("goal").focus(); }
+async function selectProject(next) { if(startingRun||busy()||transferBusy)return; saveDraftNow(); const project=appState.projects.find(p=>p.id===next); if(project?.migration_pending){renderProjects();openMigration();return;} if(project?.available===false){renderProjects();openReconnect(next);return;} await api("/select-project",{project_id:next}); projectId=next; selectedFile=""; fileData=null; id("fileSearch").value=""; id("fileName").textContent="Select a file"; id("filePreview").textContent="Select a file to inspect its contents."; renderProjects(); await newTask(false); await Promise.all([loadFiles(),loadHistory()]); }
 async function refreshState() { appState=await api("/state"); projectId=appState.projects.some(p=>p.id===projectId)?projectId:appState.selected_project; renderProjects(); renderProvider(); renderExperience();renderCloudState(); if(appState.active_run&&(!currentRun||currentRun.id!==appState.active_run.id)) { currentRun=appState.active_run; projectId=currentRun.project_id; renderProjects(); schedulePoll(50); } else if(!appState.active_run&&busy()) { currentRun=null; renderControls(); } }
 
 function schedulePoll(ms=isCloud?2500:600) { clearTimeout(pollTimer); pollTimer=setTimeout(()=>action(pollRun),ms); }
@@ -703,12 +739,12 @@ async function startTask(event,resumeOnly=false,goalOverride=null) {
   startingRun=true;id("taskError").hidden=true;renderControls();
   try {
     const result=await api("/runs",{project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:currentSession?.undone?null:currentSession?.id,review_edits:isCloud?false:id("reviewEdits").checked,task_mode:id("taskMode").value});
-    currentRun=result; runEvents=[]; lastChangeKey=""; if(!resumeOnly&&!explicitGoal)id("goal").value=""; changeView("build"); renderSession(currentSession); schedulePoll(50);
+    currentRun=result; runEvents=[]; lastChangeKey=""; if(!resumeOnly&&!explicitGoal){id("goal").value="";clearDraft();} changeView("build"); renderSession(currentSession); schedulePoll(50);
   } catch(error) {
     id("taskError").hidden=false;id("taskError").textContent=error.message+" Your prompt is kept. Refresh the workspace to check for a running task before retrying.";
     // A lost response must not cause an automatic second model request.
     await refreshState().catch(()=>{});
-    if(busy()){id("taskError").textContent="The task is running. Reconnected to its progress.";changeView("build");schedulePoll(50);}
+    if(busy()){id("taskError").textContent="The task is running. Reconnected to its progress.";if(!resumeOnly&&!explicitGoal){id("goal").value="";clearDraft();}changeView("build");schedulePoll(50);}
   } finally { startingRun=false;renderControls(); }
 }
 async function startDemo() { if(startingRun||busy())return; id("demoButton").disabled=true; try { const result=await api("/demo",{}); currentRun=result.run; projectId=result.project.id; runEvents=[]; currentSession=null; await refreshState(); renderSession(null); changeView("monitor"); schedulePoll(50); } finally { id("demoButton").disabled=false; } }
@@ -901,7 +937,7 @@ function eventDescription(e) {
   if(e.kind==="verification_start")return "Running a project check";
   if(e.kind==="action_context")return e.purpose;
   if(e.kind==="check_revised")return "Corrected a test: "+e.label;
-  const labels={model_start:"Model request started",model_end:"Model response received",tool_start:"Started "+(e.tool||"tool"),tool_end:(e.ok?"Completed ":"Failed ")+(e.tool||"tool"),command_start:"Command started",command_end:e.cancelled?"Command stopped":"Command exited "+e.exit_code,approval_requested:"Approval needed",approval_decision:e.allowed?"You approved this action":"You denied this action",paused:"Paused by you",resumed:"Resumed by you",pause_requested:"Pause requested",stop_requested:"Stop requested",finished:"Task finished",message:e.text};
+  const labels={model_start:"Model request started",model_end:"Model response received",budget_upgrade:"Fast pass complete · continuing with Standard effort",tool_start:"Started "+(e.tool||"tool"),tool_end:(e.ok?"Completed ":"Failed ")+(e.tool||"tool"),command_start:"Command started",command_end:e.cancelled?"Command stopped":"Command exited "+e.exit_code,approval_requested:"Approval needed",approval_decision:e.allowed?"You approved this action":"You denied this action",paused:"Paused by you",resumed:"Resumed by you",pause_requested:"Pause requested",stop_requested:"Stop requested",finished:"Task finished",message:e.text};
   return labels[e.kind]||e.text||e.kind;
 }
 function renderMonitor() {
@@ -1057,7 +1093,8 @@ id("saveStorage").onclick=()=>action(async()=>{id("saveStorage").disabled=true;i
 document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>changeView(b.dataset.view));
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>id(b.dataset.close).close());
-document.querySelectorAll(".suggestion").forEach(b=>b.onclick=()=>{id("taskMode").value=b.dataset.mode||"build";renderControls();id("goal").value=b.dataset.prompt;id("goal").focus();});
+document.querySelectorAll(".suggestion").forEach(b=>b.onclick=()=>{id("taskMode").value=b.dataset.mode||"build";renderControls();id("goal").value=b.dataset.prompt;scheduleDraftSave();id("goal").focus();});
+id("continueLastTask").onclick=()=>action(()=>loadSession(id("continueLastTask").dataset.sessionId));
 id("briefButton").onclick=()=>action(openProjectBrief);
 id("skillsButton").onclick=()=>action(openProjectSkills);
 id("saveSkillOverrides").onclick=()=>action(saveProjectSkillOverrides);
@@ -1068,7 +1105,9 @@ id("refreshSetup").onclick=()=>action(refreshSetup);
 id("setupConnection").onclick=()=>{id("setupDialog").close();openSettings();};
 id("investigateSetup").onclick=()=>{if(busy())return;id("setupDialog").close();followup("Inspect this project's setup. Identify missing tools or dependencies, explain what is needed in simple words, and ask before running installation commands. Verify the setup with real checks where possible.","build");};
 id("experienceButton").onclick=()=>action(async()=>{await api("/experience",{experience:appState.experience==="advanced"?"simple":"advanced"});await refreshState();});
-id("taskMode").onchange=renderControls;
+id("taskMode").onchange=()=>{renderControls();scheduleDraftSave();};
+id("goal").addEventListener("input",scheduleDraftSave);
+id("verifyCommands").addEventListener("input",scheduleDraftSave);
 id('efficiencyMode').onchange=()=>action(async()=>{await api('/settings',{efficiency:id('efficiencyMode').value});await refreshState();});
 id('refreshAccount').onclick=()=>action(refreshAccount);
 id('memberLogin').onchange=updateAccountMode;id('memberEmail').oninput=()=>{if(id('memberLogin').checked){id('legacySetupEmail').value=id('memberEmail').value;id('passwordResetEmail').value=id('memberEmail').value;}};updateAccountMode();
@@ -1103,12 +1142,12 @@ id('paymentForm').onsubmit=e=>{e.preventDefault();action(async()=>{id('submitPay
 id("showApiKey").onclick=()=>{const show=id("apiKey").type==="password";id("apiKey").type=show?"text":"password";id("showApiKey").textContent=show?"Hide":"Show";id("showApiKey").setAttribute("aria-pressed",String(show));};
 id("clearApiKey").onclick=()=>action(async()=>{await api("/settings",{base_url:id("baseUrl").value.trim(),clear_key:true});await refreshState();id("apiKey").value="";id("keyHint").textContent="Key removed for this app session";id("clearApiKey").disabled=true;});
 id("removeRunCaps").onclick=()=>{["maxSteps","maxSeconds","maxTotalTokens","commandTimeout"].forEach(name=>id(name).value="");id("capsHint").textContent="All run caps cleared. Click Save connection to apply.";};
-id("newTask").onclick=()=>action(newTask);
+id("newTask").onclick=()=>action(()=>newTask(true));
 id("taskForm").onsubmit=e=>action(()=>startTask(e));
 id("demoButton").onclick=()=>action(startDemo);
 id("stopButton").onclick=()=>action(async()=>{if(currentRun){currentRun=await api("/runs/"+currentRun.id+"/stop",{});renderControls();schedulePoll(20);}});
 id("allowCommand").onclick=()=>action(()=>answerApproval(true)); id("denyCommand").onclick=()=>action(()=>answerApproval(false));
-id("toggleChecks").onclick=()=>{id("verificationFields").hidden=!id("verificationFields").hidden;if(!id("verificationFields").hidden)id("verifyCommands").focus();};
+id("toggleChecks").onclick=()=>{id("verificationFields").hidden=!id("verificationFields").hidden;scheduleDraftSave();if(!id("verificationFields").hidden)id("verifyCommands").focus();};
 id("settingsButton").onclick=openSettings; id("modelButton").onclick=openSettings;
 id("settingsForm").onsubmit=e=>{e.preventDefault();action(()=>saveSettings());}; id("testConnection").onclick=()=>action(()=>saveSettings(true));
 id("connectionType").onchange=()=>{
@@ -1134,7 +1173,8 @@ id("menuButton").onclick=()=>document.body.classList.toggle("sidebar-open"); id(
 id("detailsButton").onclick=()=>document.body.classList.toggle("details-open"); id("closeDetails").onclick=()=>document.body.classList.remove("details-open");
 id("quitButton").onclick=()=>id("quitDialog").showModal();
 id("confirmQuit").onclick=()=>action(async()=>{await api("/quit",{});clearTimeout(pollTimer);id("quitDialog").close();id("app").replaceChildren(emptyPanel("Workspace closed","Your work is saved. Use the desktop launcher to open the app again."));});
-document.addEventListener("keydown",e=>{if(!appState||id("workspaceShell").hidden)return;if((e.ctrlKey||e.metaKey)&&e.key==="Enter"&&!document.querySelector("dialog[open]")){e.preventDefault();id("taskForm").requestSubmit();}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();action(newTask);}});
+document.addEventListener("keydown",e=>{if(!appState||id("workspaceShell").hidden)return;if((e.ctrlKey||e.metaKey)&&e.key==="Enter"&&!document.querySelector("dialog[open]")){e.preventDefault();id("taskForm").requestSubmit();}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();action(()=>newTask(true));}});
+window.addEventListener("beforeunload",saveDraftNow);
 document.querySelectorAll("dialog").forEach(dialog=>dialog.addEventListener("click",e=>{if(e.target===dialog){if(dialog.id==="editorDialog"&&editorSaving)return;const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}}));
 
 function showEngineWelcome(message="") {
@@ -1156,7 +1196,7 @@ function scheduleCloudReconnect() {
 }
 async function openWorkspace() {
   if(isHosted&&(!engineOrigin||!accessToken)){showEngineWelcome(connectionError);return;}
-  try {await refreshState();await Promise.all([loadFiles(),loadHistory()]);renderSession(null);id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;if(currentRun)schedulePoll(20);if(appState.account?.enabled){if(!appState.account.enrolled)openAccount();else refreshAccount().catch(()=>{});}}
+  try {await refreshState();await Promise.all([loadFiles(),loadHistory()]);renderSession(null);if(!currentRun)restoreDraft();id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;if(currentRun)schedulePoll(20);if(appState.account?.enabled){if(!appState.account.enrolled)openAccount();else refreshAccount().catch(()=>{});}}
   catch(error){if(isCloud){id("engineWelcome").hidden=true;id("workspaceShell").hidden=false;id("runButton").disabled=true;scheduleCloudReconnect();}else showEngineWelcome(error.message);}
 }
 id("websiteButtonLabel").textContent=isHosted?"Website connection":"Connect website";

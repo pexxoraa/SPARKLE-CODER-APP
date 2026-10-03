@@ -68,6 +68,20 @@ class AgentTests(unittest.TestCase):
                                            "expected_sha256": written["sha256"]})
         self.assertFalse(agent.verify_completion()[0])
 
+    def test_simple_web_budget_expands_automatically_before_pausing(self):
+        config = Config(auto_approve=True, max_steps=24, max_total_tokens=200000)
+        session = Session.create(self.workspace, "build a static website for a photo studio", [], {})
+        events = []
+        sequence = [calls(("list_files", {})) for _ in range(14)]
+        sequence.append(calls(("request_input", {"question": "Which logo should I use?", "next_step": "Choose one logo."})))
+        agent = Agent(self.workspace, session, config, SequenceProvider(sequence), lambda _: True,
+                      lambda _: None, observe=lambda kind, data: events.append((kind, data)))
+        self.assertEqual(agent.task_profile["name"], "simple_web")
+        self.assertEqual(agent.run(), "needs_input")
+        self.assertEqual(agent.task_profile["name"], "standard")
+        self.assertTrue(any(kind == "budget_upgrade" for kind, _ in events))
+        self.assertEqual(session.state["usage"]["calls"], 15)
+
     def test_call_budget_pauses_and_keeps_work(self):
         agent = self.agent(SequenceProvider([
             calls(("write_file", {"path": "saved.go", "content": "package main\n"}))]))

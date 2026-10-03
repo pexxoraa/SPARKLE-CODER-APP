@@ -28,3 +28,8 @@
 .active-skills{margin-bottom:14px}.active-skill-chips{display:flex;flex-wrap:wrap;gap:6px}.active-skill-chips .status-badge{text-transform:capitalize}
 
 .activity-list{display:flex;flex-direction:column}.activity-row{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;padding:9px 0;border-bottom:1px solid var(--line);font-size:12px}.activity-row>div{min-width:0}.activity-row strong,.activity-row>div>span{display:block;overflow-wrap:anywhere}.activity-row>div>span{margin-top:2px;color:var(--muted);font-size:11px}.activity-row .activity-marker{align-self:start;margin-top:1px}.activity-row .activity-marker svg{width:14px;height:14px}
+
+.continue-task-card{display:flex;align-items:center;gap:10px;width:100%;max-width:520px;margin:18px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:7px;background:var(--surface);text-align:left}
+.continue-task-card>span:nth-child(2){min-width:0;flex:1}.continue-task-card strong,.continue-task-card span span{display:block}.continue-task-card strong{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.continue-task-card span span{margin-top:3px;font-size:10px;color:var(--muted)}.continue-task-card svg{width:16px;height:16px}
+.draft-hint{color:var(--muted)}
+@media(max-width:760px){.draft-hint{display:none}.suggestions .suggestion:nth-child(n+4){display:none}}

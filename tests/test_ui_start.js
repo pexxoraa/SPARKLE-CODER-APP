@@ -14,7 +14,7 @@ function fixture(){
     function busy(){return currentRun?.status==='running'||currentRun?.status==='queued';}
     function renderControls(){id('runButton').disabled=startingRun||busy();}
     function renderSession(){renderCount++;}
-    function hostedNoKey(){return false;} function openSettings(){} function toast(){}
+    function hostedNoKey(){return false;} function openSettings(){} function toast(){} function clearDraft(){}
     function changeView(){} function schedulePoll(){} async function openAccount(){}
     async function refreshState(){const value=await recover();if(value)currentRun=value;}
     ${controller}
@@ -36,6 +36,12 @@ function fixture(){
   const lost=fixture();lost.setSend(async()=>{throw Error('Connection lost');});lost.recover({id:'accepted-run',status:'running'});await lost.start();
   assert.equal(lost.state().currentRun.id,'accepted-run');assert.equal(lost.calls.length,1);assert.match(lost.id('taskError').textContent,/Reconnected/);
   const offline=fixture();offline.offline();await offline.start();assert.equal(offline.calls.length,0);assert.equal(offline.id('taskError').textContent,'Engine offline.');
+  assert.match(source,/sparkleDraft:v1:/);
+  assert.match(source,/Draft restored/);
+  assert.match(source,/continueLastTask/);
+  assert.match(source,/Improve quality/);
+  assert.match(source,/Test & fix/);
+  assert.match(source,/Auto expands when needed/);
   const refresh=source.slice(source.indexOf('async function refreshState('),source.indexOf('function schedulePoll('));
   const reconnect=new Function('api',`let currentRun={id:'finished-run',status:'completed'},projectId='project-1',appState;function renderProjects(){}function renderProvider(){}function renderExperience(){}function renderCloudState(){}function schedulePoll(){} ${refresh};return {refreshState,current:()=>currentRun};`)(async()=>({projects:[{id:'project-1'}],active_run:{id:'followup-run',project_id:'project-1',status:'running'}}));
   await reconnect.refreshState();assert.equal(reconnect.current().id,'followup-run','An old finished run must not hide a newly accepted follow-up');

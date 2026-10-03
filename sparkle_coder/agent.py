@@ -148,6 +148,8 @@ class Agent:
             session.state["skills"] = routed
             session.save()
         self.skills = routed
+        self.standard_runtime = {field: getattr(config, field) for field in
+                                 ("max_steps", "max_total_tokens", "max_tokens", "context_chars")}
         if profile.get("name") != "standard":
             for field in ("max_steps", "max_total_tokens"):
                 limit = profile[field]
@@ -172,6 +174,21 @@ class Agent:
 
     def say(self, text):
         self.emit(clean_terminal(self.tools.redactor.text(text)))
+
+    def promote_effort(self, reason):
+        """Seamlessly continue an efficient small task with the saved standard runtime budget."""
+        if self.task_profile.get("name") == "standard" or self.session.state.get("task_mode") == "ask":
+            return False
+        self.task_profile = {"version": PROFILE_VERSION, "name": "standard"}
+        self.session.state["task_profile"] = dict(self.task_profile)
+        for field, value in self.standard_runtime.items():
+            setattr(self.config, field, value)
+        self.schemas = list(SCHEMAS)
+        self.session.save()
+        self.observe("budget_upgrade", {"text": "Fast pass complete. Continuing automatically with Standard effort.",
+                                        "reason": reason})
+        self.say("Fast pass complete. Continuing automatically with Standard effort.")
+        return True
 
     def context(self) -> list[dict]:
         state = self.session.state
@@ -562,11 +579,26 @@ class Agent:
                 if self.should_stop():
                     return self.finish("interrupted", "Stopped by the user. Work is saved and can be resumed.")
                 if self.config.max_steps is not None and step > self.config.max_steps:
+                    if self.promote_effort("model calls"):
+                        step = 0
+                        started = time.monotonic()
+                        starting_tokens = state["usage"]["prompt_tokens"] + state["usage"]["completion_tokens"]
+                        continue
                     return self.finish("paused", "Model-call limit reached. Work is saved; resume to continue.")
                 used = state["usage"]["prompt_tokens"] + state["usage"]["completion_tokens"] - starting_tokens
                 if self.config.max_seconds is not None and time.monotonic() - started >= self.config.max_seconds:
+                    if self.promote_effort("run time"):
+                        step = 0
+                        started = time.monotonic()
+                        starting_tokens = state["usage"]["prompt_tokens"] + state["usage"]["completion_tokens"]
+                        continue
                     return self.finish("paused", "Run time budget reached. Resume to continue.")
                 if self.config.max_total_tokens is not None and used >= self.config.max_total_tokens:
+                    if self.promote_effort("token budget"):
+                        step = 0
+                        started = time.monotonic()
+                        starting_tokens = state["usage"]["prompt_tokens"] + state["usage"]["completion_tokens"]
+                        continue
                     return self.finish("paused", "Run token budget reached. Resume to continue.")
                 progress = str(step) if self.config.max_steps is None else f"{step}/{self.config.max_steps}"
                 self.say(f"[{progress}] Asking SPARKLE AI...")
