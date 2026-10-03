@@ -438,7 +438,14 @@ $("refreshAccountButton").onclick=()=>refreshAccount().catch(error=>toast(safeEr
 $("reconnectButton").onclick=reconnectAccount;
 $("loginMode").onchange=updateAccountMode;updateAccountMode();
 $("paymentCoupon").oninput=()=>{state.couponQuote=null;renderPurchaseQuote();};
-$("paymentPack").onchange=()=>{state.couponQuote=null;renderPurchaseQuote();};
+function chooseTokenPackage(value){
+  $("paymentPack").value=String(value);
+  document.querySelectorAll(".token-package").forEach(button=>button.classList.toggle("active",button.dataset.millions===String(value)));
+  state.couponQuote=null;renderPurchaseQuote();
+  if(value==="custom")$("customTokenMillions").focus();
+}
+document.querySelectorAll(".token-package").forEach(button=>button.onclick=()=>chooseTokenPackage(button.dataset.millions));
+$("paymentPack").onchange=()=>chooseTokenPackage($("paymentPack").value);
 $("customTokenMillions").oninput=()=>{state.couponQuote=null;renderPurchaseQuote();};
 $("applyCoupon").onclick=applyCoupon;$("copyUpi").onclick=()=>copyText($("upiId").textContent).then(()=>toast("UPI ID copied")).catch(error=>toast(safeError(error)));
 $("forgotPassword").onclick=()=>{$("passwordResetSection").hidden=!$("passwordResetSection").hidden;if(!$("passwordResetEmail").value)$("passwordResetEmail").value=$("memberEmail").value.trim();};

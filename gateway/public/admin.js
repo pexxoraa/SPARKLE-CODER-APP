@@ -1,62 +1,80 @@
-'use strict';
 const el=id=>document.getElementById(id), number=value=>Number(value||0).toLocaleString('en-IN');
 const money=paise=>'₹'+(Number(paise||0)/100).toFixed(2);
 const node=(tag,text,cls='')=>{const n=document.createElement(tag);n.textContent=text;n.className=cls;return n;};
 const localDateInput=seconds=>seconds?new Date(seconds*1000-new Date(seconds*1000).getTimezoneOffset()*60000).toISOString().slice(0,16):'';
 const expiryValue=value=>value?Math.floor(new Date(value).getTime()/1000):null;
+const page=document.body.dataset.adminPage||'overview';
 let signedIn=false,busyActions=0,refreshVersion=0,refreshing=0;
 async function api(path,body){
   const response=await fetch('/api/admin/'+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',redirect:'error',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
   const result=await response.json();
-  if(!response.ok){if(response.status===401)show(false);throw Error(result.error||result.message||'Request failed.');}return result;
+  if(!response.ok){if(response.status===401)show(false);throw Error(result.error||result.message||'Request failed.');}
+  return result;
 }
-function show(value){signedIn=value;if(!value)refreshVersion++;el('login').hidden=value;el('dashboard').hidden=!value;el('refresh').hidden=!value;el('logout').hidden=!value;}
-async function action(button,fn){busyActions++;button.disabled=true;el('notice').textContent='';try{await fn();}catch(e){el('notice').textContent=e.message;}finally{busyActions--;button.disabled=false;}}
-function field(parent,label,type='text',key=''){const l=node('label',label),input=node('input','');input.type=type;if(key)input.dataset.review=key;l.append(input);parent.append(l);return input;}
-function button(parent,label,fn,cls=''){const b=node('button',label,cls);b.type='button';b.onclick=()=>action(b,fn);parent.append(b);return b;}
-el('modelCheck').onclick=()=>action(el('modelCheck'),async()=>{el('modelCheckResult').textContent='Checking the AI service…';try{const result=await api('model-check',{});el('modelCheckResult').textContent=result.message+' '+number(result.prompt_tokens+result.completion_tokens)+' diagnostic tokens; member credits unchanged.';}catch(error){el('modelCheckResult').textContent=error.message;}});
-function card(parent,title,detail){const c=node('article','','card');c.append(node('h3',title),node('p',detail));parent.append(c);return c;}
-async function refresh(background=false){
-  if(background&&(document.hidden||busyActions||refreshing||!signedIn))return;
-  const version=++refreshVersion;refreshing++;
-  try {
-  const data=await api('overview');
-  if(version!==refreshVersion||background&&busyActions)return;
-  // Preserve unfinished payment reviews when new requests arrive.
-  const drafts=new Map(Array.from(el('dashboard').querySelectorAll('input[data-review]'),input=>
-    [input.dataset.review,{value:input.value,checked:input.checked}]));
-  const focused=document.activeElement?.dataset?.review;
-  show(true);
-  el('settings').textContent='₹15 per 1,000,000 tokens · custom purchases up to 100,000,000 · '+(data.settings.upi_id||'UPI not configured')+' · '+(data.settings.provider_configured?'Model credential configured':'Model credential missing');
+function show(value){
+  signedIn=value;if(!value)refreshVersion++;
+  el('login').hidden=value;el('dashboard').hidden=!value;el('refresh').hidden=!value;el('logout').hidden=!value;
+}
+async function action(button,fn){
+  busyActions++;if(button)button.disabled=true;el('notice').textContent='';
+  try{await fn();}catch(error){el('notice').textContent=error.message;}
+  finally{busyActions--;if(button)button.disabled=false;}
+}
+function field(parent,label,type='text',key=''){
+  const l=node('label',label),input=node('input','');input.type=type;if(key)input.dataset.review=key;l.append(input);parent.append(l);return input;
+}
+function button(parent,label,fn,cls=''){
+  const b=node('button',label,cls);b.type='button';b.onclick=()=>action(b,fn);parent.append(b);return b;
+}
+function card(parent,title,detail){
+  const c=node('article','','card');c.append(node('h3',title),node('p',detail));parent.append(c);return c;
+}
+function renderCommon(data){
+  el('settings').textContent='₹15 per 1,000,000 tokens · packages + custom 1–100M · '+(data.settings.upi_id||'UPI not configured')+' · '+(data.settings.provider_configured?'Model credential configured':'Model credential missing');
+}
+function renderOverview(data){
+  const signups=data.devices.filter(d=>d.kind==='signup'),pending=data.payments.filter(p=>p.status==='pending'),
+    recovery=data.devices.filter(d=>d.kind==='recovery'),usage=data.requests.filter(r=>r.state==='uncertain'||r.state==='inflight');
   el('stats').replaceChildren();
-  const signups=data.devices.filter(d=>d.kind==='signup');
-  for(const [label,value] of [['Account requests',signups.length],['Members',data.accounts.length],['Pending payments',data.payments.filter(p=>p.status==='pending').length],['Available tokens',data.accounts.reduce((n,a)=>n+a.balance-a.held,0)]]){const c=node('div','','stat');c.append(node('strong',number(value)),node('span',label));el('stats').append(c);}
-  el('signupList').replaceChildren();
+  for(const [label,value] of [['Account requests',signups.length],['Members',data.accounts.length],['Pending payments',pending.length],['Available tokens',data.accounts.reduce((n,a)=>n+a.balance-a.held,0)]]){
+    const c=node('div','','stat');c.append(node('strong',number(value)),node('span',label));el('stats').append(c);
+  }
+  const counts={overviewSignups:signups.length,overviewPayments:pending.length,overviewCoupons:(data.coupons||[]).filter(c=>c.active).length,overviewAccounts:data.accounts.length,overviewRecovery:recovery.length,overviewUsage:usage.length,overviewAudit:data.audit.length};
+  for(const [id,value] of Object.entries(counts))el(id).textContent=number(value);
+}
+function renderRequests(data){
+  const list=el('signupList');list.replaceChildren();const signups=data.devices.filter(d=>d.kind==='signup');
   for(const d of signups){
-    const c=card(el('signupList'),d.claimed_name,d.email+' · '+(d.claimed_phone||'No phone'));
+    const c=card(list,d.claimed_name,d.email+' · '+(d.claimed_phone||'No phone'));
     c.append(node('p','Request: '+d.id,'reference'),node('p','Received '+new Date(d.created*1000).toLocaleString(),'muted'));
     const payment=data.payments.find(p=>p.device_id===d.id&&p.status==='pending');
     if(d.account_status==='suspended')c.append(node('p','Account suspended. Resolve this in Accounts before reviewing payment.'));
-    else if(payment){const link=node('a','Review submitted '+money(payment.amount_paise)+' purchase');link.href='#payment-'+payment.id;c.append(link);}
-    else c.append(node('p','Waiting for the tester to submit a payment reference. No credits issued.'));
+    else if(payment){const link=node('a','Review submitted '+money(payment.amount_paise)+' purchase');link.href='/admin/payments#payment-'+payment.id;c.append(link);}
+    else c.append(node('p','Waiting for the tester to submit a purchase. No credits issued.'));
   }
-  if(!signups.length)el('signupList').append(node('p','No new account requests.'));
-  el('paymentList').replaceChildren();
+  if(!signups.length)list.append(node('p','No new account requests.'));
+}
+function renderPayments(data){
+  const list=el('paymentList');list.replaceChildren();
   for(const p of data.payments.filter(p=>p.status==='pending')){
     const bonus=Number(p.bonus_tokens||0),discount=Number(p.discount_paise||0),total=Number(p.credits||0)+bonus,amount=Number(p.amount_paise||0);
-    const c=card(el('paymentList'),p.name,money(amount)+' → '+number(total)+' tokens · '+p.email);c.id='payment-'+p.id;
-    c.append(node('p',amount===0?'No UPI payment required for this 100% discount coupon.':'UPI reference: '+p.utr,'reference'),
-      node('p','Phone: '+(p.claimed_phone||'Not provided')+' · '+new Date(p.created*1000).toLocaleString(),'muted'));
+    const c=card(list,p.name,money(amount)+' → '+number(total)+' tokens · '+p.email);c.id='payment-'+p.id;
+    c.append(node('p',amount===0?'No UPI payment required. This is a zero-cost coupon claim.':'UPI reference: '+p.utr,'reference'),
+      node('p','Package: '+number(p.credits)+' tokens · Phone: '+(p.claimed_phone||'Not provided')+' · '+new Date(p.created*1000).toLocaleString(),'muted'));
     if(p.coupon_code)c.append(node('p','Coupon '+p.coupon_code+' · '+money(discount)+' off'+(bonus?' · +'+number(bonus)+' bonus tokens':''),'muted'));
-    const verified=field(c,amount===0?'I verified this zero-cost coupon claim.':'I matched this '+money(amount)+' payment in my bank / UPI account.','checkbox','payment:'+p.id+':verified'),note=field(c,'Review note (required for rejection)','text','payment:'+p.id+':note');note.maxLength=300;
+    const verified=field(c,amount===0?'I verified this zero-cost coupon claim.':'I matched this '+money(amount)+' payment in my bank / UPI account.','checkbox','payment:'+p.id+':verified'),
+      note=field(c,'Review note (required for rejection)','text','payment:'+p.id+':note');note.maxLength=300;
     const actions=node('div','','actions');c.append(actions);
     button(actions,'Accept + '+number(total)+' tokens',async()=>{if(!verified.checked)throw Error(amount===0?'Verify the coupon claim first.':'Verify the payment in your bank app first.');await api('payments/'+p.id,{action:'approve',verified:true,note:note.value});await refresh();el('notice').textContent='Purchase accepted. Credits are available in the member account.';});
     button(actions,'Reject',async()=>{if(!note.value.trim())throw Error('Enter a rejection reason.');await api('payments/'+p.id,{action:'reject',note:note.value});await refresh();},'danger');
   }
-  if(!el('paymentList').children.length)el('paymentList').append(node('p','No payments waiting.'));
-  el('couponList').replaceChildren();
+  if(!list.children.length)list.append(node('p','No payments waiting.'));
+  if(location.hash){const target=document.getElementById(location.hash.slice(1));target?.scrollIntoView?.({block:'center'});}
+}
+function renderCoupons(data){
+  const list=el('couponList');list.replaceChildren();
   for(const coupon of data.coupons||[]){
-    const c=card(el('couponList'),coupon.code,money(coupon.discount_paise)+' off · +'+number(coupon.bonus_tokens)+' tokens · '+number(coupon.reserved_uses)+' / '+number(coupon.max_uses)+' used/reserved');
+    const c=card(list,coupon.code,money(coupon.discount_paise)+' off · +'+number(coupon.bonus_tokens)+' tokens · '+number(coupon.reserved_uses)+' / '+number(coupon.max_uses)+' used/reserved');
     const discount=field(c,'Money discount (₹)','number','coupon:'+coupon.id+':discount');discount.min='0';discount.max='1500';discount.step='0.01';discount.value=(Number(coupon.discount_paise||0)/100).toFixed(2);
     const bonus=field(c,'Bonus tokens','number','coupon:'+coupon.id+':bonus');bonus.min='0';bonus.max='10000000';bonus.value=coupon.bonus_tokens;
     const expiry=field(c,'Expiry date/time','datetime-local','coupon:'+coupon.id+':expiry');expiry.value=localDateInput(coupon.expires);
@@ -69,64 +87,93 @@ async function refresh(background=false){
     button(actions,coupon.active?'Disable':'Enable',async()=>{await api('coupons/'+coupon.id,couponPayload(!coupon.active));await refresh();},coupon.active?'danger':'secondary');
     if(coupon.expires)c.append(node('p','Expires '+new Date(coupon.expires*1000).toLocaleString(),'muted'));
   }
-  if(!el('couponList').children.length)el('couponList').append(node('p','No coupons created yet.'));
-  el('accountRows').replaceChildren();
+  if(!list.children.length)list.append(node('p','No coupons created yet.'));
+}
+function showPasswordCode(result,title,notice){
+  el('passwordCodeTitle').textContent=title;el('passwordSetupCode').value=result.code;
+  el('passwordSetupRecipient').textContent='For '+result.email;
+  el('passwordSetupExpiry').textContent='Expires '+new Date(result.expires*1000).toLocaleString()+'. Send it only to the verified account owner.';
+  el('passwordSetupResult').hidden=false;el('notice').textContent=notice;
+  refresh().catch(error=>{el('syncStatus').textContent='Refresh failed, but the password code above is valid. '+error.message;});
+}
+function renderAccounts(data){
+  const rows=el('accountRows');rows.replaceChildren();
   for(const a of data.accounts){
     const tr=node('tr',''),member=node('td',a.name);member.append(node('small',a.email));
     const login=node('td',a.password_set?(a.password_reset_expires?'Password set · Reset code issued':'Password set'):a.password_setup_expires?'Setup code issued':'Needs first password');
-    const showPasswordCode=(result,title,notice)=>{
-      el('passwordCodeTitle').textContent=title;
-      el('passwordSetupCode').value=result.code;
-      el('passwordSetupRecipient').textContent='For '+result.email;
-      el('passwordSetupExpiry').textContent='Expires '+new Date(result.expires*1000).toLocaleString()+'. Send it only to the verified account owner.';
-      el('passwordSetupResult').hidden=false;
-      el('notice').textContent=notice;
-      refresh().catch(error=>{el('syncStatus').textContent='Refresh failed, but the password code above is valid. '+error.message;});
-    };
-    if(!a.password_set&&a.status==='active')button(login,a.password_setup_expires?'Replace setup code':'Create setup code',async()=>{
-      showPasswordCode(await api('accounts/'+a.id+'/password-setup',{verified:true}),'One-time first-password setup code','Setup code created. Copy it now; SPARKLE stores only its hash.');
-    },'secondary');
-    if(a.password_set&&a.status==='active')button(login,a.password_reset_expires?'Replace reset code':'Create reset code',async()=>{
-      showPasswordCode(await api('accounts/'+a.id+'/password-reset',{verified:true}),'One-time password reset code','Reset code created. Copy it now; SPARKLE stores only its hash.');
-    },'secondary');
+    if(!a.password_set&&a.status==='active')button(login,a.password_setup_expires?'Replace setup code':'Create setup code',async()=>showPasswordCode(await api('accounts/'+a.id+'/password-setup',{verified:true}),'One-time first-password setup code','Setup code created. Copy it now; SPARKLE stores only its hash.'),'secondary');
+    if(a.password_set&&a.status==='active')button(login,a.password_reset_expires?'Replace reset code':'Create reset code',async()=>showPasswordCode(await api('accounts/'+a.id+'/password-reset',{verified:true}),'One-time password reset code','Reset code created. Copy it now; SPARKLE stores only its hash.'),'secondary');
     tr.append(member,node('td',a.status),node('td',number(a.balance-a.held)),node('td',number(a.held)),login);
     const td=node('td','');tr.append(td);
     if(a.status!=='pending')button(td,a.status==='suspended'?'Reactivate':'Suspend',async()=>{await api('accounts/'+a.id,{status:a.status==='suspended'?'active':'suspended'});await refresh();},'secondary');
-    el('accountRows').append(tr);
+    rows.append(tr);
   }
-  el('deviceList').replaceChildren();
+}
+function renderRecovery(data){
+  const list=el('deviceList');list.replaceChildren();
   for(const d of data.devices.filter(d=>d.kind==='recovery')){
-    const c=card(el('deviceList'),d.email,'Request from '+d.claimed_name+' · '+(d.claimed_phone||'No phone'));
+    const c=card(list,d.email,'Request from '+d.claimed_name+' · '+(d.claimed_phone||'No phone'));
     const verified=field(c,'I verified this person owns the existing account.','checkbox','device:'+d.id+':verified'),actions=node('div','','actions');c.append(actions);
     for(const choice of ['approve','reject'])button(actions,choice==='approve'?'Reconnect device':'Reject',async()=>{if(!verified.checked)throw Error('Verify the account owner before deciding.');await api('devices/'+d.id,{action:choice,verified:true});await refresh();},choice==='reject'?'danger':'');
   }
-  if(!el('deviceList').children.length)el('deviceList').append(node('p','No reconnection requests.'));
-  el('requestList').replaceChildren();
+  if(!list.children.length)list.append(node('p','No reconnection requests.'));
+}
+function renderUsage(data){
+  const list=el('requestList');list.replaceChildren();
   for(const r of data.requests.filter(r=>r.state==='uncertain'||r.state==='inflight')){
-    const c=card(el('requestList'),r.email,number(r.reserve)+' tokens reserved · '+r.state+' · '+new Date(r.created*1000).toLocaleString());c.append(node('p',r.id,'reference'),node('p',r.note||''));
+    const c=card(list,r.email,number(r.reserve)+' tokens reserved · '+r.state+' · '+new Date(r.created*1000).toLocaleString());c.append(node('p',r.id,'reference'),node('p',r.note||''));
     if(r.state==='inflight'&&Date.now()/1000-r.created<600){c.append(node('p','Request still running. Refresh later.'));continue;}
-    const count=field(c,'Confirmed total tokens from the provider','number','usage:'+r.id+':tokens');count.min='0';count.max=String(r.reserve);const note=field(c,'Evidence / reason (at least 10 characters)','text','usage:'+r.id+':note');note.maxLength=300;
+    const count=field(c,'Confirmed total tokens from the provider','number','usage:'+r.id+':tokens');count.min='0';count.max=String(r.reserve);
+    const note=field(c,'Evidence / reason (at least 10 characters)','text','usage:'+r.id+':note');note.maxLength=300;
     const verified=field(c,'I checked provider usage. Zero means confirmed no charge.','checkbox','usage:'+r.id+':verified');
     button(c,'Settle confirmed usage',async()=>{if(!verified.checked||count.value==='')throw Error('Enter confirmed usage and select the verification checkbox.');await api('requests/'+r.id,{charged_tokens:Number(count.value),note:note.value,verified:true});await refresh();});
   }
-  if(!el('requestList').children.length)el('requestList').append(node('p','No unresolved usage holds.'));
-  el('auditList').replaceChildren(...data.audit.map(a=>node('p',new Date(a.created*1000).toLocaleString()+' · '+a.action+' · '+a.reference+' '+a.note,'muted')));
-  for(const input of el('dashboard').querySelectorAll('input[data-review]')){
-    const draft=drafts.get(input.dataset.review);if(draft){input.value=draft.value;input.checked=draft.checked;}
-    if(input.dataset.review===focused)input.focus({preventScroll:true});
-  }
-  el('syncStatus').textContent='Last checked '+new Date().toLocaleTimeString()+'. Updates every 30 seconds while this page is visible.';
-  } catch(error){if(version===refreshVersion)el('syncStatus').textContent='Refresh failed. Displayed requests may be out of date. '+error.message;throw error;}
-  finally {refreshing--;}
+  if(!list.children.length)list.append(node('p','No unresolved usage holds.'));
 }
-el('copyPasswordSetupCode').onclick=()=>action(el('copyPasswordSetupCode'),async()=>{
-  const code=el('passwordSetupCode').value;if(!code)return;
-  await navigator.clipboard.writeText(code);el('notice').textContent='Setup code copied.';
+function renderAudit(data){
+  const list=el('auditList');list.replaceChildren(...data.audit.map(a=>node('p',new Date(a.created*1000).toLocaleString()+' · '+a.action+' · '+a.reference+' '+a.note,'audit-row')));
+  if(!list.children.length)list.append(node('p','No audit activity yet.'));
+}
+function renderPage(data){
+  renderCommon(data);
+  ({overview:renderOverview,requests:renderRequests,payments:renderPayments,coupons:renderCoupons,accounts:renderAccounts,recovery:renderRecovery,usage:renderUsage,audit:renderAudit}[page]||renderOverview)(data);
+}
+async function refresh(background=false){
+  if(background&&(document.hidden||busyActions||refreshing||!signedIn))return;
+  const version=++refreshVersion;refreshing++;
+  try{
+    const data=await api('overview');
+    if(version!==refreshVersion||background&&busyActions)return;
+    const drafts=new Map(Array.from(el('dashboard').querySelectorAll('input[data-review]'),input=>[input.dataset.review,{value:input.value,checked:input.checked}]));
+    const focused=document.activeElement?.dataset?.review;
+    show(true);renderPage(data);
+    for(const input of el('dashboard').querySelectorAll('input[data-review]')){
+      const draft=drafts.get(input.dataset.review);if(draft){input.value=draft.value;input.checked=draft.checked;}
+      if(input.dataset.review===focused)input.focus({preventScroll:true});
+    }
+    el('syncStatus').textContent='Last checked '+new Date().toLocaleTimeString()+'. Updates every 30 seconds while this page is visible.';
+  }catch(error){
+    if(version===refreshVersion)el('syncStatus').textContent='Refresh failed. Displayed information may be out of date. '+error.message;
+    throw error;
+  }finally{refreshing--;}
+}
+if(el('modelCheck'))el('modelCheck').onclick=()=>action(el('modelCheck'),async()=>{
+  el('modelCheckResult').textContent='Checking the AI service…';
+  try{const result=await api('model-check',{});el('modelCheckResult').textContent=result.message+' '+number(result.prompt_tokens+result.completion_tokens)+' diagnostic tokens; member credits unchanged.';}
+  catch(error){el('modelCheckResult').textContent=error.message;}
 });
-el('couponForm').onsubmit=e=>{e.preventDefault();const submit=el('couponForm').querySelector('button');action(submit,async()=>{await api('coupons',{code:el('couponCode').value,discount_paise:Math.round(Number(el('couponDiscount').value)*100),bonus_tokens:Number(el('couponBonus').value),expires:expiryValue(el('couponExpiry').value),max_uses:Number(el('couponMaxUses').value),one_per_account:el('couponOnePerAccount').checked,note:el('couponNote').value});el('couponForm').reset();el('couponDiscount').value='0';el('couponBonus').value='0';el('couponMaxUses').value='1';el('couponOnePerAccount').checked=true;await refresh();el('notice').textContent='Coupon created.';});};
+if(el('copyPasswordSetupCode'))el('copyPasswordSetupCode').onclick=()=>action(el('copyPasswordSetupCode'),async()=>{
+  const code=el('passwordSetupCode').value;if(!code)return;await navigator.clipboard.writeText(code);el('notice').textContent='Code copied.';
+});
+if(el('couponForm'))el('couponForm').onsubmit=e=>{
+  e.preventDefault();const submit=el('couponForm').querySelector('button');action(submit,async()=>{
+    await api('coupons',{code:el('couponCode').value,discount_paise:Math.round(Number(el('couponDiscount').value)*100),bonus_tokens:Number(el('couponBonus').value),expires:expiryValue(el('couponExpiry').value),max_uses:Number(el('couponMaxUses').value),one_per_account:el('couponOnePerAccount').checked,note:el('couponNote').value});
+    el('couponForm').reset();el('couponDiscount').value='0';el('couponBonus').value='0';el('couponMaxUses').value='1';el('couponOnePerAccount').checked=true;await refresh();el('notice').textContent='Coupon created.';
+  });
+};
 el('loginForm').onsubmit=e=>{e.preventDefault();action(el('loginForm').querySelector('button'),async()=>{await api('login',{password:el('password').value});el('password').value='';await refresh();});};
 el('refresh').onclick=()=>action(el('refresh'),refresh);
 el('logout').onclick=()=>action(el('logout'),async()=>{await api('logout',{});show(false);el('dashboard').querySelectorAll('tbody, #signupList, #paymentList, #couponList, #deviceList, #requestList, #auditList').forEach(n=>n.replaceChildren());});
 setInterval(()=>refresh(true).catch(()=>{}),30000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh(true).catch(()=>{});});
-refresh().catch(e=>{el('notice').textContent=e.message;});
+refresh().catch(error=>{el('notice').textContent=error.message;});

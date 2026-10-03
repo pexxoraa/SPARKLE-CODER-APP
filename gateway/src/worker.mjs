@@ -32,6 +32,13 @@ function purchaseCredits(value) {
   return credits;
 }
 const purchasePrice = credits => PRICE * (credits / CREDITS);
+const ADMIN_PAGES = new Map([
+  ['/admin','/admin.html'],['/admin/','/admin.html'],
+  ['/admin/requests','/admin-requests.html'],['/admin/payments','/admin-payments.html'],
+  ['/admin/coupons','/admin-coupons.html'],['/admin/accounts','/admin-accounts.html'],
+  ['/admin/recovery','/admin-recovery.html'],['/admin/usage','/admin-usage.html'],
+  ['/admin/audit','/admin-audit.html']
+]);
 const MODEL = 'nvidia/nemotron-3-super-120b-a12b';
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new HttpError(status, message); };
@@ -527,6 +534,10 @@ async function updateRuntimeEngineOrigin(request,env){
 }
 export async function route(request,env) {
   const url=new URL(request.url),path=url.pathname;
+  if((request.method==='GET'||request.method==='HEAD')&&ADMIN_PAGES.has(path)&&env.ASSETS){
+    const target=new URL(request.url);target.pathname=ADMIN_PAGES.get(path);target.search='';target.hash='';
+    return env.ASSETS.fetch(new Request(target,request));
+  }
   if(path==='/healthz')return json({ok:true,service:'sparkle-pilot',version:'0.8.0',engine_configured:await engineConfigured(env)});
   if(path==='/api/info')return json({price_paise:PRICE,credit_tokens:CREDITS,max_purchase_tokens:MAX_PURCHASE_CREDITS,upi_id:env.UPI_ID||'',payee_name:env.PAYEE_NAME||'',support_email:env.SUPPORT_EMAIL||'',engine_configured:await engineConfigured(env)});
   if(path.startsWith('/api/')||path.startsWith('/v1/')){

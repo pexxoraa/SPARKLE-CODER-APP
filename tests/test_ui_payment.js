@@ -25,6 +25,8 @@ assert.ok(app.includes("id('paymentReference').disabled=!valid||free||!configure
 assert.ok(app.includes("selectedAccountCredits"));
 assert.ok(app.includes('id="paymentPack"'));
 assert.ok(app.includes('id="customTokenMillions"'));
+for(const label of ['Starter','Builder','Pro','Power','Studio','Scale','Mega','Custom'])assert.ok(app.includes('>'+label+'<'),label+' package missing');
+for(const amount of ['data-millions="1"','data-millions="2"','data-millions="5"','data-millions="10"','data-millions="25"','data-millions="50"','data-millions="100"'])assert.ok(app.includes(amount),amount+' package missing');
 assert.ok(app.includes("quotePending"));
 assert.ok(app.includes("resolveAccountCoupon"));
 assert.ok(app.includes("Check coupon and continue"));

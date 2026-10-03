@@ -27,6 +27,12 @@ function fixture(){
  const infer=(id='request_1234567890',data=payload,options={})=>api('/v1/chat/completions',data,{...options,extra:{'Idempotency-Key':id}});
  return {env,api,enroll,login,approve,infer,device,payload,get calls(){return calls;}};
 }
+test('clean admin section routes serve dedicated static pages',async()=>{
+ const f=fixture(),seen=[];
+ f.env.ASSETS={fetch:async request=>{seen.push(new URL(request.url).pathname);return new Response('<!doctype html><title>Admin</title>',{headers:{'Content-Type':'text/html'}});}};
+ const routes=[['/admin','/admin.html'],['/admin/requests','/admin-requests.html'],['/admin/payments','/admin-payments.html'],['/admin/coupons','/admin-coupons.html'],['/admin/accounts','/admin-accounts.html'],['/admin/recovery','/admin-recovery.html'],['/admin/usage','/admin-usage.html'],['/admin/audit','/admin-audit.html']];
+ for(const [path,target] of routes){const response=await worker.fetch(new Request('https://sparkle.example'+path),f.env);assert.equal(response.status,200);assert.equal(seen.at(-1),target);}
+});
 test('public pages refuse framing',async()=>{
  const f=fixture();
  for(const path of ['/','/scratch','/scratch.html']){

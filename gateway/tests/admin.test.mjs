@@ -7,8 +7,10 @@ import vm from 'node:vm';
 import {D1} from './helpers.mjs';
 import worker from '../src/worker.mjs';
 
-function dom(){
- const document={hidden:false,activeElement:null,addEventListener(){}};
+const adminFiles={overview:'admin.html',requests:'admin-requests.html',payments:'admin-payments.html',coupons:'admin-coupons.html',accounts:'admin-accounts.html',recovery:'admin-recovery.html',usage:'admin-usage.html',audit:'admin-audit.html'};
+function dom(page='overview'){
+ const document={hidden:false,activeElement:null,body:{dataset:{adminPage:page}},addEventListener(){}};
+
  class Element {
   constructor(tag){this.tagName=tag;this.children=[];this.dataset={};this.value='';this.checked=false;this.hidden=false;this._text='';}
   set textContent(value){this._text=String(value);this.children=[];}
@@ -25,19 +27,21 @@ function dom(){
   querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
   focus(){document.activeElement=this;}
  }
- const html=readFileSync(new URL('../public/admin.html',import.meta.url),'utf8');
+ const html=readFileSync(new URL('../public/'+adminFiles[page],import.meta.url),'utf8');
  const elements=new Map([...html.matchAll(/<(\w+)[^>]*\bid="([^"]+)"/g)].map(m=>{
   const n=new Element(m[1]);n.id=m[2];return [m[2],n];
  }));
- document.getElementById=id=>{assert.ok(elements.has(id),'HTML is missing #'+id);return elements.get(id);};
+ document.getElementById=id=>elements.get(id)||null;
  document.createElement=tag=>new Element(tag);
  const dashboard=elements.get('dashboard');
- for(const id of ['signupList','paymentList','deviceList','accountRows','requestList','auditList'])dashboard.append(elements.get(id));
+ for(const id of ['stats','signupList','paymentList','couponList','deviceList','accountRows','requestList','auditList','passwordSetupResult'])
+   if(elements.get(id))dashboard.append(elements.get(id));
  elements.get('loginForm').append(new Element('button'));
+ if(elements.get('couponForm'))elements.get('couponForm').append(new Element('button'));
  return {document,elements};
 }
 
-async function fixture(t){
+async function fixture(t,page='overview'){
  const env={DB:new D1(),ADMIN_SECRET:'A'.repeat(64),CACHE_SECRET:'B'.repeat(64),UPI_ID:'owner@bank',PAYEE_NAME:'Owner'};
  t.after(()=>env.DB.db.close());
  let cookie='',overviews=0;
@@ -49,8 +53,8 @@ async function fixture(t){
   return response;
  };
  assert.equal((await call('/api/admin/login',{password:env.ADMIN_SECRET})).status,200);
- const ui=dom(),timers=[];
- const context=vm.createContext({...ui,document:ui.document,console,Date,
+ const ui=dom(page),timers=[];
+ const context=vm.createContext({...ui,document:ui.document,console,Date,location:{hash:''},navigator:{clipboard:{writeText:async()=>{}}},
   setInterval:(callback,delay)=>{timers.push({callback,delay});return timers.length;},
   fetch:async(path,options)=>{if(path==='/api/admin/overview')overviews++;return call(path,options.body===undefined?undefined:JSON.parse(options.body));}
  });
@@ -66,23 +70,35 @@ async function fixture(t){
   tick:async()=>{assert.equal(timers[0].delay,30000);await timers[0].callback();}};
 }
 
+test('admin sections are split into dedicated pages with clean navigation',()=>{
+ const expected={requests:'signupList',payments:'paymentList',coupons:'couponList',accounts:'accountRows',recovery:'deviceList',usage:'requestList',audit:'auditList'};
+ for(const [page,id] of Object.entries(expected)){
+  const html=readFileSync(new URL('../public/'+adminFiles[page],import.meta.url),'utf8');
+  assert.match(html,new RegExp('data-admin-page="'+page+'"'));
+  assert.match(html,new RegExp('id="'+id+'"'));
+  for(const [other,otherId] of Object.entries(expected))if(other!==page)assert.ok(!html.includes('id="'+otherId+'"'),page+' should not embed '+other);
+ }
+ const overview=readFileSync(new URL('../public/admin.html',import.meta.url),'utf8');
+ assert.match(overview,/href="\/admin\/payments"/);assert.match(overview,/href="\/admin\/coupons"/);assert.match(overview,/href="\/admin\/accounts"/);
+});
+
 test('admin discovers a new signup without payment or a manual reload',async t=>{
- const ui=await fixture(t),list=ui.elements.get('signupList');
+ const ui=await fixture(t,'requests'),list=ui.elements.get('signupList');
  assert.match(list.textContent,/No new account requests/);
  const {receipt}=await ui.signup();await ui.tick();
  assert.match(list.textContent,/new@example.test/);assert.match(list.textContent,/New tester/);
  assert.ok(list.textContent.includes(receipt.request_id));assert.match(list.textContent,/Waiting for the tester/);
- assert.match(ui.elements.get('paymentList').textContent,/No payments waiting/);
- assert.match(ui.elements.get('auditList').textContent,/account-requested/);
+ assert.equal(ui.env.DB.db.prepare('SELECT COUNT(*) AS n FROM payments_v2').get().n,0);
+ assert.equal(ui.env.DB.db.prepare('SELECT action FROM audit ORDER BY created DESC LIMIT 1').get().action,'account-requested');
  assert.equal(ui.env.DB.db.prepare('SELECT balance FROM accounts').get().balance,0);
  const before=ui.overviews;ui.document.hidden=true;await ui.tick();assert.equal(ui.overviews,before);
 });
 
 test('automatic refresh preserves review input; approval activates exactly one credit pack',async t=>{
- const ui=await fixture(t),{secret,receipt}=await ui.signup();
+ const ui=await fixture(t,'payments'),{secret,receipt}=await ui.signup();
  const payment=await ui.call('/api/payments',{utr:'ADMINUI12345678'},secret);assert.equal(payment.status,201);
  const paymentId=(await payment.json()).id;await ui.tick();
- assert.ok(ui.elements.get('signupList').querySelector('a').href.endsWith(paymentId));
+ assert.ok(ui.elements.get('paymentList').textContent.includes('10,00,000'));
  let inputs=ui.elements.get('paymentList').querySelectorAll('input[data-review]');
  inputs.find(n=>n.type==='checkbox').checked=true;
  inputs.find(n=>n.type==='text').value='Matched bank reference';
@@ -97,14 +113,14 @@ test('automatic refresh preserves review input; approval activates exactly one c
  await accept.onclick();
  const account=await (await ui.call('/api/me',undefined,secret)).json();
  assert.equal(account.ready,true);assert.equal(account.available_tokens,1000000);
- assert.ok(!ui.elements.get('signupList').textContent.includes(receipt.request_id));
- assert.match(ui.elements.get('signupList').textContent,/second@example.test/);
+ assert.equal(account.available_tokens,1000000);
+ assert.equal(ui.env.DB.db.prepare("SELECT COUNT(*) AS n FROM payments_v2 WHERE status='approved'").get().n,1);
  await accept.onclick();
  assert.equal(ui.env.DB.db.prepare('SELECT COUNT(*) AS n FROM ledger').get().n,1);
 });
 
 test('refresh errors retain the displayed requests and clearly mark them stale',async t=>{
- const ui=await fixture(t),{receipt}=await ui.signup();await ui.tick();
+ const ui=await fixture(t,'requests'),{receipt}=await ui.signup();await ui.tick();
  ui.context.fetch=async()=>Response.json({error:'Server temporarily unavailable'},{status:503});
  await ui.tick();
  assert.ok(ui.elements.get('signupList').textContent.includes(receipt.request_id));
@@ -112,7 +128,7 @@ test('refresh errors retain the displayed requests and clearly mark them stale',
 });
 
 test('an overview arriving after logout cannot reopen the dashboard',async t=>{
- const ui=await fixture(t);await ui.signup();await ui.tick();
+ const ui=await fixture(t,'requests');await ui.signup();await ui.tick();
  const original=ui.context.fetch;let release,started;
  const entered=new Promise(resolve=>{started=resolve;});
  ui.context.fetch=async(path,options)=>{
@@ -128,7 +144,7 @@ test('an overview arriving after logout cannot reopen the dashboard',async t=>{
 });
 
 test('admin can issue a one-time first-password code for a verified legacy account',async t=>{
- const ui=await fixture(t),{secret}=await ui.signup('legacy@example.test');
+ const ui=await fixture(t,'accounts'),{secret}=await ui.signup('legacy@example.test');
  const payment=await ui.call('/api/payments',{utr:'LEGACYADMIN1234'},secret);assert.equal(payment.status,201);
  const paymentId=(await payment.json()).id;
  assert.equal((await ui.call('/api/admin/payments/'+paymentId,{action:'approve',verified:true})).status,200);
@@ -153,7 +169,7 @@ test('admin can issue a one-time first-password code for a verified legacy accou
 });
 
 test('admin can issue a one-time password reset code for a verified account',async t=>{
- const ui=await fixture(t),{secret}=await ui.signup('reset@example.test');
+ const ui=await fixture(t,'accounts'),{secret}=await ui.signup('reset@example.test');
  const payment=await ui.call('/api/payments',{utr:'RESETADMIN12345'},secret);assert.equal(payment.status,201);
  const paymentId=(await payment.json()).id;
  assert.equal((await ui.call('/api/admin/payments/'+paymentId,{action:'approve',verified:true})).status,200);
