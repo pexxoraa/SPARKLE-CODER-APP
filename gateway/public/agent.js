@@ -177,7 +177,7 @@ id("app").innerHTML = `
   <section id="passwordSection" hidden><h3>Login password</h3><p class="settings-note">Use this password to sign in on another browser without admin approval.</p><form id="passwordForm"><label for="newAccountPassword">Set or change password</label><input id="newAccountPassword" type="password" autocomplete="new-password" required minlength="8" maxlength="128"><div class="dialog-actions"><button id="saveAccountPassword" class="button secondary">Save password</button></div></form></section>
   <section id="paymentSection" hidden><h3 id="purchaseTitle">Add 1,000,000 tokens · ₹15.00</h3><p id="purchaseInstructions">Pay ₹15.00 using GPay, PhonePe or Paytm.</p>
     <div id="upiPaymentBlock" class="upi-payment-block"><div id="upiQr" class="upi-qr" aria-label="UPI payment QR code"></div><span class="upi-caption">Scan to pay</span><div class="upi-id-row"><span>UPI ID</span><strong id="payUpiId">—</strong><button type="button" id="copyUpi" class="button secondary">Copy</button></div><p id="payeeName"></p><p>After paying, enter the transaction reference below. Credits appear after the admin checks and accepts your purchase.</p></div>
-    <form id="paymentForm" novalidate><label for="paymentCoupon">Coupon code <span>Optional</span></label><div class="folder-input"><input id="paymentCoupon" maxlength="32" autocomplete="off" placeholder="Enter coupon"><button type="button" id="applyCoupon" class="button secondary">Apply</button></div><p id="couponStatus" class="settings-note"></p><div id="paymentReferenceRow"><label for="paymentReference">UPI transaction reference / UTR</label><input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"></div><div class="dialog-actions"><button id="submitPayment" class="button primary">Submit purchase for review</button></div></form></section>
+    <form id="paymentForm" novalidate><div class="settings-row"><div><label for="paymentPack">Token amount</label><select id="paymentPack"><option value="1">1 million</option><option value="2">2 million</option><option value="5">5 million</option><option value="10">10 million</option><option value="custom">Custom</option></select></div><div id="customTokenRow" hidden><label for="customTokenMillions">Custom amount <span>Millions</span></label><input id="customTokenMillions" type="number" min="1" max="100" step="1" value="1" inputmode="numeric"></div></div><p class="settings-note">Choose any whole-million amount from 1 to 100 million tokens. Price scales at the current per-million rate.</p><label for="paymentCoupon">Coupon code <span>Optional</span></label><div class="folder-input"><input id="paymentCoupon" maxlength="32" autocomplete="off" placeholder="Enter coupon"><button type="button" id="applyCoupon" class="button secondary">Apply</button></div><p id="couponStatus" class="settings-note"></p><div id="paymentReferenceRow"><label for="paymentReference">UPI transaction reference / UTR</label><input id="paymentReference" minlength="8" maxlength="40" autocomplete="off"></div><div class="dialog-actions"><button id="submitPayment" class="button primary">Submit purchase for review</button></div></form></section>
   <div id="accountPayments"></div><p class="settings-note">Input and output tokens both count. A temporary reservation is released when a request finishes. Your connection is remembered on this computer.</p><p id="accountSupport" class="settings-note"></p><div class="dialog-actions"><button id="reconnectAccount" class="text-button">Sign out / switch account</button><button id="refreshAccount" class="button secondary">Refresh account</button></div>
 </dialog>
 <dialog id="settingsDialog">
@@ -398,35 +398,50 @@ function renderUpiQr(target,upi,payee,amount) {
   const qr=qrcode(0,'M');qr.addData(upiPaymentUri(upi,payee,amount));qr.make();
   target.innerHTML=qr.createSvgTag({cellSize:4,margin:0,scalable:true});
 }
+function selectedAccountCredits(){
+  const pack=id('paymentPack').value,millions=pack==='custom'?Number(id('customTokenMillions').value):Number(pack);
+  return Number.isInteger(millions)&&millions>=1&&millions<=100?millions*1000000:null;
+}
+function accountPurchasePrice(credits=selectedAccountCredits()){
+  if(!credits)return null;
+  const a=appState?.account||{},unitPrice=Number(a.price_paise||1500),unitCredits=Number(a.credit_tokens||1000000);
+  return Math.round(unitPrice*(credits/unitCredits));
+}
 function renderPurchaseQuote(quote=accountCouponQuote) {
-  const a=appState?.account||{},base=Number(a.price_paise||1500),credits=Number(a.credit_tokens||1000000);
-  const amount=quote?Number(quote.final_amount_paise):base,bonus=quote?Number(quote.bonus_tokens||0):0,discount=quote?Number(quote.discount_paise||0):0;
-  const typedCode=id('paymentCoupon')?.value.trim()||'',quotePending=Boolean(typedCode)&&(!quote||quote.code!==typedCode.toUpperCase());
-  const upi=a.upi_id||'',payee=a.payee_name||'',configured=Boolean(upi&&payee),free=amount===0;
-  id('purchaseTitle').textContent='Add '+(credits+bonus).toLocaleString()+' tokens · '+money(amount);
-  id('purchaseInstructions').textContent=quotePending
-    ?'Coupon entered. Check it to calculate the final amount before paying.'
+  const a=appState?.account||{},credits=selectedAccountCredits(),base=accountPurchasePrice(credits);
+  const currentQuote=quote&&Number(quote.credit_tokens||a.credit_tokens||1000000)===credits?quote:null;
+  const amount=currentQuote?Number(currentQuote.final_amount_paise):base,bonus=currentQuote?Number(currentQuote.bonus_tokens||0):0,discount=currentQuote?Number(currentQuote.discount_paise||0):0;
+  const typedCode=id('paymentCoupon')?.value.trim()||'',quotePending=Boolean(typedCode)&&(!currentQuote||currentQuote.code!==typedCode.toUpperCase());
+  const upi=a.upi_id||'',payee=a.payee_name||'',configured=Boolean(upi&&payee),valid=credits!==null,free=valid&&amount===0;
+  id('customTokenRow').hidden=id('paymentPack').value!=='custom';
+  id('purchaseTitle').textContent=valid?'Add '+(credits+bonus).toLocaleString()+' tokens · '+money(amount):'Choose a valid token amount';
+  id('purchaseInstructions').textContent=!valid
+    ?'Enter a whole number from 1 to 100 million tokens.'
+    :quotePending?'Coupon entered. Check it to calculate the final amount before paying.'
     :free?'This coupon covers the full price. No UPI payment or transaction reference is needed. Submit the ₹0 coupon claim for admin review.'
     :configured?'Scan the QR code with any UPI app, or pay the UPI ID shown below.':'UPI payment details are not configured. You can still apply a coupon that reduces the price to ₹0.';
-  id('upiPaymentBlock').hidden=free||!configured||quotePending;
-  id('paymentReferenceRow').hidden=free||!configured||quotePending;
-  id('paymentReference').required=!free&&configured&&!quotePending;
-  id('submitPayment').disabled=!free&&!configured&&!quotePending;
+  id('upiPaymentBlock').hidden=!valid||free||!configured||quotePending;
+  id('paymentReferenceRow').hidden=!valid||free||!configured||quotePending;
+  id('paymentReference').required=false;
+  id('paymentReference').disabled=!valid||free||!configured||quotePending;
+  if(id('paymentReference').disabled)id('paymentReference').value='';
+  id('submitPayment').disabled=!valid||(!free&&!configured&&!quotePending);
   id('submitPayment').textContent=free?'Submit ₹0 coupon for review':quotePending?'Check coupon and continue':'Submit purchase for review';
   id('payUpiId').textContent=upi||'Not configured';
   id('payeeName').textContent=payee?'Recipient: '+payee:'';
-  renderUpiQr(id('upiQr'),upi,payee,free?0:amount);
-  if(quote)id('couponStatus').textContent='Coupon '+quote.code+': '+money(discount)+' off'+(bonus?' + '+bonus.toLocaleString()+' bonus tokens':'')+(quote.expires?' · expires '+new Date(quote.expires*1000).toLocaleString():'')+'.';
+  renderUpiQr(id('upiQr'),upi,payee,free?0:(amount||0));
+  if(currentQuote)id('couponStatus').textContent='Coupon '+currentQuote.code+': '+money(discount)+' off'+(bonus?' + '+bonus.toLocaleString()+' bonus tokens':'')+(currentQuote.expires?' · expires '+new Date(currentQuote.expires*1000).toLocaleString():'')+'.';
   else id('couponStatus').textContent='';
 }
 async function resolveAccountCoupon(requireCode=false) {
-  const code=id('paymentCoupon').value.trim();
+  const code=id('paymentCoupon').value.trim(),credit_tokens=selectedAccountCredits();
+  if(!credit_tokens)throw new Error('Choose a whole-million token amount from 1 to 100 million.');
   if(!code){accountCouponQuote=null;renderPurchaseQuote();if(requireCode)id('couponStatus').textContent='Enter a coupon code first.';return null;}
-  if(accountCouponQuote?.code===code.toUpperCase())return accountCouponQuote;
-  accountCouponQuote=await api('/account/coupon',{code});
+  if(accountCouponQuote?.code===code.toUpperCase()&&Number(accountCouponQuote.credit_tokens||1000000)===credit_tokens)return accountCouponQuote;
+  accountCouponQuote=await api('/account/coupon',{code,credit_tokens});
   id('paymentCoupon').value=accountCouponQuote.code;renderPurchaseQuote();return accountCouponQuote;
 }
-function currentAccountPaymentAmount(){return accountCouponQuote?Number(accountCouponQuote.final_amount_paise):Number(appState?.account?.price_paise||1500);}
+function currentAccountPaymentAmount(){return accountCouponQuote&&Number(accountCouponQuote.credit_tokens||1000000)===selectedAccountCredits()?Number(accountCouponQuote.final_amount_paise):accountPurchasePrice();}
 function renderAccount() {
   const a=appState?.account||{};
   document.body.classList.toggle('pilot-mode',!!a.enabled);
@@ -444,7 +459,7 @@ function renderAccount() {
   id('accountMessage').textContent=a.password_required?'Create a login password below to continue using SPARKLE. This is required once for existing accounts.':a.ready?'Connected as '+a.name:a.enrolled?(a.status==='suspended'?'Account suspended. Contact the admin.':a.kind==='recovery'&&a.device_status!=='active'?'Manual account recovery is waiting for admin verification.':pending?'Purchase received. Waiting for admin verification.':a.upi_id&&a.payee_name?'Account is connected. Choose a coupon if you have one, then pay or submit the coupon claim for admin verification.':'Account is connected. UPI payment details are not configured, but you can still use a coupon that reduces the price to ₹0.'):'Sign in to an existing account, or create a new one.';
   id('paymentSection').hidden=!a.enrolled||a.password_required||pending||a.status==='suspended'||a.kind==='recovery'&&a.device_status!=='active';
   id('accountSupport').textContent=a.support_email?'Support: '+a.support_email:'';
-  id('accountPayments').replaceChildren(...(a.payments||[]).map(p=>node('p','payment-record',money(p.amount_paise)+' · '+(Number(p.amount_paise)===0?'Coupon claim':p.utr)+' · '+p.status+(p.coupon_code?' · '+p.coupon_code+' · '+money(p.discount_paise)+' off'+(p.bonus_tokens?' · +'+Number(p.bonus_tokens).toLocaleString()+' bonus tokens':''):'')+(p.note?' — '+p.note:''))));
+  id('accountPayments').replaceChildren(...(a.payments||[]).map(p=>node('p','payment-record',money(p.amount_paise)+' · '+Number(p.credits||0).toLocaleString()+' tokens · '+(Number(p.amount_paise)===0?'Coupon claim':p.utr)+' · '+p.status+(p.coupon_code?' · '+p.coupon_code+' · '+money(p.discount_paise)+' off'+(p.bonus_tokens?' · +'+Number(p.bonus_tokens).toLocaleString()+' bonus tokens':''):'')+(p.note?' — '+p.note:''))));
   renderPurchaseQuote();
   if(a.password_required&&!id('accountDialog').open)queueMicrotask(()=>{if(!id('accountDialog').open)id('accountDialog').showModal();});
 }
@@ -1131,13 +1146,16 @@ id('passwordResetForm').onsubmit=e=>{e.preventDefault();action(async()=>{
   id('passwordResetCode').value='';id('passwordResetPassword').value='';id('passwordResetSection').hidden=true;renderAccount();await refreshState();toast('Password reset and signed in');
 });};
 id('paymentCoupon').oninput=()=>{accountCouponQuote=null;renderPurchaseQuote();};
+id('paymentPack').onchange=()=>{accountCouponQuote=null;renderPurchaseQuote();};
+id('customTokenMillions').oninput=()=>{accountCouponQuote=null;renderPurchaseQuote();};
 id('applyCoupon').onclick=()=>action(async()=>{try{await resolveAccountCoupon(true);}catch(error){accountCouponQuote=null;renderPurchaseQuote();id('couponStatus').textContent=error.message;}});
 id('paymentForm').onsubmit=e=>{e.preventDefault();action(async()=>{id('submitPayment').disabled=true;try{
   if(id('paymentCoupon').value.trim())await resolveAccountCoupon();
   else{accountCouponQuote=null;renderPurchaseQuote();}
-  const amount=currentAccountPaymentAmount(),utr=id('paymentReference').value.trim().replace(/\s/g,'').toUpperCase();
+  const credit_tokens=selectedAccountCredits();if(!credit_tokens)throw new Error('Choose a whole-million token amount from 1 to 100 million.');
+  const amount=currentAccountPaymentAmount(),utr=amount>0?id('paymentReference').value.trim().replace(/\s/g,'').toUpperCase():'';
   if(amount>0&&!/^[A-Z0-9]{8,40}$/.test(utr))throw new Error('Enter the UPI transaction reference from your payment app.');
-  appState.account=await api('/account/payment',{utr,coupon_code:id('paymentCoupon').value.trim()});id('paymentReference').value='';id('paymentCoupon').value='';accountCouponQuote=null;renderAccount();
+  appState.account=await api('/account/payment',{utr,coupon_code:id('paymentCoupon').value.trim(),credit_tokens});id('paymentReference').value='';id('paymentCoupon').value='';accountCouponQuote=null;renderAccount();
 }catch(error){id('accountMessage').textContent=error.message;}finally{renderPurchaseQuote();}});};
 id("showApiKey").onclick=()=>{const show=id("apiKey").type==="password";id("apiKey").type=show?"text":"password";id("showApiKey").textContent=show?"Hide":"Show";id("showApiKey").setAttribute("aria-pressed",String(show));};
 id("clearApiKey").onclick=()=>action(async()=>{await api("/settings",{base_url:id("baseUrl").value.trim(),clear_key:true});await refreshState();id("apiKey").value="";id("keyHint").textContent="Key removed for this app session";id("clearApiKey").disabled=true;});

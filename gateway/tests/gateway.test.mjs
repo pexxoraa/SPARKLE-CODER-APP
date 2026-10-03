@@ -249,6 +249,15 @@ test('coupon adds bonus tokens only after verified payment and enforces account 
  const overview=(await f.api('/api/admin/overview',undefined,{admin:true})).body;
  const coupon=overview.coupons.find(x=>x.code==='BONUS250');assert.equal(coupon.redeemed_uses,1);assert.equal(coupon.reserved_uses,1);
 });
+test('custom whole-million purchases scale price and credits and reject invalid amounts',async()=>{
+ const f=fixture();await f.approve();
+ let payment=await f.api('/api/payments',{utr:'TWOMILLION12345',credit_tokens:2000000});assert.equal(payment.status,201);
+ assert.equal(payment.body.amount_paise,3000);assert.equal(payment.body.credits,2000000);assert.equal(payment.body.total_credits,2000000);
+ await f.api('/api/admin/payments/'+payment.body.id,{action:'approve',verified:true},{admin:true});
+ assert.equal((await f.api('/api/me')).body.balance_tokens,3000000);
+ assert.equal((await f.api('/api/payments',{utr:'BADTOKENS12345',credit_tokens:1500000})).status,400);
+ assert.equal((await f.api('/api/payments',{utr:'TOOMANYTOKENS1',credit_tokens:101000000})).status,400);
+});
 test('money-only and 100 percent coupons change the payable amount without inventing bonus tokens',async()=>{
  const f=fixture();await f.approve();await f.login();
  let created=await f.api('/api/admin/coupons',{code:'SAVE5',bonus_tokens:0,discount_paise:500,max_uses:2,one_per_account:true,expires:Math.floor(Date.now()/1000)+3600,note:'₹5 off'},{admin:true});

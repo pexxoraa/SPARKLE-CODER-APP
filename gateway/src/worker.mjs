@@ -22,7 +22,16 @@ function equalText(left,right) {
   let diff=0;for(let i=0;i<left.length;i++)diff|=left.charCodeAt(i)^right.charCodeAt(i);return diff===0;
 }
 const couponCode = value => String(value||'').trim().toUpperCase();
-const PRICE = 1500, CREDITS = 1000000;
+const PRICE = 1500, CREDITS = 1000000, MAX_PURCHASE_CREDITS = 100000000;
+const MAX_PURCHASE_PRICE = PRICE * (MAX_PURCHASE_CREDITS / CREDITS);
+function purchaseCredits(value) {
+  if(value===undefined||value===null||value==='')return CREDITS;
+  const credits=Number(value);
+  if(!Number.isSafeInteger(credits)||credits<CREDITS||credits>MAX_PURCHASE_CREDITS||credits%CREDITS!==0)
+    fail(400,'Choose a token amount from 1,000,000 to 100,000,000 in whole-million increments.');
+  return credits;
+}
+const purchasePrice = credits => PRICE * (credits / CREDITS);
 const MODEL = 'nvidia/nemotron-3-super-120b-a12b';
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new HttpError(status, message); };
@@ -106,6 +115,7 @@ async function me(record,env) {
     balance_tokens:permitted?record.balance:0, held_tokens:permitted?record.held:0,
     available_tokens:permitted?record.balance-record.held:0,
     model:env.MODEL||MODEL, price_paise:PRICE, credit_tokens:CREDITS,
+    max_purchase_tokens:MAX_PURCHASE_CREDITS,
     upi_id:env.UPI_ID||'', payee_name:env.PAYEE_NAME||'', support_email:env.SUPPORT_EMAIL||'',
     payments:await rows(env,`SELECT p.id,p.utr,p.status,p.amount_paise,p.credits,p.created,p.note,
       cr.code AS coupon_code,cr.bonus_tokens,cr.discount_paise FROM payments_v2 p
@@ -234,8 +244,8 @@ async function resetAccountPassword(request,env) {
   ]);
   return json(await me(await device(request,env),env));
 }
-async function couponQuote(env,account,rawCode) {
-  const code=couponCode(rawCode);
+async function couponQuote(env,account,rawCode,rawCredits=CREDITS) {
+  const credits=purchaseCredits(rawCredits),price=purchasePrice(credits),code=couponCode(rawCode);
   if(!code)return null;
   if(!/^[A-Z0-9][A-Z0-9_-]{2,31}$/.test(code))fail(400,'Coupon code is invalid.');
   const coupon=await one(env,'SELECT * FROM coupons_v2 WHERE code=?',code);
@@ -244,9 +254,9 @@ async function couponQuote(env,account,rawCode) {
   if(reserved>=coupon.max_uses)fail(409,'Coupon use limit has been reached.');
   if(coupon.one_per_account&&(await one(env,"SELECT COUNT(*) AS n FROM coupon_redemptions_v2 WHERE coupon_id=? AND account_id=? AND status IN ('pending','redeemed')",coupon.id,account.id)).n)
     fail(409,'This coupon has already been used by this account.');
-  const finalAmount=Math.max(0,PRICE-coupon.discount_paise);
-  return {id:coupon.id,code:coupon.code,bonus_tokens:coupon.bonus_tokens,discount_paise:coupon.discount_paise,
-    price_paise:PRICE,final_amount_paise:finalAmount,expires:coupon.expires,
+  const discount=Math.min(price,coupon.discount_paise),finalAmount=price-discount;
+  return {id:coupon.id,code:coupon.code,bonus_tokens:coupon.bonus_tokens,discount_paise:discount,
+    coupon_discount_paise:coupon.discount_paise,credit_tokens:credits,price_paise:price,final_amount_paise:finalAmount,expires:coupon.expires,
     remaining_uses:Math.max(0,coupon.max_uses-reserved),one_per_account:Boolean(coupon.one_per_account)};
 }
 async function existingResponse(env,record,account,requestHash) {
@@ -379,7 +389,7 @@ async function adminRoutes(request,env,path) {
       onePer=data.one_per_account!==false?1:0,note=String(data.note||'').trim().slice(0,200);
     if(!/^[A-Z0-9][A-Z0-9_-]{2,31}$/.test(code))fail(400,'Use a 3–32 character coupon code with letters, numbers, - or _.');
     if(!Number.isSafeInteger(bonus)||bonus<0||bonus>10000000)fail(400,'Bonus tokens must be between 0 and 10,000,000.');
-    if(!Number.isSafeInteger(discount)||discount<0||discount>PRICE)fail(400,'Money discount must be between ₹0 and ₹15.');
+    if(!Number.isSafeInteger(discount)||discount<0||discount>MAX_PURCHASE_PRICE)fail(400,'Money discount must be between ₹0 and ₹1,500.');
     if(bonus===0&&discount===0)fail(400,'Give the coupon a money discount, bonus tokens, or both.');
     if(!Number.isSafeInteger(maxUses)||maxUses<1||maxUses>100000)fail(400,'Max uses must be between 1 and 100,000.');
     if(expires!=null&&(!Number.isSafeInteger(expires)||expires<=now()))fail(400,'Expiry must be a future date/time.');
@@ -398,7 +408,7 @@ async function adminRoutes(request,env,path) {
       onePer=data.one_per_account!==false?1:0,note=String(data.note||'').trim().slice(0,200);
     const reserved=(await one(env,"SELECT COUNT(*) AS n FROM coupon_redemptions_v2 WHERE coupon_id=? AND status IN ('pending','redeemed')",id)).n;
     if(!Number.isSafeInteger(bonus)||bonus<0||bonus>10000000)fail(400,'Bonus tokens must be between 0 and 10,000,000.');
-    if(!Number.isSafeInteger(discount)||discount<0||discount>PRICE)fail(400,'Money discount must be between ₹0 and ₹15.');
+    if(!Number.isSafeInteger(discount)||discount<0||discount>MAX_PURCHASE_PRICE)fail(400,'Money discount must be between ₹0 and ₹1,500.');
     if(bonus===0&&discount===0)fail(400,'Give the coupon a money discount, bonus tokens, or both.');
     if(!Number.isSafeInteger(maxUses)||maxUses<reserved||maxUses>100000)fail(400,'Max uses cannot be below current reserved/redeemed uses.');
     if(expires!=null&&!Number.isSafeInteger(expires))fail(400,'Invalid expiry date/time.');
@@ -460,7 +470,7 @@ async function adminRoutes(request,env,path) {
       (SELECT COUNT(*) FROM coupon_redemptions_v2 r WHERE r.coupon_id=c.id AND r.status='redeemed') AS redeemed_uses
       FROM coupons_v2 c ORDER BY c.active DESC,c.created DESC LIMIT 200`),
     audit:await rows(env,'SELECT * FROM audit ORDER BY created DESC LIMIT 100'),
-    settings:{price_paise:PRICE,credits:CREDITS,upi_id:env.UPI_ID||'',payee_name:env.PAYEE_NAME||'',model:env.MODEL||MODEL,provider_configured:Boolean(env.NVIDIA_API_KEY)}
+    settings:{price_paise:PRICE,credits:CREDITS,max_purchase_tokens:MAX_PURCHASE_CREDITS,upi_id:env.UPI_ID||'',payee_name:env.PAYEE_NAME||'',model:env.MODEL||MODEL,provider_configured:Boolean(env.NVIDIA_API_KEY)}
   });
   const match=path.match(/^\/api\/admin\/(payments|devices|accounts|requests)\/([a-zA-Z0-9_-]+)$/);
   if(!match||request.method!=='POST')fail(404,'Not found.');const [,kind,id]=match,data=await body(request);
@@ -518,7 +528,7 @@ async function updateRuntimeEngineOrigin(request,env){
 export async function route(request,env) {
   const url=new URL(request.url),path=url.pathname;
   if(path==='/healthz')return json({ok:true,service:'sparkle-pilot',version:'0.8.0',engine_configured:await engineConfigured(env)});
-  if(path==='/api/info')return json({price_paise:PRICE,credit_tokens:CREDITS,upi_id:env.UPI_ID||'',payee_name:env.PAYEE_NAME||'',support_email:env.SUPPORT_EMAIL||'',engine_configured:await engineConfigured(env)});
+  if(path==='/api/info')return json({price_paise:PRICE,credit_tokens:CREDITS,max_purchase_tokens:MAX_PURCHASE_CREDITS,upi_id:env.UPI_ID||'',payee_name:env.PAYEE_NAME||'',support_email:env.SUPPORT_EMAIL||'',engine_configured:await engineConfigured(env)});
   if(path.startsWith('/api/')||path.startsWith('/v1/')){
     if(!env.DB||!env.ADMIN_SECRET||env.ADMIN_SECRET.length<43||!env.CACHE_SECRET||env.CACHE_SECRET.length<43)
       fail(503,'The admin must finish server setup before the pilot opens.');
@@ -533,7 +543,7 @@ export async function route(request,env) {
     if(path==='/api/account/password'&&request.method==='POST')return setAccountPassword(request,env);
     if(path==='/api/me'&&request.method==='GET')return json(await me(await device(request,env),env));
     if(path==='/api/coupons/quote'&&request.method==='POST'){
-      const account=await device(request,env),data=await body(request),quote=await couponQuote(env,account,data.code);
+      const account=await device(request,env),data=await body(request),quote=await couponQuote(env,account,data.code,data.credit_tokens);
       if(!quote)fail(400,'Enter a coupon code.');return json(quote);
     }
     if(path==='/api/payments'&&request.method==='POST'){
@@ -541,8 +551,9 @@ export async function route(request,env) {
       if(account.status==='suspended')fail(403,'Account suspended. Contact the admin.');
       if(account.kind==='recovery'&&account.device_status!=='active')fail(403,'Complete manual account recovery before requesting credits.');
       if(account.device_status==='active'&&!account.password_set)fail(428,'Create a login password in Account before buying tokens.');
-      const data=await body(request),quote=await couponQuote(env,account,data.coupon_code),
-        amount=quote?.final_amount_paise??PRICE,id=uid(),stamp=now();
+      const data=await body(request),credits=purchaseCredits(data.credit_tokens),price=purchasePrice(credits),
+        quote=await couponQuote(env,account,data.coupon_code,credits),
+        amount=quote?.final_amount_paise??price,id=uid(),stamp=now();
       let utr=String(data.utr||'').replace(/\s/g,'').toUpperCase();
       if(amount===0)utr='FREE'+id.replace(/[^A-Z0-9]/gi,'').toUpperCase();
       else {
@@ -555,15 +566,15 @@ export async function route(request,env) {
       if(quote){
         try{await env.DB.batch([
           sql(env,"INSERT INTO payments_v2(id,account_id,device_id,utr,amount_paise,credits,status,created,note) VALUES (?,?,?,?,?,?,'pending',?,'')",
-            id,account.id,account.device_id,utr,amount,CREDITS,stamp),
+            id,account.id,account.device_id,utr,amount,credits,stamp),
           sql(env,"INSERT INTO coupon_redemptions_v2(payment_id,coupon_id,account_id,code,bonus_tokens,discount_paise,amount_paise,status,created) VALUES (?,?,?,?,?,?,?,'pending',?)",
             id,quote.id,account.id,quote.code,quote.bonus_tokens,quote.discount_paise,amount,stamp)
         ]);}catch(error){fail(409,'Coupon is no longer available. Refresh the coupon and try again.');}
       }else await sql(env,"INSERT INTO payments_v2(id,account_id,device_id,utr,amount_paise,credits,status,created,note) VALUES (?,?,?,?,?,?,'pending',?,'')",
-        id,account.id,account.device_id,utr,PRICE,CREDITS,stamp).run();
-      return json({id,status:'pending',amount_paise:amount,credits:CREDITS,
+        id,account.id,account.device_id,utr,price,credits,stamp).run();
+      return json({id,status:'pending',amount_paise:amount,credits,
         coupon_code:quote?.code||null,discount_paise:quote?.discount_paise||0,bonus_tokens:quote?.bonus_tokens||0,
-        total_credits:CREDITS+(quote?.bonus_tokens||0),payment_required:amount>0},201);
+        total_credits:credits+(quote?.bonus_tokens||0),payment_required:amount>0},201);
     }
     if(path==='/v1/models'&&request.method==='GET'){await device(request,env,true);return json({data:[{id:env.MODEL||MODEL,object:'model'}]});}
     if(path==='/v1/balance'&&request.method==='GET'){const a=await device(request,env,true);return json({balance_tokens:a.balance-a.held,held_tokens:a.held,name:a.name});}

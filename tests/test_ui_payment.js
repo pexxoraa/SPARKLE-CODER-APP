@@ -18,19 +18,29 @@ for(const source of [app,scratchHtml,scratchJs]) {
 }
 assert.ok(index.includes('/qrcode.js'));
 assert.ok(scratchHtml.includes('/qrcode.js'));
-assert.ok(app.includes("id('upiPaymentBlock').hidden=free||!configured"));
-assert.ok(app.includes("id('paymentReferenceRow').hidden=free||!configured"));
+assert.ok(app.includes("id('upiPaymentBlock').hidden=!valid||free||!configured"));
+assert.ok(app.includes("id('paymentReferenceRow').hidden=!valid||free||!configured"));
+assert.ok(app.includes("id('paymentReference').required=false"));
+assert.ok(app.includes("id('paymentReference').disabled=!valid||free||!configured"));
+assert.ok(app.includes("selectedAccountCredits"));
+assert.ok(app.includes('id="paymentPack"'));
+assert.ok(app.includes('id="customTokenMillions"'));
 assert.ok(app.includes("quotePending"));
 assert.ok(app.includes("resolveAccountCoupon"));
 assert.ok(app.includes("Check coupon and continue"));
 assert.ok(app.includes("Submit ₹0 coupon for review"));
 assert.ok(app.includes("No UPI payment or transaction reference is needed"));
 assert.ok(app.includes("<strong id=\"payUpiId\">—</strong>"));
-assert.ok(scratchJs.includes('$("upiPaymentBlock").hidden=free||!configured'));
-assert.ok(scratchJs.includes('$("paymentReferenceRow").hidden=free||!configured'));
+assert.ok(scratchJs.includes('$("upiPaymentBlock").hidden=!valid||free||!configured'));
+assert.ok(scratchJs.includes('$("paymentReferenceRow").hidden=!valid||free||!configured'));
+assert.ok(scratchJs.includes('$("paymentReference").required=false'));
+assert.ok(scratchJs.includes('$("paymentReference").disabled=!valid||free||!configured'));
+assert.ok(scratchJs.includes('selectedPaymentCredits'));
+assert.ok(scratchHtml.includes('id="paymentPack"'));
+assert.ok(scratchHtml.includes('id="customTokenMillions"'));
 assert.ok(scratchJs.includes('resolveCouponQuote'));
 assert.ok(scratchJs.includes('Check coupon and continue'));
 assert.ok(scratchJs.includes('Submit ₹0 coupon for review'));
 assert.ok(scratchHtml.indexOf('id="upiQr"') < scratchHtml.indexOf('id="upiId"'));
 
-console.log('Payment UI: paid purchases show self-hosted UPI QR + ID; ₹0 coupons require no UPI/UTR.');
+console.log('Payment UI: custom token packs price correctly; ₹0 coupons disable UPI/UTR.');

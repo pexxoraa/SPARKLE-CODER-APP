@@ -121,16 +121,17 @@ class CloudAccount:
             return self.status()
 
     def coupon(self, payload):
-        if set(payload) != {'code'}:
+        if set(payload) - {'code', 'credit_tokens'} or 'code' not in payload:
             raise ValueError('Enter a coupon code.')
         with self.lock:
             return self.request('/api/coupons/quote', payload)
 
     def payment(self, payload):
-        if set(payload) - {'utr', 'coupon_code'} or 'utr' not in payload:
-            raise ValueError('Enter the UPI transaction reference.')
+        if set(payload) - {'utr', 'coupon_code', 'credit_tokens'}:
+            raise ValueError('Invalid purchase details.')
+        request = {**payload, 'utr': str(payload.get('utr') or '')}
         with self.lock:
-            self.request('/api/payments', payload)
+            self.request('/api/payments', request)
             return self.status()
 
     def reconnect(self):

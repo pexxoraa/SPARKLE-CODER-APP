@@ -108,10 +108,13 @@
         <p id="purchaseInstructions">Pay ₹15.00 only after checking the recipient details below. Credits appear after the admin verifies the purchase.</p>
         <div id="upiPaymentBlock" class="upi-payment-block"><div id="upiQr" class="upi-qr" aria-label="UPI payment QR code"></div><span class="upi-caption">Scan to pay</span><div class="upi-id-row"><span>UPI ID</span><strong id="upiId">—</strong><button id="copyUpi" class="button secondary" type="button">Copy</button></div><p class="hint">Recipient: <strong id="payeeName">—</strong></p></div>
         <form id="paymentForm" novalidate>
+          <label>Token amount<select id="paymentPack"><option value="1">1 million</option><option value="2">2 million</option><option value="5">5 million</option><option value="10">10 million</option><option value="custom">Custom</option></select></label>
+          <label id="customTokenRow" hidden>Custom amount <span>(millions)</span><input id="customTokenMillions" type="number" min="1" max="100" step="1" value="1" inputmode="numeric"></label>
+          <p class="hint">Choose any whole-million amount from 1 to 100 million tokens. Price scales at the current per-million rate.</p>
           <label>Coupon code <span>(optional)</span><input id="paymentCoupon" maxlength="32" autocomplete="off"></label>
           <div class="dialog-actions"><button id="applyCoupon" class="button secondary" type="button">Apply coupon</button></div>
           <p id="couponStatus" class="hint"></p>
-          <label id="paymentReferenceRow">UPI transaction reference / UTR<input id="paymentReference" required minlength="8" maxlength="40" autocomplete="off"></label>
+          <label id="paymentReferenceRow">UPI transaction reference / UTR<input id="paymentReference" minlength="8" maxlength="40" autocomplete="off"></label>
           <button id="paymentButton" class="button primary" type="submit">Submit purchase</button>
         </form>
       </div>

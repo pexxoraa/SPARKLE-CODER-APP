@@ -60,7 +60,7 @@ window.SparkleCloud=(()=>{
     if(path==='/account/payment'){
       const result=await read(await send('/api/payments',body));
       if(typeof result.id!=='string'||!['pending','approved','rejected'].includes(result.status))throw new Error('Payment reference not confirmed. Retry the same reference.');
-      account={...account,payments:[{...result,utr:result.payment_required===false?'Coupon claim':body.utr.replace(/\s/g,'').toUpperCase()},...(account?.payments||[]).filter(p=>p.id!==result.id)]};
+      account={...account,payments:[{...result,utr:result.payment_required===false?'Coupon claim':String(body.utr||'').replace(/\s/g,'').toUpperCase()},...(account?.payments||[]).filter(p=>p.id!==result.id)]};
       return Response.json(account);
     }
     if(path==='/account/reconnect'){

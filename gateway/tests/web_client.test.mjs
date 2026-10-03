@@ -48,7 +48,7 @@ async function fixture(t){
   context.writeStorage=async(key,value)=>{storage.set(key,structuredClone(value));};
   vm.runInContext('dbGet=key=>readStorage(key); dbSet=(key,value)=>writeStorage(key,value);',context);
   const run=code=>vm.runInContext(code,context),el=id=>ui.elements.get(id);
-  el('includeFile').checked=true;
+  el('includeFile').checked=true;el('paymentPack').value='1';el('customTokenMillions').value='1';
   await run('init()');
   const signup=async()=>{el('loginMode').checked=false;el('loginMode').onchange();el('memberName').value='Browser tester';el('memberEmail').value='browser@example.test';el('memberPassword').value='BrowserPass123!';el('memberConsent').checked=true;await el('registerForm').onsubmit({preventDefault(){}});};
   const login=async()=>{assert.equal((await call('/api/admin/login',{password:env.ADMIN_SECRET},null,true)).status,200);};
@@ -73,16 +73,18 @@ test('browser signup receipt is in admin before payment; polling shows approved 
   await f.timers[0]();assert.equal(f.run('state.account.ready'),true);assert.equal(f.el('accountBalance').textContent,'1,000,000');
 });
 
-test('typing a free coupon and submitting needs no Apply click or UPI reference',async t=>{
+test('custom token amount and a full-price coupon need no UPI reference at ₹0',async t=>{
   const f=await fixture(t);await f.signup();await f.login();
-  const created=await f.call('/api/admin/coupons',{code:'FREEUI',bonus_tokens:0,discount_paise:1500,max_uses:1,one_per_account:true},null,true);
+  f.el('paymentPack').value='custom';f.el('paymentPack').onchange();f.el('customTokenMillions').value='2';f.el('customTokenMillions').oninput();
+  assert.match(f.el('purchaseTitle').textContent,/2,000,000 tokens · ₹30\.00/);
+  const created=await f.call('/api/admin/coupons',{code:'FREEUI',bonus_tokens:0,discount_paise:3000,max_uses:1,one_per_account:true},null,true);
   assert.equal(created.status,201);
   f.el('paymentCoupon').value='FREEUI';f.el('paymentCoupon').oninput();f.el('paymentReference').value='';
   assert.equal(f.el('paymentReferenceRow').hidden,true);assert.equal(f.el('upiPaymentBlock').hidden,true);
-  assert.equal(f.el('paymentReference').required,false);
+  assert.equal(f.el('paymentReference').required,false);assert.equal(f.el('paymentReference').disabled,true);
   await f.el('paymentForm').onsubmit({preventDefault(){}});
-  const payment=f.env.DB.db.prepare('SELECT amount_paise,utr FROM payments_v2').get();
-  assert.equal(payment.amount_paise,0);assert.match(payment.utr,/^FREE/);
+  const payment=f.env.DB.db.prepare('SELECT amount_paise,utr,credits FROM payments_v2').get();
+  assert.equal(payment.amount_paise,0);assert.equal(payment.credits,2000000);assert.match(payment.utr,/^FREE/);
   assert.equal(f.run('state.account.payments[0].amount_paise'),0);
 });
 test('a lost signup response retries the same saved identity without creating another account',async t=>{

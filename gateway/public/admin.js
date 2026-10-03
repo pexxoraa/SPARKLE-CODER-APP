@@ -27,7 +27,7 @@ async function refresh(background=false){
     [input.dataset.review,{value:input.value,checked:input.checked}]));
   const focused=document.activeElement?.dataset?.review;
   show(true);
-  el('settings').textContent='₹15 = 10,00,000 tokens · '+(data.settings.upi_id||'UPI not configured')+' · '+(data.settings.provider_configured?'Model credential configured':'Model credential missing');
+  el('settings').textContent='₹15 per 1,000,000 tokens · custom purchases up to 100,000,000 · '+(data.settings.upi_id||'UPI not configured')+' · '+(data.settings.provider_configured?'Model credential configured':'Model credential missing');
   el('stats').replaceChildren();
   const signups=data.devices.filter(d=>d.kind==='signup');
   for(const [label,value] of [['Account requests',signups.length],['Members',data.accounts.length],['Pending payments',data.payments.filter(p=>p.status==='pending').length],['Available tokens',data.accounts.reduce((n,a)=>n+a.balance-a.held,0)]]){const c=node('div','','stat');c.append(node('strong',number(value)),node('span',label));el('stats').append(c);}
@@ -43,7 +43,7 @@ async function refresh(background=false){
   if(!signups.length)el('signupList').append(node('p','No new account requests.'));
   el('paymentList').replaceChildren();
   for(const p of data.payments.filter(p=>p.status==='pending')){
-    const bonus=Number(p.bonus_tokens||0),discount=Number(p.discount_paise||0),total=1000000+bonus,amount=Number(p.amount_paise||0);
+    const bonus=Number(p.bonus_tokens||0),discount=Number(p.discount_paise||0),total=Number(p.credits||0)+bonus,amount=Number(p.amount_paise||0);
     const c=card(el('paymentList'),p.name,money(amount)+' → '+number(total)+' tokens · '+p.email);c.id='payment-'+p.id;
     c.append(node('p',amount===0?'No UPI payment required for this 100% discount coupon.':'UPI reference: '+p.utr,'reference'),
       node('p','Phone: '+(p.claimed_phone||'Not provided')+' · '+new Date(p.created*1000).toLocaleString(),'muted'));
@@ -57,7 +57,7 @@ async function refresh(background=false){
   el('couponList').replaceChildren();
   for(const coupon of data.coupons||[]){
     const c=card(el('couponList'),coupon.code,money(coupon.discount_paise)+' off · +'+number(coupon.bonus_tokens)+' tokens · '+number(coupon.reserved_uses)+' / '+number(coupon.max_uses)+' used/reserved');
-    const discount=field(c,'Money discount (₹)','number','coupon:'+coupon.id+':discount');discount.min='0';discount.max='15';discount.step='0.01';discount.value=(Number(coupon.discount_paise||0)/100).toFixed(2);
+    const discount=field(c,'Money discount (₹)','number','coupon:'+coupon.id+':discount');discount.min='0';discount.max='1500';discount.step='0.01';discount.value=(Number(coupon.discount_paise||0)/100).toFixed(2);
     const bonus=field(c,'Bonus tokens','number','coupon:'+coupon.id+':bonus');bonus.min='0';bonus.max='10000000';bonus.value=coupon.bonus_tokens;
     const expiry=field(c,'Expiry date/time','datetime-local','coupon:'+coupon.id+':expiry');expiry.value=localDateInput(coupon.expires);
     const maxUses=field(c,'Maximum uses','number','coupon:'+coupon.id+':max');maxUses.min=String(coupon.reserved_uses||1);maxUses.max='100000';maxUses.value=coupon.max_uses;
