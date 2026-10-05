@@ -188,6 +188,7 @@ def main(*,check_only=False):
     # Reuse the database identity when resuming, but read code from this checkout.
     config['main']=str(ROOT/'gateway/src/worker.mjs')
     config['assets']['directory']=str(ROOT/'gateway/public')
+    config['assets']['html_handling']='none'
     config['d1_databases'][0]['migrations_dir']=str(ROOT/'gateway/migrations')
     variables=config['vars']
     for field,label in [('UPI_ID','Your UPI ID'),('PAYEE_NAME','Recipient name shown by UPI'),('SUPPORT_EMAIL','Support email')]:

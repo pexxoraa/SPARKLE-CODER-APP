@@ -35,6 +35,7 @@ if not binding.get('database_id') or binding['database_id']=='REPLACE_AFTER_DATA
 # Keep its Worker/database identity and payment settings; publish this code.
 config['main']=str(ROOT/'gateway/src/worker.mjs')
 config['assets']['directory']=str(ROOT/'gateway/public')
+config['assets']['html_handling']='none'
 binding['migrations_dir']=str(ROOT/'gateway/migrations')
 
 # Temporary trycloudflare URLs can rotate independently of Worker deploys. Before

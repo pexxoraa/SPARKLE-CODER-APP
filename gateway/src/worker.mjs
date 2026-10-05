@@ -534,6 +534,10 @@ async function updateRuntimeEngineOrigin(request,env){
 }
 export async function route(request,env) {
   const url=new URL(request.url),path=url.pathname;
+  if((request.method==='GET'||request.method==='HEAD')&&path==='/'&&env.ASSETS){
+    const target=new URL(request.url);target.pathname='/index.html';target.search='';target.hash='';
+    return env.ASSETS.fetch(new Request(target,request));
+  }
   if((request.method==='GET'||request.method==='HEAD')&&ADMIN_PAGES.has(path)&&env.ASSETS){
     const target=new URL(request.url);target.pathname=ADMIN_PAGES.get(path);target.search='';target.hash='';
     return env.ASSETS.fetch(new Request(target,request));
