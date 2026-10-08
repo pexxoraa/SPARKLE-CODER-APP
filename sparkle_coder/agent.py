@@ -155,32 +155,62 @@ class Agent:
         self._budget_progress = None
         self._stalled_segments = 0
         self._auto_continuation_stalled = False
+        self._progress_message_offset = 0
+        self._observed_evidence = set()
 
     def usage_budget_total(self):
         usage=self.session.state["usage"]
         return (usage["prompt_tokens"]+usage["completion_tokens"]+
                 usage.get("estimated_prompt_tokens",0)+usage.get("estimated_completion_tokens",0))
 
-    def continue_hosted_budget(self, reason):
-        """Automatically extend managed work while real project progress continues.
+    def continuation_evidence(self):
+        """Count new, successful diagnostic evidence, not repeated tool chatter.
 
-        No arbitrary segment-count pause. The gateway still meters model calls
-        against the account's balance; explicit user-selected limits are never
-        extended. A no-progress watchdog prevents unattended credit-draining
-        loops without stopping long but productive projects.
+        Read-only discovery is meaningful work during research and repair, even
+        when no file, check, or plan has changed. Repeating the exact same tool
+        and result is never new evidence and cannot reset the loop watchdog.
         """
+        messages = self.session.state.get("messages", [])
+        new_messages = messages[self._progress_message_offset:]
+        self._progress_message_offset = len(messages)
+        tool_names = {}
+        for message in new_messages:
+            if message.get("role") == "assistant":
+                for call in message.get("tool_calls", []):
+                    fn = call.get("function", {})
+                    tool_names[call.get("id")] = (fn.get("name", ""), fn.get("arguments", ""))
+            elif message.get("role") == "tool":
+                name, arguments = tool_names.get(message.get("tool_call_id"), ("", ""))
+                if name not in {"read_file", "search_files", "list_files", "web_search",
+                                "read_web_page", "discover_checks", "inspect_setup",
+                                "inspect_static_site", "inspect_visual_site", "search_assets",
+                                "verify", "run_command"}:
+                    continue
+                raw = message.get("content", "")
+                try:
+                    result = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(result, dict) or result.get("ok") is not True:
+                    continue
+                signature = hashlib.sha256((name + "\0" + arguments + "\0" +
+                                            json.dumps(result, sort_keys=True)).encode()).digest()
+                self._observed_evidence.add(signature)
+        return len(self._observed_evidence)
+
+    def continue_hosted_budget(self, reason):
+        """Continue cloud tasks without fixed segment caps while progress exists."""
         if (not getattr(self.config, "_auto_continue_cloud", False)
                 or self.session.state.get("task_mode") == "ask"):
             return False
         state = self.session.state
-        # Only substantive project progress resets the watchdog. Repeated reads,
-        # unsuccessful retries, narration, and identical file writes do not.
         journal = state.get("journal", [])
         checks = active_checks(state)
         marker = (tuple((item.get("path"), item.get("after")) for item in journal),
                   tuple((item.get("key"), item.get("ok"), item.get("output", "")[-100:])
                         for item in checks),
-                  tuple((item.get("step"), item.get("status")) for item in state.get("plan", [])))
+                  tuple((item.get("step"), item.get("status")) for item in state.get("plan", [])),
+                  self.continuation_evidence())
         if marker == self._budget_progress:
             self._stalled_segments += 1
         else:
@@ -194,17 +224,23 @@ class Agent:
             "text": "The task is not finished. Continuing automatically with another work segment.",
             "reason": reason, "segment": self.auto_continuations + 1})
         if self._stalled_segments == 2:
-            self.feedback("Progress check: Several work segments have passed without new file changes, "
-                          "new checks, or completed plan steps. Investigate why, take a different action, "
-                          "and stop proposing repeated work. If an external blocker exists, report it clearly.")
+            self.feedback("Progress check: The last work segments produced no new files, "
+                          "checks, plan progress, or diagnostic evidence. Stop repeating "
+                          "the same actions. Inspect the blocker and change approach. "
+                          "If completion is impossible, explain the specific reason.")
         self.say("Continuing the saved project automatically. No manual resume needed.")
         return True
 
     def finish_stalled_continuation(self):
-        message = ("Automatic work stopped because four consecutive work segments made no "
-                   "new project changes, test progress, or plan progress. Your work is saved. "
-                   "Review the task's activity and checks before continuing; this protects your credits.")
-        return self.finish("needs_input", message, {"action": "retry", "message": message})
+        message = ("Automatic execution stopped after repeated work produced no new "
+                   "files, tests, plan steps, or diagnostic evidence. Your work is saved. "
+                   "This is a no-progress safeguard, not a request for missing information.")
+        self.observe("no_progress", {"text": message})
+        return self.finish("blocked", message, {
+            "title": "Repeated work detected",
+            "what_happened": message,
+            "meaning": "Continuing unchanged actions would use more credits without useful progress.",
+            "next_step": "Open Run activity to inspect the blocker. Continue only with a new approach."})
 
     def say(self, text):
         self.emit(clean_terminal(self.tools.redactor.text(text)))
