@@ -19,8 +19,10 @@ INVENTORY_COMMANDS = {
     "flutter": ("flutter devices --machine", "Flutter mobile device enumeration"),
     "android": ("adb devices -l", "Android Debug Bridge connected device enumeration"),
     "ios": ("xcrun simctl list devices --json", "Apple Simulator iOS device enumeration"),
+    "platformio": ("pio device list --json-output",
+                   "Enumerate serial ports only; this does not identify or validate firmware hardware"),
 }
-TOOLS = {"flutter": "flutter", "android": "adb", "ios": "xcrun"}
+TOOLS = {"flutter": "flutter", "android": "adb", "ios": "xcrun", "platformio": "pio"}
 DOMAIN = "mobile_apps"
 VERSION = 1
 
@@ -76,6 +78,24 @@ def parse_inventory(kind, output):
                           "emulator" if identifier.startswith("emulator-") else "device"),
                           "platform": "android", "kind": "emulator" if identifier.startswith("emulator-")
                           else "device", "status": status, "ready": status == "device"})
+    elif kind == "platformio":
+        try:
+            items = json.loads(output)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("PlatformIO did not return valid JSON serial ports.") from exc
+        if not isinstance(items, list):
+            raise ValueError("PlatformIO ports must be a JSON array.")
+        for item in items[:50]:
+            if not isinstance(item, dict):
+                continue
+            port = item.get("port")
+            if not isinstance(port, str) or not re.fullmatch(
+                    r"(?:/dev/[a-zA-Z0-9._-]{1,100}|COM[0-9]{1,3})", port):
+                continue
+            found.append({"device_id": port, "name": _clean(item.get("description") or
+                          "Unidentified serial port"), "platform": "embedded",
+                          "kind": "serial_port", "status": "port_detected_unverified",
+                          "ready": False})
     elif kind == "ios":
         try:
             data = json.loads(output)
@@ -112,6 +132,8 @@ def _roots(files):
         path = PurePosixPath(name)
         if len(path.parts) > 8:
             continue
+        if path.name == "platformio.ini" and len(path.parts) <= 5:
+            result.setdefault(str(path.parent), set()).add("platformio")
         if path.name == "pubspec.yaml" and len(path.parts) <= 5:
             result.setdefault(str(path.parent), set()).add("flutter")
         if path.name == "AndroidManifest.xml" and "android" in path.parts:
@@ -162,7 +184,8 @@ def discover_targets(workspace, execution="local", *, docker_image="", files=Non
                          "command_failed" if not previous.get("command_ok") else
                          "invalid_output" if previous.get("parse_error") else
                          "ready_devices_found" if previous.get("ready_count", 0) else
-                         "no_ready_devices"),
+                         "ports_detected_unverified" if kind == "platformio" and
+                         previous.get("devices") else "no_ready_devices"),
                      "ready_count": previous.get("ready_count", 0) if fresh else 0,
                      "application_tested": False}
             probes.append(entry)
@@ -198,7 +221,8 @@ def discover_targets(workspace, execution="local", *, docker_image="", files=Non
     return {"version": VERSION, "execution": execution,
             "probes": probes[:20], "targets": targets[:60], "integrations": integrations[:16],
             "scan_truncated": len(files) >= 2000,
-            "note": ("Inventory inspection is read-only. A connected device is not an "
+            "note": ("Inventory inspection is read-only. Serial ports are not proven boards. "
+                     "A connected device is not an "
                      "application test. Device enumeration and integration runs require "
                      "explicit command approval, even in automatic mode. No simulator "
                      "is booted, hardware is flashed, or cloud service is provisioned.")}
