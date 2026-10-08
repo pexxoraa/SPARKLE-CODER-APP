@@ -41,6 +41,7 @@ SCHEMAS = [
     schema("discover_checks", "Find existing test, typecheck, lint and build commands. Does not execute them.", {}),
     schema("inspect_change_impact", "Read-only: compare explicit fix/update requests against pre-existing source files; report actual changed paths instead of treating a new unrelated file as proof of repair.", {}),
     schema("inspect_repair_focus", "Read-only: categorize fresh failing checks and locate relevant existing source files to guide the smallest useful repair. No code is executed.", {}),
+    schema("inspect_task_recovery", "Read-only: report interrupted tool actions, uncertain file journal entries, and stale check evidence. Never reruns an interrupted command or edit.", {}),
     schema("inspect_engineering", "Identify relevant engineering domains, toolchains and candidate verification contracts from project evidence without executing code. Tool presence is NOT runtime proof.", {}),
     schema("plan_engineering", "Read-only phased capability plan, missing toolchains and required evidence contracts; does not execute checks.", {}),
     schema("inspect_engineering_environment", "Read-only toolchain version/target probe and locked dependency setup options derived from project manifests. Nothing is installed, downloaded, executed or deployed.", {}),
@@ -206,6 +207,27 @@ class ToolSet:
 
     def inspect_repair_focus(self):
         return repair_focus(self.workspace, self.session.state)
+
+    def inspect_task_recovery(self):
+        state = self.session.state
+        pending = state.get("interrupted_actions", [])
+        if not isinstance(pending, list):
+            pending = []
+        journal = state.get("journal", [])
+        uncertain_files = [row.get("path", "") for row in journal[-200:]
+                           if isinstance(row, dict) and row.get("applied") is False]
+        return {
+            "version": 1,
+            "interrupted_actions": pending[-12:],
+            "uncertain_file_journal": uncertain_files[:16],
+            "workspace_fingerprint": self.workspace.fingerprint(),
+            "verified_fingerprint": state.get("verification_fingerprint"),
+            "requires_reinspection": bool(pending or uncertain_files),
+            "replayed_commands": False,
+            "note": "Actions with missing results may have executed. Inspect actual files and "
+                    "external state, then rerun relevant safe checks; never replay unknown "
+                    "side effects automatically.",
+        }
 
     def inspect_setup(self):
         report = inspect_setup(self.workspace, self.runner.config)
@@ -682,5 +704,5 @@ READ_ONLY_TOOLS = {"list_files", "read_file", "search_files", "web_search", "rea
                    "discover_checks", "inspect_setup", "inspect_engineering", "plan_engineering",
                    "discover_engineering_checks", "inspect_engineering_environment",
                    "inspect_target_integrations", "inspect_change_impact",
-                   "inspect_repair_focus", "inspect_static_site", "inspect_visual_site", "render_page",
+                   "inspect_repair_focus", "inspect_task_recovery", "inspect_static_site", "inspect_visual_site", "render_page",
                    "request_input", "update_plan"}
