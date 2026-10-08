@@ -275,9 +275,10 @@ test('every preset and custom whole-million package saves exact prices and grant
   assert.equal(repeat.body.already_reviewed,true,'never credit approved payment twice');
   assert.equal((await f.api('/api/me')).body.balance_tokens,expected);
  }
- assert.equal((await f.api('/api/payments',{utr:'BADTOKENS12345',credit_tokens:1500000})).status,400);
- assert.equal((await f.api('/api/payments',{utr:'TOOMANYTOKENS1',credit_tokens:101000000})).status,400);
- assert.equal((await f.api('/api/payments',{utr:'TOOFEWTOKENS1',credit_tokens:0})).status,400);
+ const invalid=fixture();await invalid.approve();
+ assert.equal((await invalid.api('/api/payments',{utr:'BADTOKENS12345',credit_tokens:1500000})).status,400);
+ assert.equal((await invalid.api('/api/payments',{utr:'TOOMANYTOKENS1',credit_tokens:101000000})).status,400);
+ assert.equal((await invalid.api('/api/payments',{utr:'TOOFEWTOKENS1',credit_tokens:0})).status,400);
 });
 test('money-only and 100 percent coupons change the payable amount without inventing bonus tokens',async()=>{
  const f=fixture();await f.approve();await f.login();
