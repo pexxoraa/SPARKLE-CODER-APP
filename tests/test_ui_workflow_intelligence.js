@@ -9,8 +9,10 @@ const helpers=code.slice(code.indexOf("let renderedConversation="),code.indexOf(
 assert.ok(helpers.startsWith("let renderedConversation="));
 const elements=new Map();
 function element(name){
-  if(!elements.has(name))elements.set(name,{textContent:"",hidden:false,replaceChildrenCalls:0,
-    replaceChildren(){this.replaceChildrenCalls++;}});
+  if(!elements.has(name))elements.set(name,{textContent:"",hidden:false,replaceChildrenCalls:0,children:[],
+    replaceChildren(){this.replaceChildrenCalls++;this.children=[];},
+    append(...items){this.children.push(...items);},
+    prepend(...items){this.children.unshift(...items);}});
   return elements.get(name);
 }
 const changed=new Function("id","friendly",
