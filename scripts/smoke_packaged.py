@@ -130,7 +130,15 @@ def smoke(executable, bundled=False):
             assert "calculator.py" in hosted(prefix + "/files")["files"]
             assert b"return a + b" in hosted(prefix + "/download?path=calculator.py")
             assert hosted(prefix + "/sessions")["sessions"][0]["id"] == run["session_id"]
-            archive = hosted(prefix + "/download-project")
+            try:
+                archive = hosted(prefix + "/download-project")
+            except urllib.error.HTTPError as error:
+                # Preserve the server's diagnostic rather than reporting only
+                # "HTTP Error 400", which conceals intermittent OS-specific failures.
+                detail = error.read(4096).decode("utf-8", errors="replace")
+                raise AssertionError(
+                    f"Packaged project ZIP export returned HTTP {error.code}: {detail}"
+                ) from error
             with zipfile.ZipFile(io.BytesIO(archive)) as exported:
                 assert "calculator.py" in exported.namelist()
                 assert b"return a + b" in exported.read("calculator.py")
