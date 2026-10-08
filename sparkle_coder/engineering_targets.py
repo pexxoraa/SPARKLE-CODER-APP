@@ -8,6 +8,7 @@ during discovery.
 """
 import hashlib
 import json
+import os
 from pathlib import PurePosixPath
 import re
 import shutil
@@ -26,6 +27,7 @@ INVENTORY_COMMANDS = {
 TOOLS = {"flutter": "flutter", "android": "adb", "ios": "xcrun", "platformio": "pio"}
 DOMAIN = "mobile_apps"
 VERSION = 1
+HOST_OS = os.name
 MAX_TARGET_INVENTORY_AGE_SECONDS = 300
 
 
@@ -320,9 +322,13 @@ def resolve_integration(workspace, execution, docker_image, state, integration_i
                 connected_ids.add(device_entry["device_id"])
         if len(connected_ids) != 1 or identity not in connected_ids:
             raise ValueError("Android instrumentation requires exactly one ready connected device.")
-        command = ("./gradlew connectedAndroidTest" if
-                   (workspace.root / option["cwd"] / "gradlew").is_file() else
-                   "gradle connectedAndroidTest")
+        package_root = workspace.root / option["cwd"]
+        if HOST_OS == "nt" and (package_root / "gradlew.bat").is_file():
+            command = "gradlew.bat connectedAndroidTest"
+        elif HOST_OS != "nt" and (package_root / "gradlew").is_file():
+            command = "./gradlew connectedAndroidTest"
+        else:
+            command = "gradle connectedAndroidTest"
         return {**option, "target_token": token, "command": command,
                 "target": target, "target_behavior": "connected_android_instrumentation"}
     raise ValueError("Unknown integration target type.")
