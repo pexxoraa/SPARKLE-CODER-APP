@@ -314,6 +314,7 @@ id("themeToggle").onclick = () => {
 
 let appState = null, projectId = null, currentSession = null, currentRun = null;
 let accountTimer = null, accountCouponQuote=null, startingRun=false;
+let waitingForCapacity=false,cancelQueuedStart=false,capacityRetryTimer=null,capacityWaitResolve=null;
 let files = [], historyItems = [], changes = [], runEvents = [], view = "build", tab = "activity";
 let fileData=null, transferBusy=false, cancelTransfer=false, lastConsoleKey="", fileLoadError="";
 let pollTimer = null, cloudReconnectTimer = null, lastMessageKey = "", lastChangeKey = "", selectedFile = "", toastTimer = null;
@@ -774,13 +775,13 @@ async function openAccount() {
   try {await refreshAccount();}catch(_){}
 }
 function renderControls() {
-  const working=busy(); id("runButton").disabled=startingRun || !!working || transferBusy || !projectId || (isCloud&&!appState.engine?.available); id("runButton").firstChild.textContent=startingRun ? "Starting " : working ? "Working " : currentSession ? "Continue " : "Run agent";
+  const working=busy(); id("runButton").disabled=startingRun || !!working || transferBusy || !projectId || (isCloud&&!appState.engine?.available); id("runButton").firstChild.textContent=waitingForCapacity ? "Waiting " : startingRun ? "Starting " : working ? "Working " : currentSession ? "Continue " : "Run agent";
   id("taskMode").disabled=!!working;
   id('efficiencyMode').disabled=!!working;
   id("saveBrief").disabled=!!working;
   id("investigateSetup").disabled=!!working;
   id("supervisionChoice").hidden=isCloud; id("reviewEdits").disabled=isCloud||!!working||id("taskMode").value==="ask";
-  id("stopButton").hidden=!working; id("stopButton").disabled=currentRun?.status==="stopping";
+  id("stopButton").hidden=!working&&!waitingForCapacity; id("stopButton").disabled=!waitingForCapacity&&currentRun?.status==="stopping";
   // Other projects remain available while this project's agent runs.
   id("deleteProject").disabled=!projectId||startingRun||!!working||transferBusy;
   id("clearHistory").disabled=!projectId||startingRun||!!working||transferBusy||!historyItems.length;
@@ -790,10 +791,10 @@ function renderControls() {
   id("findProjectFolder").disabled=!!working||transferBusy;
   id("showProjectMigration").disabled=!!working||transferBusy;
   const status=working ? currentRun.status : currentSession?.status;
-  id("runStatus").textContent=currentRun?.mode==="demo" && working ? "Demo · "+friendly(status) : friendly(status);
+  id("runStatus").textContent=waitingForCapacity ? "Waiting for coding slot" : currentRun?.mode==="demo" && working ? "Demo · "+friendly(status) : friendly(status);
   id("runStatus").className="status-badge "+(status||"");
   id("undoButton").disabled=!!working || !currentSession?.changed_files?.length || currentSession?.undone;
-  id("taskNote").textContent=working ? (currentRun.status==="stopping" ? "Stopping commands; an in-flight model request may need to finish." : currentRun.mode==="demo" ? "Offline demo · scripted responses, real file edits and tests." : "Working in your project. You can stop the task at any time.") : (isCloud?"Files stay in your project. Normal coding actions run automatically; protected system actions are blocked.":"Files stay in your project. SPARKLE asks before protected actions.");
+  id("taskNote").textContent=waitingForCapacity ? "SPARKLE is waiting for available coding capacity. Your prompt remains here; no model calls or token charges are started while waiting. Leave this tab open or press Stop to cancel waiting." : working ? (currentRun.status==="stopping" ? "Stopping commands; an in-flight model request may need to finish." : currentRun.mode==="demo" ? "Offline demo · scripted responses, real file edits and tests." : "Working in your project. You can stop the task at any time.") : (isCloud?"Files stay in your project. Normal coding actions run automatically; protected system actions are blocked.":"Files stay in your project. SPARKLE asks before protected actions.");
   id("goal").placeholder=currentSession ? "Give this task a follow-up, or continue where it stopped…" : "Describe what you want to build or change…";
   id("approvalCard").hidden=isCloud||!(currentRun?.approval && currentRun.status==="approval");
   if(currentRun?.approval) {
@@ -1311,6 +1312,22 @@ async function pollRun() {
     if(currentRun?.id===runId&&busy())schedulePoll(disconnected?2000:undefined);
   }
 }
+// Temporary compatibility with older hosted engines that reject work when
+// occupied. The updated engine accepts the run as a first-class queued job.
+// Retry ONLY the explicit busy error, for which the engine confirms no run
+// was created. Never retry a lost/ambiguous network response automatically.
+async function waitForCapacityRetry(attempt){
+  const delay=Math.min(5000+attempt*2000,25000);
+  id("taskError").hidden=false;
+  id("taskError").textContent="Coding capacity is occupied. Waiting and retrying this saved prompt automatically. No model call has started. You can press Stop to cancel waiting. Next check in "+Math.ceil(delay/1000)+" seconds.";
+  renderControls();
+  await new Promise(resolve=>{
+    capacityWaitResolve=resolve;
+    capacityRetryTimer=setTimeout(resolve,delay);
+  });
+  capacityWaitResolve=null;
+  clearTimeout(capacityRetryTimer);capacityRetryTimer=null;
+}
 async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=false) {
   event?.preventDefault(); if(startingRun||busy()||transferBusy)return false;
   const explicitGoal=goalOverride===null?null:String(goalOverride);
@@ -1326,9 +1343,33 @@ async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=fals
   if(appState.account?.enabled&&!appState.account.ready){await openAccount();return false;}
   if(!projectId||(isCloud&&!appState.engine?.available)){id("taskError").hidden=false;id("taskError").textContent=appState.engine?.message||"Select a project before starting a task.";return false;}
   if(hostedNoKey(appState.settings.base_url)&&!appState.settings.key_configured) { openSettings(); toast("Add your API key to start a live task."); return false; }
-  startingRun=true;id("taskError").hidden=true;renderControls();
+  startingRun=true;cancelQueuedStart=false;id("taskError").hidden=true;renderControls();
   try {
-    const result=await api("/runs",{project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:freshTask||currentSession?.undone?null:currentSession?.id,review_edits:isCloud?false:id("reviewEdits").checked,task_mode:id("taskMode").value});
+    const payload={project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:freshTask||currentSession?.undone?null:currentSession?.id,review_edits:isCloud?false:id("reviewEdits").checked,task_mode:id("taskMode").value};
+    let result,attempt=0;
+    while(true){
+      try {result=await api("/runs",payload);break;}
+      catch(error){
+        if(!isCloud||!/^The coding server is busy\./.test(error.message))throw error;
+        waitingForCapacity=true;
+        // Preserve the exact unsent prompt across accidental page refreshes.
+        saveDraftNow();
+        await waitForCapacityRetry(attempt++);
+        if(cancelQueuedStart){
+          id("taskError").hidden=false;
+          id("taskError").textContent="Waiting cancelled. Your original prompt is still here and no new task was started.";
+          return false;
+        }
+      }
+    }
+    if(cancelQueuedStart){
+      // Stop an accepted run if cancellation raced its successful response.
+      currentRun=result;
+      await api("/runs/"+result.id+"/stop",{});
+      return false;
+    }
+    waitingForCapacity=false;
+    id("taskError").hidden=true;
     currentRun=result; runEvents=[]; monitorEventsTruncated=false; lastPollError=""; lastChangeKey="";
     if(freshTask){currentSession=null;editingSentMessage=null;lastMessageKey="";}
     if(!resumeOnly&&!explicitGoal){id("goal").value="";clearDraft();}
@@ -1346,7 +1387,11 @@ async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=fals
       return true;
     }
     return false;
-  } finally { startingRun=false;renderControls(); }
+  } finally {
+    waitingForCapacity=false;cancelQueuedStart=false;startingRun=false;
+    clearTimeout(capacityRetryTimer);capacityRetryTimer=null;capacityWaitResolve=null;
+    renderControls();
+  }
 }
 async function startDemo() { if(startingRun||busy())return; id("demoButton").disabled=true; try { const result=await api("/demo",{}); currentRun=result.run; projectId=result.project.id; runEvents=[]; currentSession=null; await refreshState(); renderSession(null); changeView("monitor"); schedulePoll(50); } finally { id("demoButton").disabled=false; } }
 async function answerApproval(allow,remember=false) {
@@ -1880,7 +1925,14 @@ id("removeRunCaps").onclick=()=>{["maxSteps","maxSeconds","maxTotalTokens","comm
 id("newTask").onclick=()=>action(()=>newTask(true));
 id("taskForm").onsubmit=e=>action(()=>startTask(e));
 id("demoButton").onclick=()=>action(startDemo);
-id("stopButton").onclick=()=>action(async()=>{if(currentRun){currentRun=await api("/runs/"+currentRun.id+"/stop",{});renderControls();schedulePoll(20);}});
+id("stopButton").onclick=()=>action(async()=>{
+  if(waitingForCapacity){
+    cancelQueuedStart=true;
+    if(capacityWaitResolve)capacityWaitResolve();
+    return;
+  }
+  if(currentRun){currentRun=await api("/runs/"+currentRun.id+"/stop",{});renderControls();schedulePoll(20);}
+});
 id("allowCommand").onclick=()=>action(()=>answerApproval(true));
 id("allowRepeatCommand").onclick=()=>action(()=>answerApproval(true,true)); id("denyCommand").onclick=()=>action(()=>answerApproval(false));
 id("toggleChecks").onclick=()=>{id("verificationFields").hidden=!id("verificationFields").hidden;scheduleDraftSave();if(!id("verificationFields").hidden)id("verifyCommands").focus();};

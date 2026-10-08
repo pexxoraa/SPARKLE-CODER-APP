@@ -47,7 +47,7 @@ let response=()=>({id:"new-run",status:"running"}),recover=null,active=false;
 const api=async(route,body)=>{calls.push({route,body});return response(route,body);};
 const harness=[
  'let projectId="project-1",currentSession=null,currentRun=null,editingSentMessage=null;',
- 'let lastMessageKey="",startingRun=false,transferBusy=false,runEvents=[],monitorEventsTruncated=false,lastPollError="",lastChangeKey="";',
+ 'let lastMessageKey="",startingRun=false,transferBusy=false,runEvents=[],monitorEventsTruncated=false,lastPollError="",lastChangeKey="",waitingForCapacity=false,cancelQueuedStart=false,capacityRetryTimer=null,capacityWaitResolve=null;',
  'let appState={account:{enabled:true,ready:true},settings:{key_configured:true},engine:{available:true}};',
  'const isCloud=true;',
  'function busy(){return active();}',
@@ -57,7 +57,7 @@ const harness=[
  'function icon(){return "<svg></svg>";}',
  'function renderControls(){}function renderRecovery(){}function renderDelivery(){}function renderRepairHistory(){}',
  'function renderActivity(){}function renderChecks(){}function renderMonitor(){}',
- 'function clearDraft(){events.push("clear-draft");} function changeView(){events.push("view");}function schedulePoll(){events.push("poll");}',
+ 'function clearDraft(){events.push("clear-draft");} function saveDraftNow(){events.push("saved-draft");} async function waitForCapacityRetry(){} function changeView(){events.push("view");}function schedulePoll(){events.push("poll");}',
  'function hostedNoKey(){return false;}function openSettings(){}async function openAccount(){}',
  'function codeChangeRequested(text){return /\\b(fix|add|change|edit|build|create|make)\\b/i.test(text);}',
  'async function refreshState(){if(recover())currentRun=recover();}',

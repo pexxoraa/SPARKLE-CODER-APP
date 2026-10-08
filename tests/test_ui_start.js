@@ -10,17 +10,20 @@ function fixture(){
   const api=async(p,b)=>{calls.push({p,b});return send();};
   const ui=new Function('id','api','recover','isCloud',`
     let startingRun=false,currentRun=null,currentSession=null,transferBusy=false,projectId='project-1',renderCount=0,
+      waitingForCapacity=false,cancelQueuedStart=false,capacityRetryTimer=null,capacityWaitResolve=null,retryWaits=0;
       appState={account:{enabled:true,ready:true},settings:{key_configured:true},engine:{available:true}},runEvents=[],lastChangeKey='';
     function busy(){return currentRun?.status==='running'||currentRun?.status==='queued';}
     function renderControls(){id('runButton').disabled=startingRun||busy();}
     function renderSession(){renderCount++;}
-    function hostedNoKey(){return false;} function openSettings(){} function toast(){} function clearDraft(){}
+    function hostedNoKey(){return false;} function openSettings(){} function toast(){} function clearDraft(){} function saveDraftNow(){}
+    async function waitForCapacityRetry(){retryWaits++;}
     function changeView(){} function schedulePoll(){} async function openAccount(){}
     async function refreshState(){const value=await recover();if(value)currentRun=value;}
     function codeChangeRequested(text){return /\\b(fix|repair|patch|refactor|implement|add|remove|delete|rename|update|modify|change|edit|replace|redesign|improve|build|create|make|correct|integrate|upgrade|rework|rewrite)\\b/i.test(text);}
     ${controller}
     return {start:()=>startTask({preventDefault(){}}),resume:()=>{currentSession={id:'saved-session'};return startTask(null,true);},
-      state:()=>({startingRun,currentRun,renderCount}),offline(){appState.engine={available:false,message:'Engine offline.'};}};
+      state:()=>({startingRun,currentRun,renderCount,waitingForCapacity,retryWaits}),
+      cancelWait(){cancelQueuedStart=true;},offline(){appState.engine={available:false,message:'Engine offline.'};}};
   `)(id,api,async()=>{refreshes++;return recover;},true);
   return {...ui,id,calls,setSend:fn=>{send=fn;},recover:value=>{recover=value;},refreshes:()=>refreshes};
 }
@@ -36,6 +39,24 @@ function fixture(){
   assert.equal(failed.refreshes(),1);assert.equal(failed.calls.length,1);assert.equal(failed.id('runButton').disabled,false);
   const lost=fixture();lost.setSend(async()=>{throw Error('Connection lost');});lost.recover({id:'accepted-run',status:'running'});await lost.start();
   assert.equal(lost.state().currentRun.id,'accepted-run');assert.equal(lost.calls.length,1);assert.match(lost.id('taskError').textContent,/Reconnected/);
+  const capacity=fixture();let busyReplies=2;
+  capacity.setSend(async()=>{
+    if(busyReplies-->0)throw Error('The coding server is busy. Retry shortly; no model call was started.');
+    return {id:'queued-then-started',status:'queued'};
+  });
+  await capacity.start();
+  assert.equal(capacity.calls.length,3,'Only explicit no-run busy responses are retried');
+  assert.equal(capacity.state().retryWaits,2);
+  assert.equal(capacity.state().currentRun.id,'queued-then-started');
+  assert.equal(capacity.id('goal').value,'');
+  const busyThenConnection=fixture();let messages=0;
+  busyThenConnection.setSend(async()=>{
+    if(messages++===0)throw Error('The coding server is busy. Retry shortly; no model call was started.');
+    throw Error('Connection lost');
+  });
+  await busyThenConnection.start();
+  assert.equal(busyThenConnection.calls.length,2,'Ambiguous errors must not be automatically retried');
+  assert.equal(busyThenConnection.id('goal').value,'Build my project');
   const offline=fixture();offline.offline();await offline.start();assert.equal(offline.calls.length,0);assert.equal(offline.id('taskError').textContent,'Engine offline.');
   const changed=fixture();changed.id('taskMode').value='ask';changed.id('goal').value='Fix the existing login page';
   await changed.start();assert.equal(changed.calls[0].b.task_mode,'build',
