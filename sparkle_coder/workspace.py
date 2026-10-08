@@ -171,49 +171,58 @@ class Workspace:
         return "\n\n".join(guides)[:24000]
 
     def fingerprint(self) -> str | None:
-        """Hash project contents, avoiding repeated unchanged-file reads.
+        """Content-accurate fingerprint with bounded, stat-validated read reuse.
 
-        Explicit stat checks preserve detection of edits from command runners
-        and external programs, while a bounded per-workspace cache prevents
-        repeatedly streaming megabytes through model-context preparation.
+        Preserve the existing SHA-256 fingerprint format *exactly*, including
+        streamed raw content bytes. This retains all previously recorded check
+        evidence. A cached read is used only after file identity, size, mtime
+        and ctime checks; the OS may change files outside file-tool journaling.
+        Windows always streams files because ctime may mean creation time.
         """
         digest = hashlib.sha256()
-        cached = self._fingerprint_file_cache
+        cache = self._fingerprint_file_cache
+        total_cached = sum(len(item[1]) for item in cache.values())
         seen = set()
         try:
             for relative in self.files(limit=None):
                 p = self.path(relative)
-                before = p.stat()
-                stamp = (before.st_dev, before.st_ino, before.st_size,
-                         before.st_mtime_ns, before.st_ctime_ns)
-                record = cached.get(relative) if os.name != "nt" else None
-                if record is not None and record[0] == stamp:
-                    content_digest = record[1]
-                else:
-                    content = hashlib.sha256()
-                    with p.open("rb") as stream:
-                        for chunk in iter(lambda: stream.read(128 * 1024), b""):
-                            content.update(chunk)
+                info = p.stat()
+                stamp = (info.st_dev, info.st_ino, info.st_size,
+                         info.st_mtime_ns, info.st_ctime_ns)
+                entry = cache.get(relative) if os.name != "nt" else None
+                digest.update(relative.encode() + b"\\0")
+                if entry is not None and entry[0] == stamp:
+                    digest.update(entry[1])
+                elif os.name != "nt" and info.st_size <= 1_000_000:
+                    data = p.read_bytes()
                     after = p.stat()
                     if stamp != (after.st_dev, after.st_ino, after.st_size,
                                  after.st_mtime_ns, after.st_ctime_ns):
-                        # A file changed while it was read. Never attach
-                        # acceptance evidence to an uncertain snapshot.
-                        cached.pop(relative, None)
+                        cache.pop(relative, None)
                         return None
-                    content_digest = content.digest()
-                    if os.name != "nt" and len(cached) < 4096:
-                        cached[relative] = (stamp, content_digest)
+                    digest.update(data)
+                    if relative in cache:
+                        total_cached -= len(cache[relative][1])
+                        cache.pop(relative, None)
+                    if total_cached + len(data) <= 16_000_000 and len(cache) < 4096:
+                        cache[relative] = (stamp, data)
+                        total_cached += len(data)
+                else:
+                    with p.open("rb") as stream:
+                        for chunk in iter(lambda: stream.read(128 * 1024), b""):
+                            digest.update(chunk)
+                    after = p.stat()
+                    if stamp != (after.st_dev, after.st_ino, after.st_size,
+                                 after.st_mtime_ns, after.st_ctime_ns):
+                        cache.pop(relative, None)
+                        return None
+                    if relative in cache:
+                        total_cached -= len(cache[relative][1])
+                        cache.pop(relative, None)
                 seen.add(relative)
-                digest.update(relative.encode() + b"\0")
-                # Preserve the previous workspace fingerprint byte-for-byte:
-                # it hashed raw file bytes, not their individual hash values.
-                # Use a separate, versioned digest only when safely migrating
-                # persisted check fingerprints in a future release.
-                digest.update(content_digest)
-                digest.update(b"\0")
-            for removed in set(cached) - seen:
-                cached.pop(removed, None)
+                digest.update(b"\\0")
+            for removed in set(cache) - seen:
+                cache.pop(removed, None)
         except (OSError, WorkspaceError):
             return None
         return digest.hexdigest()
