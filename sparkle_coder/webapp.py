@@ -606,6 +606,19 @@ class AppService:
             "messages": messages, "actions": state["actions"][-100:], "checks": checks,
             "recovery": recovery, "proof": proof_summary(state), "delivery": state.get("delivery", {}),
             "check_revisions": state.get("check_revisions", []),
+            # Summarize uncertainty without exposing command arguments or
+            # replaying commands whose result was lost in a process restart.
+            "interruption_review": {
+                "actions": sum(1 for item in state.get("interrupted_actions", [])[-20:]
+                               if isinstance(item, dict) and not item.get("resolved")),
+                "possible_side_effects": sum(
+                    1 for item in state.get("interrupted_actions", [])[-20:]
+                    if isinstance(item, dict) and not item.get("resolved")
+                    and item.get("potential_side_effect")),
+                "uncertain_file_edits": sum(
+                    1 for item in state.get("journal", [])
+                    if isinstance(item, dict) and item.get("applied") is False),
+            },
             "changed_files": sorted({r["path"] for r in state["journal"]}),
             "required_checks": state["required_checks"],
             "events": session_events(session) if include_events else [],
