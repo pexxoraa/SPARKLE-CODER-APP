@@ -270,6 +270,15 @@ class Agent:
         system = SYSTEM + "\nExecution environment: " + self.config.execution
         if self.engineering_domains and state.get("task_mode") != "ask":
             system += ("\nENGINEERING ACCEPTANCE: Use plan_engineering before substantive edits. "
+                       "For mobile app work, inspect_target_integrations before claiming a "
+                       "device, simulator or app integration test. Only probe_target_devices "
+                       "can establish freshly observed connected targets, and it asks for "
+                       "explicit user permission. A device list is not application evidence. "
+                       "When the project has actual Flutter integration_test or Android "
+                       "instrumented tests, use run_target_integration with one freshly "
+                       "connected target; this also asks explicit user permission and records "
+                       "a real check result. Never boot simulators, install to unapproved "
+                       "hardware, or claim an unexecuted test passed. "
                        "First call inspect_engineering_environment to distinguish discovered tools "
                        "from version-checked toolchains and explicit target probes. "
                        "If necessary, probe_engineering_environment with a listed ID. "
@@ -892,7 +901,7 @@ class Agent:
                                           "Change the hypothesis, inspect new evidence, or report the blocker."}
                             else:
                                 result = self.tools.execute(name, arguments)
-                                if name in ("verify", "revise_check", "run_engineering_check"):
+                                if name in ("verify", "revise_check", "run_engineering_check", "run_target_integration"):
                                     self.required_cache.clear()
                                 if name in ("run_command", "prepare_engineering_dependencies") and result.get("exit_code") is not None:
                                     self.required_cache.clear()
