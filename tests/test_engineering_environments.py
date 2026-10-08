@@ -88,9 +88,12 @@ class EnvironmentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stale"):
             resolve_environment_action(self.workspace, "Rust systems programming",
                                        "local", "", initial["id"])
-        with self.assertRaisesRegex(ValueError, "Unknown"):
+        with self.assertRaisesRegex(ValueError, "stale"):
             resolve_environment_action(self.workspace, "Rust systems programming",
                                        "local", "", "setup-MALICIOUS")
+        with self.assertRaisesRegex(ValueError, "Unknown"):
+            resolve_environment_action(self.workspace, "Rust systems programming",
+                                       "local", "", "MALICIOUS")
 
     def test_python_venv_symlink_is_never_selected_as_destination(self):
         self.write("pyproject.toml", "[project]\nname='safe'")
@@ -118,7 +121,8 @@ class EnvironmentTests(unittest.TestCase):
         self.write("Cargo.toml", "[package]\nname='demo'")
         agent = self.agent("Develop Rust systems programming")
         probe = agent.tools.inspect_engineering_environment()["probes"][0]
-        with patch.object(agent.tools.runner, "run",
+        with patch("sparkle_coder.engineering_environments.shutil.which", return_value="/bin/cargo"), \
+             patch.object(agent.tools.runner, "run",
                           return_value={"ok": True, "exit_code": 0,
                                         "output": "cargo 1.90.0"}):
             observed = agent.tools.execute("probe_engineering_environment",
@@ -132,7 +136,8 @@ class EnvironmentTests(unittest.TestCase):
         self.write("Cargo.toml", "[package]\nname='demo'")
         agent = self.agent("Rust systems programming", auto=False, approve=lambda _: False)
         probe = agent.tools.inspect_engineering_environment()["probes"][0]
-        reply = agent.tools.execute("probe_engineering_environment", {"probe_id": probe["id"]})
+        with patch("sparkle_coder.engineering_environments.shutil.which", return_value="/bin/cargo"):
+            reply = agent.tools.execute("probe_engineering_environment", {"probe_id": probe["id"]})
         self.assertFalse(reply["ok"])
         self.assertTrue(reply["denied"])
         self.assertFalse(agent.session.state["engineering_probes"][0]["ok"])
