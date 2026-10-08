@@ -230,6 +230,17 @@ class TargetIntegrationTests(unittest.TestCase):
         self.assertEqual(changed["targets"], [])
         self.assertEqual(changed["probes"][0]["inventory_status"], "not_run")
 
+    def test_device_observation_expires_after_five_minutes(self):
+        self.flutter_project()
+        agent = self.agent()
+        self.probe(agent)
+        self.assertTrue(agent.tools.inspect_target_integrations()["targets"])
+        agent.session.state["target_inventories"][-1]["observed_at"] -= 301
+        stale = agent.tools.inspect_target_integrations()
+        self.assertEqual(stale["probes"][0]["inventory_status"], "stale")
+        self.assertEqual(stale["targets"], [])
+        self.assertFalse(stale["probes"][0]["application_tested"])
+
     def test_wrong_device_token_and_no_test_suite_fail_without_runner_call(self):
         self.flutter_project()
         agent = self.agent()
@@ -308,6 +319,34 @@ class TargetIntegrationTests(unittest.TestCase):
                                 agent.tools.runner.config.docker_image,
                                 agent.session.state, listing["integrations"][0]["id"],
                                 target["id"])
+
+    def test_android_connected_deduplicates_same_target_from_flutter_and_adb(self):
+        self.flutter_project()
+        self.write("settings.gradle", "rootProject.name = 'example'")
+        self.write("android/app/src/main/AndroidManifest.xml", "<manifest />")
+        self.write("android/app/src/androidTest/java/AppTest.java", "class AppTest {}")
+        agent = self.agent()
+        with patch("sparkle_coder.engineering_targets.shutil.which", return_value="/bin/fake"):
+            listing = agent.tools.inspect_target_integrations()
+            kinds = {probe["kind"] for probe in listing["probes"]}
+            self.assertIn("flutter", kinds)
+            self.assertIn("android", kinds)
+            for probe in listing["probes"]:
+                output = FLUTTER_JSON if probe["kind"] == "flutter" else ADB_TEXT
+                with patch.object(agent.tools.runner, "run", return_value={
+                    "ok": True, "exit_code": 0, "output": output}):
+                    result = agent.tools.execute("probe_target_devices",
+                                                  {"probe_id": probe["id"]})
+                self.assertTrue(result["ok"])
+        ready = agent.tools.inspect_target_integrations()
+        self.assertGreaterEqual(len([x for x in ready["targets"] if x["ready"]]), 2)
+        option = next(x for x in ready["integrations"] if x["kind"] == "android_connected")
+        token = next(x["id"] for x in ready["targets"]
+                     if x["ready"] and x["platform"] == "android")
+        chosen = resolve_integration(self.workspace, "local",
+                                     agent.tools.runner.config.docker_image,
+                                     agent.session.state, option["id"], token)
+        self.assertEqual(chosen["command"], "gradle connectedAndroidTest")
 
     @unittest.skipIf(os.name == "nt", "POSIX executable shim for subprocess wiring")
     def test_actual_subprocess_path_with_simulated_flutter_binary(self):
