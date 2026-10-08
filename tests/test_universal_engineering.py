@@ -10,6 +10,7 @@ from sparkle_coder.config import Config
 from sparkle_coder.diagnostics import inspect_setup
 from sparkle_coder.engineering import DOMAIN_IDS, DOMAINS, detect_domains, detect_toolchains, inspect_engineering
 from sparkle_coder.skills import select_skills
+from sparkle_coder.python_runtime import python_command
 from sparkle_coder.state import Session
 from sparkle_coder.workspace import Workspace
 
@@ -140,6 +141,26 @@ class UniversalEngineeringTests(unittest.TestCase):
         self.assertEqual(result["primary_domain"], "game_development")
         self.assertFalse(session.state["checks"])
         self.assertEqual(result["verification_contracts"][0]["status"], "not_verified_by_inspection")
+
+    def test_recorded_check_evidence_cannot_masquerade_as_domain_acceptance(self):
+        source = self.add("project.godot", "[application]\\n")
+        session = Session.create(self.workspace, "Fix this Godot game", [], {})
+        agent = Agent(self.workspace, session, Config(auto_approve=True),
+                      object(), lambda _: True, emit=lambda _: None)
+        result = agent.tools.verify(python_command("-c", "assert 1 + 1 == 2"))
+        self.assertTrue(result["ok"])
+        report = agent.tools.execute("inspect_engineering", {})
+        self.assertEqual(report["recorded_checks"][0]["status"], "passed")
+        self.assertEqual(report["verification_contracts"][0]["status"], "not_verified_by_inspection")
+        source.write_text("[application]\\nchanged=true\\n")
+        newer = agent.tools.execute("inspect_engineering", {})
+        self.assertEqual(newer["recorded_checks"][0]["status"], "stale")
+
+    def test_cpp_and_postgresql_signals_are_supported(self):
+        self.assertEqual(detect_domains(self.workspace, "Build C++ runtime")[0]["id"],
+                         "systems_programming")
+        self.assertEqual(detect_domains(self.workspace, "Optimize PostgreSQL indexes")[0]["id"],
+                         "database_engineering")
 
     def test_setup_uses_same_bounded_domain_view(self):
         self.add("platformio.ini", "[env]")
