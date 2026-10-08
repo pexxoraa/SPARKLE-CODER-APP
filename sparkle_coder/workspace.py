@@ -190,7 +190,7 @@ class Workspace:
                 stamp = (info.st_dev, info.st_ino, info.st_size,
                          info.st_mtime_ns, info.st_ctime_ns)
                 entry = cache.get(relative) if os.name != "nt" else None
-                digest.update(relative.encode() + b"\\0")
+                digest.update(relative.encode() + b"\0")
                 if entry is not None and entry[0] == stamp:
                     digest.update(entry[1])
                 elif os.name != "nt" and info.st_size <= 1_000_000:
@@ -220,7 +220,7 @@ class Workspace:
                         total_cached -= len(cache[relative][1])
                         cache.pop(relative, None)
                 seen.add(relative)
-                digest.update(b"\\0")
+                digest.update(b"\0")
             for removed in set(cache) - seen:
                 cache.pop(removed, None)
         except (OSError, WorkspaceError):
