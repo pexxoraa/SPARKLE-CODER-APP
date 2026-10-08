@@ -199,7 +199,8 @@ class Agent:
                                 "inspect_static_site", "inspect_visual_site", "search_assets",
                                 "verify", "run_command", "inspect_change_impact",
                                 "inspect_repair_focus", "discover_engineering_checks",
-                                "inspect_engineering_environment", "inspect_target_integrations"}:
+                                "inspect_engineering_environment", "inspect_target_integrations",
+                                "inspect_task_recovery"}:
                     continue
                 raw = message.get("content", "")
                 try:
@@ -442,6 +443,15 @@ class Agent:
             checkpoint["repair_focus"] = [
                 {k: row.get(k) for k in ("check_id", "category", "source_files", "next_action")}
                 for row in triage["failures"][:3]]
+        uncertain = state.get("interrupted_actions", [])
+        if isinstance(uncertain, list) and uncertain:
+            # Recovery metadata is intentionally not a tool replay instruction.
+            # Show just bounded, saved uncertainty and let the agent inspect.
+            checkpoint["interrupted_actions"] = uncertain[-8:]
+            checkpoint["recovery_guidance"] = (
+                "Call inspect_task_recovery. Inspect actual state and run safe checks "
+                "before deciding whether interrupted actions need repair. "
+                "Never automatically repeat a possibly executed side effect.")
         checkpoint["engineering_contracts"] = evaluate_contract(
             self.workspace, state, self.engineering_domains,
             task_profile=self.engineering_profile)
@@ -796,6 +806,10 @@ class Agent:
         starting_tokens = self.usage_budget_total()
         state.pop("input_request", None)
         state["recovery"] = None
+        if state.get("interrupted_actions"):
+            self.observe("interrupted_actions_detected", {
+                "count": len(state["interrupted_actions"]),
+                "text": "Saved unfinished tool actions were detected. Inspect current state before retrying."})
         malformed = 0
         unusable = 0
         self.say(f"Session {self.session.id} | {self.config.model} | {self.config.execution}")
