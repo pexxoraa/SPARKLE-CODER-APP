@@ -61,7 +61,11 @@ class ContractTests(unittest.TestCase):
 
     def test_two_distinct_fresh_checks_can_be_linked(self):
         a = self.check("assert 2 + 2 == 4")
-        b = self.check("assert sum((3,4)) == 7")
+        # Test contract logic without needing the Rust compiler on CI.
+        with patch.object(self.agent.tools.runner, "run",
+                          return_value={"ok": True, "exit_code": 0,
+                                        "output": "Mocked cargo test result"}):
+            b = self.agent.tools.verify("cargo test")["check_id"]
         first = self.agent.tools.execute("record_engineering_evidence", {
             "domain": "systems_programming", "facet": "behavior", "check_id": a,
             "reason": "Checks a concrete arithmetic behavior with a real executed assertion."})
@@ -81,7 +85,11 @@ class ContractTests(unittest.TestCase):
 
     def test_changed_files_and_environment_invalidate_past_links(self):
         a = self.check("assert 2 + 2 == 4")
-        b = self.check("assert 2 * 4 == 8")
+        # Test contract logic without needing the Rust compiler on CI.
+        with patch.object(self.agent.tools.runner, "run",
+                          return_value={"ok": True, "exit_code": 0,
+                                        "output": "Mocked cargo test result"}):
+            b = self.agent.tools.verify("cargo test")["check_id"]
         for facet, check in zip(FACETS, (a, b)):
             self.agent.tools.record_engineering_evidence(
                 "systems_programming", facet, check, "Executed a real standalone test with explicit assertions.")
@@ -123,6 +131,14 @@ class ContractTests(unittest.TestCase):
             "reason": "A no-op passing command cannot validate any implementation."})
         self.assertFalse(result["ok"])
         self.assertIn("inert command", result["error"])
+
+    def test_generic_arithmetic_check_cannot_validate_rust_target(self):
+        a = self.check("assert 2 + 2 == 4")
+        result = self.agent.tools.execute("record_engineering_evidence", {
+            "domain": "systems_programming", "facet": "target", "check_id": a,
+            "reason": "Generic arithmetic success cannot prove a Rust compiler build."})
+        self.assertFalse(result["ok"])
+        self.assertIn("domain build/test tool", result["error"])
 
     def test_unknown_skill_limit_does_not_drown_out_project_domain(self):
         skills = select_skills("Fix the project", domains=["embedded_iot"], limit=5)
