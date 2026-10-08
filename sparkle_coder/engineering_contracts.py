@@ -125,12 +125,17 @@ def link_evidence(workspace, state, domain, facet, check_id, reason, *, task_pro
         raise ValueError("An inert command is not valid acceptance evidence.")
     if facet == "target" and not _target_relevant(domain, check):
         raise ValueError("Target evidence must execute a relevant domain build/test tool or a user-required check; generic assertions are not platform verification.")
-    previous = state.get("engineering_evidence", {}).get(domain, {})
+    evidence = state.get("engineering_evidence", {})
+    previous = evidence.get(domain, {}) if isinstance(evidence, dict) else {}
+    if not isinstance(previous, dict):
+        previous = {}
     if any(f != facet and v.get("check_id") == check_id for f, v in previous.items()
            if isinstance(v, dict)):
         raise ValueError("Behavior and target evidence need separate real checks.")
+    if not isinstance(evidence, dict):
+        state["engineering_evidence"] = {}
     state.setdefault("engineering_evidence", {}).setdefault(domain, {})[facet] = {
-        "check_id": check_id, "reason": reason, "command": check["command"]}
+        "check_id": check_id, "reason": reason}
     return evaluate_contract(workspace, state, selected, task_profile=task_profile)
 
 
