@@ -33,6 +33,7 @@ const icons = {
   undo: '<path d="m9 5-5 5 5 5M4 10h9a6 6 0 0 1 6 6v3"/>',
   bug: '<path d="M8 6 6 3M16 6l2-3M3 10h4M17 10h4M3 16h4M17 16h4"/><rect x="7" y="6" width="10" height="15" rx="5"/><path d="M7 12h10M12 12v9"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  search: '<circle cx="10.8" cy="10.8" r="7.3"/><path d="m16.1 16.1 5 5"/>',
   moon: '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/>',
 };
 function icon(name) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (icons[name] || icons.code) + '</svg>'; }
@@ -78,10 +79,10 @@ id("app").innerHTML = `
   </aside>
   <main class="workspace">
     <header class="topbar">
-      <button class="icon-button mobile-only" id="menuButton" aria-label="Open navigation"><span data-icon="menu"></span></button>
+      <button class="icon-button mobile-only" id="menuButton" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar"><span data-icon="menu"></span></button>
       <span class="project-icon" data-icon="folder"></span>
       <select id="projectSelect" aria-label="Selected project"></select>
-      <button class="icon-button" id="addProject" title="Add project" aria-label="Add project"><span data-icon="plus"></span></button><button class="text-button" id="deleteProject" title="Remove the selected project" type="button">Delete project</button>
+      <button class="icon-button" id="addProject" title="Add project" aria-label="Add project"><span data-icon="plus"></span></button><button class="icon-button" type="button" id="openSearch" aria-label="Search project files and saved tasks" title="Search files and tasks (Ctrl/⌘ Shift F)"><span data-icon="search"></span></button><button class="text-button" id="deleteProject" title="Remove the selected project" type="button">Delete project</button>
       <span class="topbar-divider"></span><span class="project-path" id="projectPath"></span>
       <div class="topbar-actions"><button type="button" id="workspaceModeSwitch" class="workspace-mode-switch" hidden aria-label="Check cloud workspace connection" title="Check cloud connection"><span class="workspace-mode-label">Cloud</span></button><button id="topAccountButton" class="text-button" type="button" hidden>Account</button><button id="trackTask" class="text-button" title="Open live run monitor">Monitor <span id="headerRunStatus">Ready</span></button><button class="icon-button details-toggle" id="detailsButton" aria-label="Show activity panel"><span data-icon="panel"></span></button></div>
     </header>
@@ -133,7 +134,7 @@ id("app").innerHTML = `
           <input id="uploadFiles" type="file" multiple hidden><input id="uploadFolder" type="file" webkitdirectory multiple hidden>
           <div id="dropZone" class="drop-zone" tabindex="0">Drop files here, or paste copied files. Existing files are kept; duplicates get a new name.</div>
           <div id="transferStatus" class="transfer-status" hidden role="status"><span id="transferText"></span><button id="cancelImport" class="text-button" hidden>Cancel remaining</button><pre id="transferErrors" hidden></pre></div>
-          <label class="sr-only" for="fileSearch">Filter files</label><input id="fileSearch" class="file-search" placeholder="Find a file by name…" type="search">
+          <label class="sr-only" for="fileSearch">Filter file names and paths</label><input id="fileSearch" class="file-search" placeholder="Filter file names or paths…" type="search"><p id="fileFilterStatus" class="search-filter-status" role="status"></p>
           <div class="file-workbench"><div id="fileList" class="file-list"></div><div class="file-content"><div class="file-content-heading"><span id="fileName">Select a file</span><span id="fileMeta"></span></div>
           <div class="file-tools"><button id="editFile" class="text-button" disabled>Edit</button><button id="deleteFile" class="text-button" disabled>Delete</button><button id="copyFileText" class="text-button" disabled>Copy text</button><button id="copyFilePath" class="text-button" disabled>Copy path</button><button id="duplicateFile" class="text-button" disabled>Duplicate</button><button id="downloadFile" class="text-button" disabled>Download file</button></div><pre id="filePreview">Your project files will appear here.</pre></div></div>
           <p class="file-limit-note">Built files and binary assets are supported. Transfers: 20 MiB per file, 100 MiB per project export. Credentials, dependencies, Git internals, and agent history are excluded from project exports. Use Open folder for direct device access.</p>
@@ -155,7 +156,7 @@ id("app").innerHTML = `
         <div id="activityTab" class="inspector-content"><div id="plan"></div><div class="panel-label">ACTIVITY</div><div id="activityList" class="activity-list"><div class="empty-detail"><span data-icon="bolt"></span><strong>Ready when you are</strong><p>The agent's progress and decisions will appear here.</p></div></div></div>
         <div id="changesTab" class="inspector-content" hidden><div class="panel-toolbar"><span class="panel-label">FILE CHANGES</span><button id="undoButton" class="text-button" disabled><span data-icon="undo"></span>Undo</button></div><div id="changesList"></div></div>
         <div id="checksTab" class="inspector-content" hidden><div class="panel-label">VERIFICATION</div><div id="checksList"></div></div>
-        <div class="run-metrics"><div><span>MODEL CALLS</span><strong id="callsMetric">—</strong></div><div><span>TOKENS</span><strong id="tokensMetric">—</strong></div><span class="metrics-icon" data-icon="bolt"></span></div>
+        <div class="run-metrics"><div><span>MODEL CALLS</span><strong id="callsMetric">—</strong></div><div><span id="tokensMetricLabel">MODEL TOKENS</span><strong id="tokensMetric" title="Model input and output tokens for this task">—</strong><small id="tokensMetricDetail" class="usage-detail"></small></div><span class="metrics-icon" data-icon="bolt"></span></div>
       </aside>
     </div>
   </main>
@@ -163,7 +164,7 @@ id("app").innerHTML = `
 <dialog id="accountDialog">
   <div class="dialog-header"><h2>Your account</h2><button class="icon-button" data-close="accountDialog" aria-label="Close account"><span data-icon="close"></span></button></div>
   <p id="accountMessage" role="status">Loading account…</p>
-  <div class="account-balance" id="accountBalance" hidden><strong id="creditAmount">0</strong><span>tokens available</span><p id="creditHeld"></p></div>
+  <div class="account-balance" id="accountBalance" hidden><strong id="creditAmount">0</strong><span>tokens available to use</span><p id="creditHeld"></p></div>
   <form id="accountForm">
     <label class="check-label"><input id="memberLogin" type="checkbox"> I already have an account — sign in without admin approval.</label>
     <div id="createAccountFields"><div class="settings-row"><div><label for="memberName">Full name</label><input id="memberName" autocomplete="name" required minlength="2" maxlength="80"></div><div><label for="memberPhone">Phone <span>Optional</span></label><input id="memberPhone" type="tel" autocomplete="tel" maxlength="32"></div></div>
@@ -180,6 +181,14 @@ id("app").innerHTML = `
     <form id="paymentForm" novalidate><input id="paymentPack" type="hidden" value="1"><fieldset class="token-package-fieldset"><legend>Choose a token package</legend><div id="tokenPackageGrid" class="token-package-grid"><button type="button" class="token-package active" data-millions="1"><strong>Starter</strong><span>1M tokens</span><small>₹15</small></button><button type="button" class="token-package" data-millions="2"><strong>Builder</strong><span>2M tokens</span><small>₹30</small></button><button type="button" class="token-package" data-millions="5"><strong>Pro</strong><span>5M tokens</span><small>₹75</small></button><button type="button" class="token-package" data-millions="10"><strong>Power</strong><span>10M tokens</span><small>₹150</small></button><button type="button" class="token-package" data-millions="25"><strong>Studio</strong><span>25M tokens</span><small>₹375</small></button><button type="button" class="token-package" data-millions="50"><strong>Scale</strong><span>50M tokens</span><small>₹750</small></button><button type="button" class="token-package" data-millions="100"><strong>Mega</strong><span>100M tokens</span><small>₹1,500</small></button><button type="button" class="token-package custom" data-millions="custom"><strong>Custom</strong><span>N million tokens</span><small>You choose</small></button></div></fieldset><div id="customTokenRow" hidden><label for="customTokenMillions">Custom amount <span>Millions of tokens</span></label><input id="customTokenMillions" type="number" min="1" max="100" step="1" value="1" inputmode="numeric"><p class="settings-note">Enter any whole number from 1 to 100. The price is calculated automatically at ₹15 per million.</p></div><label for="paymentCoupon">Coupon code <span>Optional</span></label><div class="folder-input"><input id="paymentCoupon" maxlength="32" autocomplete="off" placeholder="Enter coupon"><button type="button" id="applyCoupon" class="button secondary">Apply</button></div><p id="couponStatus" class="settings-note"></p><div id="paymentReferenceRow"><label for="paymentReference">UPI transaction reference / UTR</label><input id="paymentReference" minlength="8" maxlength="40" autocomplete="off"></div><div class="dialog-actions"><button id="submitPayment" class="button primary">Submit purchase for review</button></div></form></section>
   <div id="accountPayments"></div><p class="settings-note">Input and output tokens both count. A temporary reservation is released when a request finishes. Your connection is remembered on this computer.</p><p id="accountSupport" class="settings-note"></p><div class="dialog-actions"><button id="reconnectAccount" class="text-button">Sign out / switch account</button><button id="refreshAccount" class="button secondary">Refresh account</button></div>
 </dialog>
+<dialog id="searchDialog" class="search-dialog" aria-label="Search this project">
+  <div class="dialog-header"><h2>Find in project</h2><button class="icon-button" data-close="searchDialog" aria-label="Close search"><span data-icon="close"></span></button></div>
+  <label class="sr-only" for="globalSearch">Search file names and saved tasks</label>
+  <input id="globalSearch" type="search" autocomplete="off" placeholder="Search files and saved tasks…" aria-describedby="searchHint">
+  <p id="searchHint" class="settings-note">Searches file names and saved task titles in this project, not file contents.</p>
+  <p id="searchStatus" class="settings-note" role="status"></p>
+  <div id="searchResults" class="search-results"></div>
+</dialog>
 <dialog id="settingsDialog">
   <div class="dialog-header"><div><span class="eyebrow">YOUR ENGINE</span><h2>Connect AI</h2></div><button class="icon-button" data-close="settingsDialog" aria-label="Close settings"><span data-icon="close"></span></button></div>
   <form id="settingsForm">
@@ -189,13 +198,14 @@ id("app").innerHTML = `
     <label for="modelId">AI model</label><input id="modelId" list="modelOptions" required autocomplete="off"><datalist id="modelOptions"><option value="SPARKLE Core"><option value="SPARKLE Fast"><option value="SPARKLE Advanced"></datalist>
     <label for="apiKey">API key <span id="keyHint">Paste it here; it is never written to disk</span></label><div class="folder-input"><input id="apiKey" type="password" autocomplete="new-password" placeholder="Paste your Sparkle access key here"><button type="button" id="showApiKey" class="button secondary" aria-pressed="false">Show</button></div><button type="button" id="clearApiKey" class="text-button key-clear">Remove configured key</button>
     <p class="settings-note" id="connectionNote">Use the access key from your gateway operator. <a id="cloudAccessLink" target="_blank" rel="noreferrer">Open the gateway access page</a>. Your key stays in memory and is cleared when SPARKLE CODER quits.</p>
+    <details class="advanced" id="advancedSettings"><summary>Advanced settings <span>Only if you need to change execution or limits</span></summary>
     <div class="settings-row"><div><label for="executionMode">Run commands in</label><select id="executionMode"><option value="local">This computer</option><option value="docker">Docker container</option></select></div><div><label for="toolFormat">Tool format</label><select id="toolFormat"><option value="native">Native tool calls</option><option value="json">JSON fallback</option></select></div></div>
-    <button type="button" id="removeRunCaps" class="button secondary unlimited-button">Remove all run caps</button><p class="settings-note" id="capsHint">Model calls, run duration, total tokens and command duration can all be unlimited.</p>
-    <details class="advanced"><summary>Run and connection settings</summary><div class="settings-row"><div><label for="maxSteps">Model calls <span>Blank = unlimited</span></label><input id="maxSteps" type="number" min="1" placeholder="Unlimited"></div><div><label for="maxSeconds">Elapsed seconds <span>Blank = unlimited</span></label><input id="maxSeconds" type="number" min="1" placeholder="Unlimited"></div></div><div class="settings-row"><div><label for="maxTotalTokens">Total tokens <span>Blank = unlimited</span></label><input id="maxTotalTokens" type="number" min="1" placeholder="Unlimited"></div><div><label for="commandTimeout">Command seconds <span>Blank = unlimited</span></label><input id="commandTimeout" type="number" min="1" placeholder="Unlimited"></div></div><div class="settings-row"><div><label for="maxTokens">Output tokens per call</label><input id="maxTokens" type="number" min="1"></div><div><label for="requestTimeout">API response timeout <span>Seconds before retry</span></label><input id="requestTimeout" type="number" min="1"></div></div></details>
-    <p class="settings-note">Use <strong>Stop</strong> to end a task. Temporary connection failures retry automatically. Your model provider still controls its context size, output limit, rate limits and account quota.</p>
-    <p class="settings-note" id="executionNote">Local commands use your computer's permissions. You approve each agent-proposed command.</p>
+    <button type="button" id="removeRunCaps" class="button secondary unlimited-button">Remove all run caps</button><p class="settings-note" id="capsHint">Blank run caps mean unlimited.</p>
+    <div class="settings-row"><div><label for="maxSteps">Model calls <span>Blank = unlimited</span></label><input id="maxSteps" type="number" min="1" placeholder="Unlimited"></div><div><label for="maxSeconds">Elapsed seconds <span>Blank = unlimited</span></label><input id="maxSeconds" type="number" min="1" placeholder="Unlimited"></div></div><div class="settings-row"><div><label for="maxTotalTokens">Total tokens <span>Blank = unlimited</span></label><input id="maxTotalTokens" type="number" min="1" placeholder="Unlimited"></div><div><label for="commandTimeout">Command seconds <span>Blank = unlimited</span></label><input id="commandTimeout" type="number" min="1" placeholder="Unlimited"></div></div><div class="settings-row"><div><label for="maxTokens">Output tokens per call</label><input id="maxTokens" type="number" min="1"></div><div><label for="requestTimeout">API response timeout <span>Seconds before retry</span></label><input id="requestTimeout" type="number" min="1"></div></div>
+    <p class="settings-note" id="executionNote">Local commands use your computer's permissions. You approve each agent-proposed command.</p></details>
+    <p class="settings-note">Press Stop to end a task. Temporary connection failures retry automatically; the model provider controls its quota.</p>
     <div id="connectionResult" class="inline-result" role="status" hidden></div>
-    <div class="dialog-actions"><button type="button" id="testConnection" class="button secondary">Test connection</button><button type="submit" class="button primary" id="saveSettings">Save connection</button></div>
+    <div class="dialog-actions"><button type="button" id="testConnection" class="button secondary" title="Save your settings and test the connection">Save and test</button><button type="submit" class="button primary" id="saveSettings">Save connection</button></div>
   </form>
 </dialog>
 <dialog id="projectDialog"><div class="dialog-header"><div><span class="eyebrow">YOUR FILES</span><h2>Add a project</h2></div><button class="icon-button" data-close="projectDialog" aria-label="Close project dialog"><span data-icon="close"></span></button></div><form id="projectForm"><label for="projectName">Project name</label><input id="projectName" required maxlength="100" placeholder="My next project"><label for="projectPurpose">What is this project for? <span>Optional — starts its Project Brief</span></label><textarea id="projectPurpose" rows="2" maxlength="2000" placeholder="A website for my small business"></textarea><label for="projectFolder">Existing folder <span>Optional</span></label><div class="folder-input"><input id="projectFolder" placeholder="Leave blank to create a new folder"><button type="button" id="browseFolder" class="button secondary">Browse</button></div><p class="settings-note">A new folder is created when you leave this blank. Existing files are preserved.</p><div id="projectError" class="inline-result" hidden></div><div class="dialog-actions"><button type="submit" class="button primary" id="saveProject">Open project</button></div></form></dialog>
@@ -370,9 +380,106 @@ function friendly(status) { return ({checked:"Checks passed",answered:"Answer re
 function shortModel(model) { if (model.includes("super")) return "SPARKLE Core"; if (model.includes("ultra")) return "SPARKLE Advanced"; if (model.includes("nano")) return "SPARKLE Fast"; if (/nvidia|nemotron/i.test(model)) return "SPARKLE AI"; return model.split("/").pop() || "SPARKLE AI"; }
 async function action(fn) { try { await fn(); } catch (error) { toast(error.message); } }
 function emptyPanel(text, description) { const e = node("div", "empty-detail"); const symbol = node("span"); symbol.innerHTML = icon("code"); e.append(symbol, node("strong", "", text), node("p", "", description)); return e; }
-function changeView(name) { view = name; ["build","files","history","monitor"].forEach(v => id(v + "View").hidden = v !== name); document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === name)); document.body.classList.remove("sidebar-open"); if(name==="files") action(loadFiles); if(name==="history") action(loadHistory); if(name==="monitor")renderMonitor(); }
+function changeView(name) {
+  if(!["build","files","history","monitor"].includes(name))return;
+  view=name;
+  for(const v of ["build","files","history","monitor"])id(v+"View").hidden=v!==name;
+  document.querySelectorAll("[data-view]").forEach(b=>{
+    const active=b.dataset.view===name;
+    b.classList.toggle("active",active);
+    if(active)b.setAttribute("aria-current","page");
+    else b.removeAttribute("aria-current");
+  });
+  closeSidebar();
+  if(name==="files")action(loadFiles);
+  if(name==="history")action(loadHistory);
+  if(name==="monitor")renderMonitor();
+}
 function setTab(name) { tab = name; ["activity","changes","checks"].forEach(t => id(t+"Tab").hidden = t!==name); document.querySelectorAll("[data-tab]").forEach(b => { b.classList.toggle("active", b.dataset.tab===name); b.setAttribute("aria-selected", String(b.dataset.tab===name)); }); if(name==="changes") action(loadChanges); }
 
+// One small search surface for the project, without searching private code content.
+let searchProjectId="",searchFiles=[],searchTasks=[],searchGeneration=0;
+let searchWarnings=[],searchTruncated=false;
+function rankSearchItems(query,paths,tasks,limit=30){
+  const terms=searchTerms(query);
+  const scored=[];
+  const score=(name,kind)=>{
+    const value=String(name||"").normalize("NFKC").toLocaleLowerCase();
+    const whole=terms.join(" ");
+    const label=value.split("/").pop();
+    return (whole&&label===whole?0:whole&&label.startsWith(whole)?1:
+      whole&&value.includes(whole)?2:3)+(kind==="task"?1:0);
+  };
+  for(const path of paths||[])if(matchSearch(path,terms))
+    scored.push({type:"file",id:path,title:path,score:score(path,"file")});
+  for(const task of tasks||[])if(matchSearch(task.goal,terms))
+    scored.push({type:"task",id:task.id,title:task.goal,score:score(task.goal,"task")});
+  scored.sort((a,b)=>a.score-b.score||a.title.localeCompare(b.title));
+  return {results:scored.slice(0,limit),total:scored.length};
+}
+function renderGlobalSearch(){
+  const container=id("searchResults");container.replaceChildren();
+  const query=id("globalSearch").value;
+  const found=rankSearchItems(query,searchFiles,searchTasks);
+  const message=searchProjectId!==projectId?
+    "Project changed. Open search again.":found.total?
+    found.total+" result"+(found.total===1?"":"s")+(found.total>30?" · Showing first 30. Refine your search.":""):
+    "No matching files or saved tasks. Try another name.";
+  id("searchStatus").textContent=message+
+    (searchTruncated?" File listing was limited; more files may exist.":"")+
+    (searchWarnings.length?" Unavailable: "+searchWarnings.join("; "):"");
+  if(searchProjectId!==projectId)return;
+  const section=(type,title)=>{
+    const heading=node("div","search-group-heading",title);
+    container.append(heading);
+    for(const item of found.results.filter(r=>r.type===type)){
+      const button=node("button","search-result");
+      button.type="button";
+      const iconWrap=node("span","search-result-icon");iconWrap.innerHTML=icon(type==="file"?"file":"history");
+      button.append(iconWrap,node("span","",item.title));
+      button.onclick=()=>action(async()=>{
+        if(searchProjectId!==projectId)return;
+        id("searchDialog").close();
+        if(type==="file"){
+          changeView("files");await loadFiles();await openFile(item.id);
+        }else await loadSession(item.id);
+      });
+      container.append(button);
+    }
+  };
+  if(found.results.some(r=>r.type==="file"))section("file","Files");
+  if(found.results.some(r=>r.type==="task"))section("task","Saved tasks");
+}
+async function openGlobalSearch(){
+  if(!projectId){toast("Create or select a project first.");return;}
+  const sourceProject=projectId,version=++searchGeneration;
+  searchProjectId=sourceProject;searchFiles=[];searchTasks=[];searchWarnings=[];searchTruncated=false;
+  id("globalSearch").value="";id("searchResults").replaceChildren();
+  id("searchStatus").textContent="Looking up project files and saved tasks…";
+  id("searchDialog").showModal();id("globalSearch").focus();
+  // Keep partial results if either endpoint is temporarily unavailable.
+  const responses=await Promise.allSettled([
+    api("/projects/"+sourceProject+"/files"),
+    api("/projects/"+sourceProject+"/sessions")
+  ]);
+  if(version!==searchGeneration||sourceProject!==projectId||!id("searchDialog").open)return;
+  if(responses[0].status==="fulfilled"){
+    searchFiles=responses[0].value.files||[];
+    searchTruncated=Boolean(responses[0].value.truncated);
+  }
+  if(responses[1].status==="fulfilled")searchTasks=responses[1].value.sessions||[];
+  searchWarnings=responses.filter(x=>x.status==="rejected")
+    .map(x=>x.reason?.message||"Connection error");
+  renderGlobalSearch();
+}
+function closeSidebar(){
+  document.body.classList.remove("sidebar-open");
+  id("menuButton").setAttribute("aria-expanded","false");
+}
+function setSidebarOpen(open){
+  document.body.classList.toggle("sidebar-open",open);
+  id("menuButton").setAttribute("aria-expanded",String(open));
+}
 function renderProjects() {
   id("projectSelect").replaceChildren();
   if(!appState.projects.length){const accountReady=Boolean(appState?.account?.ready),cloudReady=Boolean(accountReady&&appState?.engine?.available);const label=isCloud?(cloudReady?"No cloud projects yet":accountReady?"Reconnecting cloud projects…":"Cloud projects unavailable"):"No project selected";const option=node("option","",label);option.value="";id("projectSelect").append(option);}
@@ -543,6 +650,21 @@ function appendText(parent,text) {
     else if(piece.trim()) parent.append(node("div","message-text",piece.trim()));
   });
 }
+function renderTokenUsage(usage){
+  const inputValue=usage?.prompt_tokens,outputValue=usage?.completion_tokens;
+  const known=Number.isSafeInteger(inputValue)&&inputValue>=0&&
+              Number.isSafeInteger(outputValue)&&outputValue>=0;
+  const input=known?inputValue:0,output=known?outputValue:0;
+  const estimates=Number(usage?.estimated_calls||0);
+  const estimated=estimates>0;
+  const label=estimated?"MODEL TOKENS · EST.":"MODEL TOKENS";
+  id("tokensMetricLabel").textContent=label;
+  id("tokensMetric").textContent=known?(estimated?"≈ ":"")+(input+output).toLocaleString():"—";
+  id("tokensMetricDetail").textContent=known?"Input "+input.toLocaleString()+" · Output "+output.toLocaleString():"";
+  id("tokensMetric").title=estimated?
+    estimates+" model call(s) returned no token usage. This approximate figure is not your billing balance.":
+    "Input and output tokens reported for this task. Account credits are shown separately in Account.";
+}
 function renderSession(session) {
   currentSession=session;
   id("welcome").hidden=!!session; id("messages").hidden=!session;
@@ -710,9 +832,20 @@ async function openProjectFiles(){
   if(isCloud){changeView("files");return;}
   return api("/open-folder",{project_id:projectId});
 }
+function searchTerms(text){
+  return String(text||"").normalize("NFKC").toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+}
+function matchSearch(text,terms){
+  const normalized=String(text||"").normalize("NFKC").toLocaleLowerCase();
+  return terms.every(term=>normalized.includes(term));
+}
 function renderFileList() {
   id("fileList").replaceChildren();
-  const query=id("fileSearch").value.toLowerCase(),shown=files.filter(path=>path.toLowerCase().includes(query));
+  const terms=searchTerms(id("fileSearch").value);
+  const shown=files.filter(path=>matchSearch(path,terms));
+  id("fileFilterStatus").textContent=terms.length?
+    shown.length+" of "+files.length+" files match"+(shown.length?"":"; try a shorter name"):
+    files.length+" files";
   if(!shown.length)id("fileList").append(node("p","empty-file-list",files.length?"No matching files.":!projectId?"No project is open.":"Import files or start a task to add code."));
   shown.forEach(path=>{const button=node("button","file-row"+(selectedFile===path?" selected":""),path);const mark=node("span");mark.innerHTML=icon("file");button.prepend(mark);button.title=path;button.onclick=()=>action(()=>openFile(path));id("fileList").append(button);});
 }
@@ -1282,6 +1415,29 @@ id("downloadLog").onclick=()=>action(()=>saveDownload("/projects/"+projectId+"/s
 id("openProjectFolder").onclick=()=>action(openProjectFiles);
 id("filesStateAction").onclick=()=>action(async()=>{if(isCloud&&!appState?.account?.ready)return openAccount();if(fileLoadError||(isCloud&&!appState?.engine?.available))return openWorkspace();id("addProject").click();});
 id("fileSearch").oninput=renderFileList;
+id("openSearch").onclick=()=>action(openGlobalSearch);
+id("globalSearch").oninput=renderGlobalSearch;
+id("globalSearch").onkeydown=event=>{
+  if(event.key==="ArrowDown"){
+    const first=id("searchResults").querySelector(".search-result");
+    if(first){event.preventDefault();first.focus();}
+  }else if(event.key==="Enter"){
+    const first=id("searchResults").querySelector(".search-result");
+    if(first){event.preventDefault();first.click();}
+  }
+};
+id("searchResults").onkeydown=event=>{
+  const buttons=Array.from(id("searchResults").querySelectorAll(".search-result"));
+  const index=buttons.indexOf(document.activeElement);
+  if(index<0)return;
+  if(event.key==="ArrowDown"||event.key==="ArrowUp"){
+    event.preventDefault();
+    const next=index+(event.key==="ArrowDown"?1:-1);
+    if(next<0)id("globalSearch").focus();
+    else buttons[Math.min(next,buttons.length-1)]?.focus();
+  }
+};
+id("searchDialog").addEventListener("close",()=>{searchGeneration++;id("openSearch").focus();});
 id("copyFilePath").onclick=()=>action(()=>copyText(isCloud?selectedFile:appState.projects.find(p=>p.id===projectId).path+"/"+selectedFile));
 id("copyFileText").onclick=()=>action(async()=>copyText(await (await downloadBlob("/projects/"+projectId+"/download?path="+encodeURIComponent(selectedFile))).text()));
 id("downloadFile").onclick=()=>action(()=>saveDownload("/projects/"+projectId+"/download?path="+encodeURIComponent(selectedFile),selectedFile.split("/").pop()));
@@ -1414,11 +1570,24 @@ id("projectForm").onsubmit=e=>{e.preventDefault();action(async()=>{id("saveProje
 id("refreshFiles").onclick=()=>action(isCloud?openWorkspace:loadFiles);
 id("undoButton").onclick=()=>action(async()=>{const result=await api("/projects/"+projectId+"/sessions/"+currentSession.id+"/undo");id("undoFiles").replaceChildren(...result.paths.map(p=>node("li","",p)));id("undoDialog").showModal();});
 id("confirmUndo").onclick=()=>action(async()=>{await api("/projects/"+projectId+"/sessions/"+currentSession.id+"/undo",{confirm:true});id("undoDialog").close();await loadSession(currentSession.id);await loadFiles();await loadChanges();toast("File-tool edits were undone.");});
-id("menuButton").onclick=()=>document.body.classList.toggle("sidebar-open"); id("navBackdrop").onclick=()=>document.body.classList.remove("sidebar-open");
+id("menuButton").onclick=()=>setSidebarOpen(!document.body.classList.contains("sidebar-open"));
+id("navBackdrop").onclick=closeSidebar;
 id("detailsButton").onclick=()=>document.body.classList.toggle("details-open"); id("closeDetails").onclick=()=>document.body.classList.remove("details-open");
 id("quitButton").onclick=()=>id("quitDialog").showModal();
 id("confirmQuit").onclick=()=>action(async()=>{await api("/quit",{});clearTimeout(pollTimer);id("quitDialog").close();id("app").replaceChildren(emptyPanel("Workspace closed","Your work is saved. Use the desktop launcher to open the app again."));});
-document.addEventListener("keydown",e=>{if(!appState||id("workspaceShell").hidden)return;if((e.ctrlKey||e.metaKey)&&e.key==="Enter"&&!document.querySelector("dialog[open]")){e.preventDefault();id("taskForm").requestSubmit();}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();action(()=>newTask(true));}});
+document.addEventListener("keydown",e=>{
+  if(!appState||id("workspaceShell").hidden)return;
+  if(e.key==="Escape"&&document.body.classList.contains("sidebar-open")){closeSidebar();id("menuButton").focus();return;}
+  const modifier=e.ctrlKey||e.metaKey;
+  if(modifier&&e.shiftKey&&e.key.toLowerCase()==="f"){
+    e.preventDefault();if(!id("searchDialog").open)action(openGlobalSearch);else id("globalSearch").focus();
+    return;
+  }
+  if(modifier&&e.key==="Enter"&&!document.querySelector("dialog[open]")){e.preventDefault();id("taskForm").requestSubmit();}
+  if(modifier&&e.key.toLowerCase()==="k"&&!document.querySelector("dialog[open]")){
+    e.preventDefault();action(()=>newTask(true));
+  }
+});
 window.addEventListener("beforeunload",saveDraftNow);
 document.querySelectorAll("dialog").forEach(dialog=>dialog.addEventListener("click",e=>{if(e.target===dialog){if(dialog.id==="editorDialog"&&editorSaving)return;const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}}));
 

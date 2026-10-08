@@ -60,3 +60,72 @@
 #deleteProjectFilesLabel input{flex-shrink:0}
 #briefSuggestionStatus{white-space:pre-line;line-height:1.5}
 @media(max-width:760px){#deleteProject{font-size:10px;padding:4px}.history-entry .history-row{padding:12px 0}}
+
+/* Group 4: minimal, predictable workspace with calm surfaces and clear focus. */
+:root{--focus-ring:color-mix(in srgb,var(--accent) 45%,transparent)}
+.shell{grid-template-columns:216px minmax(0,1fr)}
+.sidebar{padding:19px 11px 14px}
+.brand{padding:7px 10px 20px}
+.navigation{gap:2px}
+.nav-item{min-height:40px;border-radius:7px;padding:9px 11px}
+.nav-item:hover:not(.active),.search-result:hover,.file-row:hover:not(.selected){background:var(--surface)}
+.nav-item.active{font-weight:550}
+.new-task{border-radius:8px;padding:11px 12px;margin-bottom:17px}
+.topbar{min-height:60px;padding:0 22px;gap:8px}
+.topbar select{min-width:0;max-width:240px;font-weight:550}
+#openSearch{color:var(--muted)}
+#openSearch:hover{background:var(--surface);color:var(--text)}
+#deleteProject{opacity:.68}
+#deleteProject:hover{opacity:1}
+.build-view{padding:0 28px 15px}
+.welcome h1{font-size:32px}
+.welcome>p{margin-bottom:20px}
+.suggestion{border-radius:8px;padding:9px 12px}
+.suggestion:hover,.button.secondary:hover:not(:disabled){background:var(--surface)}
+.composer{border-radius:12px;box-shadow:none;padding:10px 15px}
+.message{margin-bottom:25px}
+.message-text{line-height:1.65}
+.inspector{width:300px}
+.files-view,.history-view,.monitor-view{padding:25px}
+.file-workbench,.timeline-panel,.console-panel{border-radius:9px}
+.file-search{margin:10px 0 1px}
+.search-filter-status{margin:0 0 10px;font-size:11px;color:var(--muted)}
+.run-metrics .usage-detail{display:block;font-size:10px;font-weight:400;color:var(--muted);line-height:1.4;margin-top:4px}
+.search-dialog{width:min(560px,calc(100vw - 28px));padding:22px}
+.search-dialog .dialog-header{margin-bottom:12px}
+.search-dialog input[type=search]{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:13px;font-size:14px}
+.search-dialog input[type=search]:focus{outline:2px solid var(--focus-ring);outline-offset:0;border-color:var(--accent)}
+.search-dialog .settings-note{margin:8px 0 12px}
+.search-results{max-height:min(54vh,440px);overflow:auto}
+.search-group-heading{padding:13px 6px 7px;font-size:10px;font-weight:650;letter-spacing:.07em;color:var(--muted);text-transform:uppercase}
+.search-result{display:flex;align-items:flex-start;gap:10px;width:100%;min-height:41px;text-align:left;padding:10px 11px;border-radius:7px;font-size:12px;overflow-wrap:anywhere}
+.search-result-icon{flex-shrink:0;color:var(--muted)}
+.search-result-icon svg{width:15px;height:15px}
+.advanced summary span{font-weight:400;color:var(--muted);margin-left:6px;font-size:11px}
+.advanced[open]{padding-bottom:16px}
+.advanced[open] .settings-row{margin-top:8px}
+:where(button,select,input,textarea,summary):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:1100px){.build-view{padding:0 20px 14px}}
+@media(max-width:760px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .sidebar{width:min(272px,84vw);box-shadow:10px 0 40px #0002}
+  .nav-item{min-height:44px}
+  .topbar{display:grid;grid-template-columns:32px 22px minmax(80px,1fr) 32px 32px;gap:6px;min-height:0;padding:8px 12px}
+  .topbar select{max-width:none;width:100%;font-size:13px}
+  .topbar #deleteProject{grid-column:3/6;justify-self:end;grid-row:2}
+  .topbar-actions{grid-column:1/3;grid-row:2;margin:0;justify-self:start;gap:7px}
+  .topbar-divider,.project-path{display:none}
+  .workspace-mode-label{font-size:10px;padding:4px 6px}
+  .workspace-mode-switch{margin-left:0}
+  .build-view{padding:0 13px 12px}
+  .welcome{padding-top:4vh}
+  .welcome h1{font-size:27px}
+  .composer{padding:10px 12px;border-radius:10px}
+  .conversation{padding:20px 0}
+  .files-view,.history-view,.monitor-view{padding:20px 14px}
+  .search-dialog{padding:18px}
+  .search-results{max-height:52dvh}
+}
+
+/* Run Monitor remains reachable on small screens even in Simple View. */
+.simple-mode .navigation [data-view="monitor"]{display:flex}
