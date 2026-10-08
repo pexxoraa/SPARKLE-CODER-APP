@@ -132,6 +132,24 @@ class EnvironmentTests(unittest.TestCase):
         self.assertFalse(agent.session.state["checks"])
         self.assertEqual(agent.session.state["engineering_probes"][0]["output_excerpt"], "cargo 1.90.0")
 
+    def test_inspection_reports_observed_success_then_stale_after_setup_revision(self):
+        self.write("Cargo.toml", "[package]\nname='demo'")
+        agent = self.agent("Rust systems programming")
+        listed = agent.tools.inspect_engineering_environment()
+        self.assertEqual(listed["probes"][0]["probe_status"], "not_run")
+        item = listed["probes"][0]
+        with patch("sparkle_coder.engineering_environments.shutil.which", return_value="/bin/cargo"), \
+             patch.object(agent.tools.runner, "run",
+                          return_value={"ok": True, "exit_code": 0, "output": "cargo 1.9"}):
+            agent.tools.execute("probe_engineering_environment", {"probe_id": item["id"]})
+        observed = agent.tools.inspect_engineering_environment()
+        self.assertEqual(observed["probes"][0]["probe_status"],
+                         "command_passed_not_target_verified")
+        agent.session.state["environment_revision"] = 1
+        stale = agent.tools.inspect_engineering_environment()
+        self.assertEqual(stale["probes"][0]["probe_status"], "stale")
+        self.assertFalse(stale["probes"][0]["target_verified"])
+
     def test_probe_denial_not_misreported_as_ready(self):
         self.write("Cargo.toml", "[package]\nname='demo'")
         agent = self.agent("Rust systems programming", auto=False, approve=lambda _: False)
