@@ -25,7 +25,7 @@ import urllib.request
 from urllib.parse import urlsplit
 
 sys.path.insert(0,str(Path.cwd().parent/'scripts'))
-from setup_cloud import ROOT, OWNER, save, run_wrangler, deploy_worker
+from setup_cloud import ROOT, OWNER, save, run_wrangler, deploy_worker, check_migrations, apply_migrations, database_rows
 
 config=json.loads((OWNER/'wrangler.json').read_text())
 binding=config['d1_databases'][0]
@@ -71,6 +71,23 @@ if engine_path.exists():
         print('Warning: no healthy hosted-engine tunnel was confirmed before deploy. The recovery timer will keep checking.',flush=True)
 save(OWNER/'wrangler.json',config)
 command=[shutil.which('npx') or 'npx','--no-install','wrangler']
+# A Worker publish does not migrate D1. Always apply and verify pending schema
+# migrations BEFORE shipping UI options that depend on the new database rules.
+# This is safe to rerun: Wrangler records each applied migration in D1 history.
+# On any migration failure, abort deployment without changing account balances.
+print('Verifying remote Cloudflare D1 schema before Worker deployment...',flush=True)
+check_migrations(ROOT/'gateway/migrations')
+run=lambda *args,**kwargs:run_wrangler(command,*args,**kwargs)
+apply_migrations(run,binding['database_name'])
+schema=database_rows(run,binding['database_name'],
+                     "SELECT sql FROM sqlite_master WHERE type='table' AND name='payments_v2'")
+if len(schema)!=1:
+    raise SystemExit('Remote payments table is missing. Stop deployment and inspect D1 migration history.')
+payment_sql=re.sub(r'\\s+',' ',schema[0]['sql']).lower()
+if not all(part in payment_sql for part in ('credits >= 1000000','credits <= 100000000',
+                                             'credits % 1000000 = 0','amount_paise <= 150000')):
+    raise SystemExit('Remote D1 still uses 1M-only payment limits. Stop deployment and repair the schema safely.')
+print('Remote D1 accepts whole-million packages from 1M to 100M.',flush=True)
 url=deploy_worker(lambda *args,**kwargs:run_wrangler(command,*args,**kwargs),config['name'])
 save(OWNER/'deployment.json',{'gateway_url':url,'admin_url':url+'/admin'})
 
