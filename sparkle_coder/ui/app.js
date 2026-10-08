@@ -1017,7 +1017,8 @@ function renderActivity() {
   const snapshot=JSON.stringify([
     currentSession?.id||"",!!busy(),currentRun?.current_action||"",lastPollError,
     actions.slice(-25).map(a=>[a.tool,a.ok,a.label,a.purpose,a.path,a.query,a.command?true:false,a.error?.slice(0,250)]),
-    recent.map(e=>[e.sequence,e.kind,e.ok,e.text?.slice(0,250),e.path,e.purpose,e.label])
+    recent.map(e=>[e.sequence,e.kind,e.ok,e.text?.slice(0,250),e.path,e.purpose,e.label,
+      e.tool,e.exit_code,e.cancelled])
   ]);
   if(target._sparkleActivitySnapshot===snapshot)return;
   target._sparkleActivitySnapshot=snapshot;
@@ -1118,8 +1119,33 @@ function checkCard(c) {
   else if(c.explanation)box.append(node("p","check-explanation",c.explanation.what_happened),node("p","check-explanation",c.explanation.meaning));
   box.append(node("div","check-meta",(c.required?"Your required check":c.source==="discovered"?"Existing project check":"Agent-created check")+" · "+(c.ok?"Recorded pass":"Did not pass")),node("pre","check-output",c.command+"\n\n"+(c.output||"No output was produced.")));return box;
 }
+// Current checks are re-sent in full during polling. Retain rendered cards
+// (and the user's open technical details) if none of the displayed fields moved.
+let renderedChecks={session:null,rows:[]};
+function checksNeedRender(session,checks){
+  const cache=renderedChecks;
+  let changed=cache.session!==(session?.id||null)||cache.rows.length!==checks.length;
+  if(!changed)for(let index=0;index<checks.length;index++){
+    const row=checks[index],old=cache.rows[index];
+    if(old.id!==row.id||old.active!==row.active||old.ok!==row.ok||
+       old.superseded!==row.superseded||old.required!==row.required||
+       old.source!==row.source||old.label!==row.label||old.command!==row.command||
+       old.output!==row.output||old.correction!==row.correction_reason||
+       old.explanation!==row.explanation?.what_happened||
+       old.meaning!==row.explanation?.meaning){changed=true;break;}
+  }
+  if(changed)renderedChecks={session:session?.id||null,rows:checks.map(row=>({
+    id:row.id,active:row.active,ok:row.ok,superseded:row.superseded,
+    required:row.required,source:row.source,label:row.label,
+    command:row.command,output:row.output,correction:row.correction_reason,
+    explanation:row.explanation?.what_happened,meaning:row.explanation?.meaning
+  }))};
+  return changed;
+}
 function renderChecks() {
-  const target=id("checksList"),checks=currentSession?.checks||[];target.replaceChildren();
+  const target=id("checksList"),checks=currentSession?.checks||[];
+  if(!checksNeedRender(currentSession,checks))return;
+  target.replaceChildren();
   if(!checks.length){target.append(emptyPanel("No checks yet","Checks show whether the project behaves as intended. SPARKLE CODER can find or create them."));return;}
   checks.filter(c=>c.active!==false).slice().reverse().forEach(c=>target.append(checkCard(c)));
   const earlier=checks.filter(c=>c.active===false);
