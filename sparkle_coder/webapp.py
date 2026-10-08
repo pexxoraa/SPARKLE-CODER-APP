@@ -796,8 +796,17 @@ class AppService:
     def file_action(self, project_id, operation, body=None):
         body = body or {}
         with self.lock:
+            # Export is read-only. Let users download a best-effort snapshot
+            # even during a long-running agent; the agent holds workspace.lock
+            # for the full run, so acquiring it here would fail or block.
+            if operation == "download-project":
+                _, workspace = self.project(project_id)
+                if self.active(project_id):
+                    return UserFiles(workspace.root).archive()
+                with workspace.lock():
+                    return UserFiles(workspace.root).archive()
             if self.active(project_id):
-                raise ValueError("Finish or stop this project's running task before editing, importing or exporting it.")
+                raise ValueError("Finish or stop this project's running task before editing or importing files.")
             project, workspace = self.project(project_id)
             files = UserFiles(workspace.root)
             with workspace.lock():
@@ -826,8 +835,6 @@ class AppService:
                     return files.duplicate(body.get("source"), body.get("destination"))
                 if operation == "export-folder":
                     return files.export_folder(body.get("path"), project["name"])
-                if operation == "download-project":
-                    return files.archive()
                 raise ValueError("Unknown file operation.")
 
     def storage(self, path):

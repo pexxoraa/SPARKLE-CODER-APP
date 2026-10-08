@@ -808,6 +808,7 @@ function renderControls() {
     id("approvalCommand").textContent=editing?a.diff:a.command;
   }
   renderSupervision();
+  renderFileButtons();
 }
 function appendText(parent,text) {
   const pieces=text.split(/```/g);
@@ -1560,7 +1561,13 @@ function renderFileButtons() {
   id("duplicateFile").disabled=!chosen||working;
   id("editFile").disabled=!chosen||working||!fileData?.sha256||fileData.binary||fileData.redacted;
   id("deleteFile").disabled=!chosen||working||!fileData?.sha256;
-  ["newFile","importFiles","importFolder","downloadProject","exportFolder"].forEach(x=>id(x).disabled=working);
+  ["newFile","importFiles","importFolder","exportFolder"].forEach(x=>id(x).disabled=working);
+  // Exporting current files is read-only and remains available while an agent
+  // generates more files or when the file list cannot be loaded.
+  const canDownload=!!projectId&&!transferBusy&&(!isCloud||!!appState?.engine?.available);
+  id("downloadProject").disabled=!canDownload;
+  id("downloadProject").title=busy()?"Download a snapshot of the files saved so far. The task keeps running.":"Download current project files as ZIP.";
+  id("downloadProject").textContent=busy()?"Download current ZIP":"Download ZIP";
 }
 function openEditor(create=false) {
   if(busy()||transferBusy||!projectId)throw new Error("Wait for the current task or file transfer to finish.");
@@ -1971,8 +1978,8 @@ function renderCloudState(){
   if(available){clearTimeout(cloudReconnectTimer);cloudReconnectTimer=null;}else if(appState.account?.ready)scheduleCloudReconnect();
   id("projectPath").textContent=appState.projects.find(p=>p.id===projectId)?.name||"Cloud workspace";
   id("projectPath").title="Your account's cloud project";
-  for(const name of ["briefButton","skillsButton","setupButton","importFiles","importFolder","downloadProject"])id(name).disabled=!available||!!busy();
-  renderFilesState();
+  for(const name of ["briefButton","skillsButton","setupButton","importFiles","importFolder"])id(name).disabled=!available||!!busy();
+  renderFilesState(); // This also updates the read-only ZIP action.
 }
 if(isCloud){
   document.body.classList.add("cloud-mode");

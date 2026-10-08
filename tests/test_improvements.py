@@ -125,13 +125,34 @@ class ImprovementTests(unittest.TestCase):
         self.assertEqual(self.request(self.prefix() + '/import', {'path': 'file', 'data': '**invalid**'})[0], 400)
         self.assertFalse(self.api(self.prefix() + '/files')['files'])
 
-    def test_import_and_project_export_wait_for_active_task_to_finish(self):
+    def test_download_zip_remains_available_during_active_generation(self):
         _, waiting = self.start_demo()
+        workspace = self.app.project(self.app.data['selected_project'])[1]
+        (workspace.root / 'already-saved.txt').write_bytes(b'keep this before and during generation')
         self.assertEqual(self.request(self.prefix() + '/import', {'path': 'x', 'data': 'eA=='})[0], 400)
-        self.assertEqual(self.raw(self.prefix() + '/download-project')[0], 400)
+        status, data, headers = self.raw(self.prefix() + '/download-project')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Type'].split(';')[0], 'application/zip')
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            self.assertEqual(archive.read('already-saved.txt'), b'keep this before and during generation')
         self.api('/api/runs/' + waiting['id'] + '/stop', {})
         self.await_run(waiting['id'], {'interrupted'})
         self.upload('after-stop', b'ok')
+
+    def test_download_zip_supports_more_than_three_thousand_generated_files(self):
+        workspace = self.app.project(self.app.data['selected_project'])[1]
+        target = workspace.root / 'generated'
+        target.mkdir()
+        for number in range(3010):
+            (target / f'part-{number:04}.txt').write_text(str(number))
+        listing = self.api(self.prefix() + '/files')
+        self.assertTrue(listing['truncated'])
+        self.assertEqual(len(listing['files']), 3000)
+        status, data, _ = self.raw(self.prefix() + '/download-project')
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            self.assertEqual(len(archive.namelist()), 3010)
+            self.assertEqual(archive.read('generated/part-3009.txt'), b'3009')
 
     def test_finished_run_releases_workspace_lock_before_reporting_checked(self):
         from contextlib import contextmanager

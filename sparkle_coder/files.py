@@ -14,7 +14,7 @@ from .workspace import IGNORED_DIRS, SECRET_NAMES, SECRET_SUFFIXES, Workspace, a
 
 FILE_LIMIT = 20 * 1024 * 1024
 EXPORT_LIMIT = 100 * 1024 * 1024
-EXPORT_FILES = 3000
+EXPORT_FILES = 10000
 
 
 class UserFiles(Workspace):
@@ -84,7 +84,7 @@ class UserFiles(Workspace):
     def manifest(self):
         files = self.files(limit=EXPORT_FILES + 1)
         if len(files) > EXPORT_FILES:
-            raise ValueError("Project export supports up to 3000 files. Copy a larger project in your file manager.")
+            raise ValueError("Project export exceeds the 10,000-file safety limit. Exclude generated dependencies or copy the project from its device folder.")
         total = 0
         for name in files:
             size = self.path(name).stat().st_size
