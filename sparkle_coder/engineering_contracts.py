@@ -4,7 +4,7 @@ Check executions are facts. An agent's claim that a check covers a domain
 remains a claim, not proof that the check tests the right behavior.
 """
 from .engineering import DOMAIN_IDS, detect_domains, detect_toolchains
-from .verification import effective_check
+from .verification import active_checks
 
 CONTRACT_VERSION = 1
 FACETS = ("behavior", "target")
@@ -36,7 +36,10 @@ def required_domains(domains, task_profile="standard", task_mode="build"):
 
 
 def _fresh(state, check_id, fingerprint):
-    check = effective_check(state, check_id) if isinstance(check_id, str) else None
+    # A link belongs to one actual execution, not the latest record for the
+    # same command. Otherwise a rerun can silently resurrect stale coverage.
+    check = (next((item for item in active_checks(state) if item.get("id") == check_id), None)
+             if isinstance(check_id, str) else None)
     if not check or not fingerprint or check.get("fingerprint") != fingerprint:
         return None
     if check.get("environment_revision", 0) != state.get("environment_revision", 0):
