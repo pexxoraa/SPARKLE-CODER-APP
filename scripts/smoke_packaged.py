@@ -93,7 +93,15 @@ def smoke(executable, bundled=False):
             assert token != local_token
 
             def hosted(path, body=None):
-                result, headers = request(path, body, token=token, website=website)
+                try:
+                    result, headers = request(path, body, token=token, website=website)
+                except urllib.error.HTTPError as error:
+                    if not path.startswith("/api/runs/"):
+                        raise
+                    detail = error.read(4096).decode("utf-8", errors="replace")
+                    raise AssertionError(
+                        f"Packaged run status returned HTTP {error.code}: {detail[:2000]}"
+                    ) from error
                 assert headers["Access-Control-Allow-Origin"] == website
                 return result
 
