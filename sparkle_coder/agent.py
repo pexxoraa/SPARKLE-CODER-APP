@@ -155,9 +155,14 @@ class Agent:
                                   "run_target_integration"))
         target_applicable = any(d["id"] in ("mobile_apps", "embedded_iot")
                                 for d in self.engineering_domains)
+        recovery_available = bool(session.state.get("interrupted_actions") or
+                                  any(row.get("applied") is False
+                                      for row in session.state.get("journal", [])
+                                      if isinstance(row, dict)))
         self.schemas = [s for s in SCHEMAS
                         if (allowed is None or s["function"]["name"] in allowed)
-                        and (target_applicable or s["function"]["name"] not in target_tools)]
+                        and (target_applicable or s["function"]["name"] not in target_tools)
+                        and (recovery_available or s["function"]["name"] != "inspect_task_recovery")]
         if callable(getattr(provider, "bind_runtime", None)):
             provider.bind_runtime(self.tools.observe, self.should_stop)
         self.required_cache = {}
@@ -199,7 +204,8 @@ class Agent:
                                 "inspect_static_site", "inspect_visual_site", "search_assets",
                                 "verify", "run_command", "inspect_change_impact",
                                 "inspect_repair_focus", "discover_engineering_checks",
-                                "inspect_engineering_environment", "inspect_target_integrations"}:
+                                "inspect_engineering_environment", "inspect_target_integrations",
+                                "inspect_task_recovery"}:
                     continue
                 raw = message.get("content", "")
                 try:
@@ -272,8 +278,13 @@ class Agent:
                                 for d in self.engineering_domains)
         target_tools = frozenset(("inspect_target_integrations", "probe_target_devices",
                                   "run_target_integration"))
+        recovery_available = bool(self.session.state.get("interrupted_actions") or
+                                  any(row.get("applied") is False
+                                      for row in self.session.state.get("journal", [])
+                                      if isinstance(row, dict)))
         self.schemas = [schema for schema in SCHEMAS
-                        if target_applicable or schema["function"]["name"] not in target_tools]
+                        if (target_applicable or schema["function"]["name"] not in target_tools)
+                        and (recovery_available or schema["function"]["name"] != "inspect_task_recovery")]
         self.session.save()
         self.observe("budget_upgrade", {"text": "Fast pass complete. Continuing automatically with Standard effort.",
                                         "reason": reason})
@@ -442,6 +453,15 @@ class Agent:
             checkpoint["repair_focus"] = [
                 {k: row.get(k) for k in ("check_id", "category", "source_files", "next_action")}
                 for row in triage["failures"][:3]]
+        uncertain = state.get("interrupted_actions", [])
+        if isinstance(uncertain, list) and uncertain:
+            # Recovery metadata is intentionally not a tool replay instruction.
+            # Show just bounded, saved uncertainty and let the agent inspect.
+            checkpoint["interrupted_actions"] = uncertain[-8:]
+            checkpoint["recovery_guidance"] = (
+                "Call inspect_task_recovery. Inspect actual state and run safe checks "
+                "before deciding whether interrupted actions need repair. "
+                "Never automatically repeat a possibly executed side effect.")
         checkpoint["engineering_contracts"] = evaluate_contract(
             self.workspace, state, self.engineering_domains,
             task_profile=self.engineering_profile)
@@ -796,6 +816,10 @@ class Agent:
         starting_tokens = self.usage_budget_total()
         state.pop("input_request", None)
         state["recovery"] = None
+        if state.get("interrupted_actions"):
+            self.observe("interrupted_actions_detected", {
+                "count": len(state["interrupted_actions"]),
+                "text": "Saved unfinished tool actions were detected. Inspect current state before retrying."})
         malformed = 0
         unusable = 0
         self.say(f"Session {self.session.id} | {self.config.model} | {self.config.execution}")

@@ -88,6 +88,11 @@ class Workspace:
         elif not self.root.is_dir():
             raise WorkspaceError(f"This project folder is unavailable: {self.root}. "
                                  "Reconnect its drive or use Find folder to choose its current location.")
+        # Cache only content digests with fresh stat validation. Shell/build
+        # tools may edit files outside the journal, so names and metadata are
+        # still checked on every fingerprint request. On Windows we avoid
+        # trusting ctime as a modification signal (it can mean creation time).
+        self._fingerprint_file_cache = {}
         self.state_dir = self.root / ".nemotron"
         if self.state_dir.is_symlink():
             raise WorkspaceError(".nemotron must not be a symlink.")
@@ -166,16 +171,58 @@ class Workspace:
         return "\n\n".join(guides)[:24000]
 
     def fingerprint(self) -> str | None:
-        """Stream project contents so large projects can also have fresh checks."""
+        """Content-accurate fingerprint with bounded, stat-validated read reuse.
+
+        Preserve the existing SHA-256 fingerprint format *exactly*, including
+        streamed raw content bytes. This retains all previously recorded check
+        evidence. A cached read is used only after file identity, size, mtime
+        and ctime checks; the OS may change files outside file-tool journaling.
+        Windows always streams files because ctime may mean creation time.
+        """
         digest = hashlib.sha256()
+        cache = self._fingerprint_file_cache
+        total_cached = sum(len(item[1]) for item in cache.values())
+        seen = set()
         try:
             for relative in self.files(limit=None):
                 p = self.path(relative)
+                info = p.stat()
+                stamp = (info.st_dev, info.st_ino, info.st_size,
+                         info.st_mtime_ns, info.st_ctime_ns)
+                entry = cache.get(relative) if os.name != "nt" else None
                 digest.update(relative.encode() + b"\0")
-                with p.open("rb") as stream:
-                    for chunk in iter(lambda: stream.read(128 * 1024), b""):
-                        digest.update(chunk)
+                if entry is not None and entry[0] == stamp:
+                    digest.update(entry[1])
+                elif os.name != "nt" and info.st_size <= 1_000_000:
+                    data = p.read_bytes()
+                    after = p.stat()
+                    if stamp != (after.st_dev, after.st_ino, after.st_size,
+                                 after.st_mtime_ns, after.st_ctime_ns):
+                        cache.pop(relative, None)
+                        return None
+                    digest.update(data)
+                    if relative in cache:
+                        total_cached -= len(cache[relative][1])
+                        cache.pop(relative, None)
+                    if total_cached + len(data) <= 16_000_000 and len(cache) < 4096:
+                        cache[relative] = (stamp, data)
+                        total_cached += len(data)
+                else:
+                    with p.open("rb") as stream:
+                        for chunk in iter(lambda: stream.read(128 * 1024), b""):
+                            digest.update(chunk)
+                    after = p.stat()
+                    if stamp != (after.st_dev, after.st_ino, after.st_size,
+                                 after.st_mtime_ns, after.st_ctime_ns):
+                        cache.pop(relative, None)
+                        return None
+                    if relative in cache:
+                        total_cached -= len(cache[relative][1])
+                        cache.pop(relative, None)
+                seen.add(relative)
                 digest.update(b"\0")
+            for removed in set(cache) - seen:
+                cache.pop(removed, None)
         except (OSError, WorkspaceError):
             return None
         return digest.hexdigest()

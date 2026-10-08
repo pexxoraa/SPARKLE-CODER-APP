@@ -15,6 +15,7 @@ SIMPLE_TOOL_NAMES = frozenset({
     "prepare_engineering_dependencies",
     "inspect_target_integrations", "probe_target_devices", "run_target_integration",
     "inspect_change_impact", "inspect_repair_focus",
+    "inspect_task_recovery",
 })
 WEB_TOOL_NAMES = frozenset({"web_search", "read_web_page", "search_assets"})
 _WEB_NEEDED = re.compile(

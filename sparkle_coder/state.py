@@ -124,10 +124,23 @@ class Session:
                 if j != len(messages):
                     raise ValueError("Invalid saved tool-call ordering; inspect session state.")
                 for call in missing:
+                    name = str(call.get("function", {}).get("name") or "unknown")[:64]
+                    read_only = name in {"list_files", "read_file", "search_files",
+                        "inspect_setup", "discover_checks", "inspect_engineering",
+                        "inspect_engineering_environment", "inspect_target_integrations",
+                        "inspect_change_impact", "inspect_repair_focus"}
+                    self.state.setdefault("interrupted_actions", []).append({
+                        "id": str(call.get("id", ""))[:80], "tool": name,
+                        "potential_side_effect": not read_only, "resolved": False,
+                        "at": now(),
+                    })
+                    self.state["interrupted_actions"] = self.state["interrupted_actions"][-20:]
                     messages.append({"role": "tool", "tool_call_id": call["id"],
                                      "content": json.dumps({"ok": False, "error":
                                          "Interrupted before the result was saved. The action may "
-                                         "have run. Inspect current files/state before retrying."})})
+                                         "have run. Inspect current files/state before retrying.",
+                                         "recovered_without_replay": True,
+                                         "potential_side_effect": not read_only})})
         self.save()
 
     def undo_preview(self) -> list[dict]:
