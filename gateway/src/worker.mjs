@@ -294,7 +294,9 @@ async function inference(request,env) {
   const account=await device(request,env,true);
   const key=request.headers.get('idempotency-key');
   if(!key||!/^[-a-zA-Z0-9_]{16,100}$/.test(key))fail(400,'A unique request ID is required. Update the app.');
-  const data=modelBody(await body(request,65536),env),payload=JSON.stringify(data),payloadHash=await hash(payload);
+  // A long user specification is retained in full by the coding engine.
+  // JSON escaping, tool schemas and context checkpointing can exceed 64 KiB.
+  const data=modelBody(await body(request,512*1024),env),payload=JSON.stringify(data),payloadHash=await hash(payload);
   let previous=await one(env,'SELECT * FROM requests WHERE id=?',key);
   if(previous)return existingResponse(env,previous,account,payloadHash);
   if(!env.NVIDIA_API_KEY)fail(503,'The admin has not connected the model service yet.');

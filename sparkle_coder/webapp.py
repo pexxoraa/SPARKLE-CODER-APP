@@ -655,8 +655,8 @@ class AppService:
             raise ValueError("Task mode must be build or ask.")
         if type(review_edits) is not bool:
             raise ValueError("Review edits must be true or false.")
-        if not isinstance(goal, str) or len(goal) > 12000 or not goal.strip() and not session_id:
-            raise ValueError("Describe a task using 1–12000 characters.")
+        if not isinstance(goal, str) or len(goal) > 48000 or len(goal.encode("utf-8")) > 131072 or not goal.strip() and not session_id:
+            raise ValueError("Describe a task using at most 48,000 characters (128 KiB of text). Your prompt was not shortened. Split longer instructions into follow-up messages or a project brief.")
         verify = verify or []
         if not isinstance(verify, list) or len(verify) > 20 or any(
                 not isinstance(c, str) or not c.strip() or len(c) > 10000 for c in verify):

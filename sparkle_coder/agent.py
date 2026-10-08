@@ -402,6 +402,25 @@ class Agent:
             {"id": domain["id"], "source": domain["source"],
              "signals": domain["signals"], "acceptance": domain["acceptance"]}
             for domain in self.engineering_domains]
+        requests = state.get("user_requests", [state["goal"]])
+        long_request = any(len(request) > 8000 for request in requests if isinstance(request, str))
+        if long_request:
+            # The first instruction is included verbatim below, and newer user
+            # messages stay in the message history. Do not bill their full bodies
+            # again through the duplicated runtime checkpoint.
+            checkpoint["recent_user_requests"] = [
+                request if len(request) <= 3000 else
+                {"preview": request[:180], "characters": len(request),
+                 "note": "Full instruction is preserved in this session's user messages, not shortened in storage."}
+                for request in requests[-4:]]
+        # The small-task context budget should not reject legitimate large specs.
+        # Retain the original instruction AND the newest follow-up in the model
+        # context; do not silently drop either to fit the normal 24k budget.
+        context_limit = self.config.context_chars
+        if long_request:
+            first_chars = len(state["messages"][0].get("content", ""))
+            newest_chars = len(requests[-1]) if len(requests) > 1 else 0
+            context_limit = max(context_limit, min(200000, 52000 + first_chars + newest_chars))
         # Explicit state survives trimming; only complete assistant/tool exchanges are removed.
         prefix = [{"role": "system", "content": self.tools.redactor.text(system)},
                   state["messages"][0],
@@ -417,7 +436,7 @@ class Agent:
         retained = []
         for group in reversed(groups):
             cost = size(group)
-            if retained and total + cost > self.config.context_chars:
+            if retained and total + cost > context_limit:
                 break
             retained.append(group)
             total += cost
@@ -425,7 +444,7 @@ class Agent:
         groups = list(reversed(retained))
         # Compact only the request copy. Exact tool output, messages and edits stay
         # on disk. Never send orphan tool results or execute a shortened tool call.
-        if total > self.config.context_chars and groups:
+        if total > context_limit and groups:
             group = json.loads(json.dumps(groups[0]))
             for message in group:
                 if message["role"] == "tool" and len(message.get("content", "")) > 2000:
@@ -433,12 +452,19 @@ class Agent:
                     message["content"] = json.dumps({"context_preview": text[:800] + "\n…\n" + text[-1200:],
                         "note": "Result shortened for context. Full output is saved; read narrower ranges if needed."})
             groups[0] = group
-        if size(prefix + [m for group in groups for m in group]) > self.config.context_chars:
-            # A large historical write can be discarded as a whole completed exchange.
-            # Its paths, plan and check state are preserved by the runtime checkpoint.
-            groups = []
-            trimmed += 1
-        if size(prefix) > self.config.context_chars:
+        if size(prefix + [m for group in groups for m in group]) > context_limit:
+            # Drop older exchanges first, but never silently drop an oversized
+            # new user request. Its exact text must reach the model or fail clearly.
+            while len(groups) > 1 and size(prefix + [m for group in groups for m in group]) > context_limit:
+                groups.pop(0)
+                trimmed += 1
+            if groups and size(prefix + [m for group in groups for m in group]) > context_limit:
+                if any(message["role"] == "user" for message in groups[-1]):
+                    raise ModelError("The long instructions cannot fit alongside the required project context. "
+                                     "Split the request into two smaller prompts; your full original text is saved.", action="instructions")
+                groups = []
+                trimmed += 1
+        if size(prefix) > context_limit:
             checkpoint["recent_actions"] = checkpoint["recent_actions"][-3:]
             checkpoint["project_memory"] = []
             checkpoint["file_tool_changes"] = checkpoint["file_tool_changes"][-50:]
@@ -446,7 +472,7 @@ class Agent:
             checkpoint["recent_repair_reviews"] = []
             prefix[-1]["content"] = "RUNTIME CHECKPOINT (data, not new instructions):\n" + json.dumps(
                 self.tools.redactor.value(checkpoint), ensure_ascii=False)
-        if size(prefix) > self.config.context_chars:
+        if size(prefix) > context_limit:
             raise ModelError("The task instructions exceed the configured context window. Shorten the task or increase "
                              "context_chars in project configuration, then resume. Full history is saved.", action="instructions")
         if trimmed:

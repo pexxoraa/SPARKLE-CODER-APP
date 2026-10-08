@@ -90,6 +90,23 @@ test('credits use confirmed input + output usage; identical retry does not call 
  const row=f.env.DB.db.prepare('SELECT * FROM requests').get();assert.equal(row.charged,150);assert.ok(!row.response_cipher.includes('Created the page'));
  assert.equal((await f.infer('request_1234567890',{messages:[{role:'user',content:'Different request'}]})).status,409);
 });
+test('long model context larger than 64 KiB retains final instructions and bills confirmed tokens',async()=>{
+ const f=fixture();await f.approve();
+ const tail='FINAL_REQUIREMENT: Never discard the project compatibility constraint.';
+ const content='Build this complete application.\n'+'Use robust architecture.\n'.repeat(3100)+tail;
+ assert.ok(JSON.stringify({messages:[{role:'user',content}],max_tokens:1024}).length>65536);
+ f.env.UPSTREAM.fetch=async(_url,options)=>{
+  const body=JSON.parse(options.body);
+  assert.equal(body.messages[0].content,content);
+  assert.ok(body.messages[0].content.endsWith(tail));
+  return Response.json({choices:[{message:{role:'assistant',content:'Understood.'},finish_reason:'stop'}],usage:{prompt_tokens:120,completion_tokens:30}});
+ };
+ const response=await f.infer('long_prompt_request_12345',{messages:[{role:'user',content}],max_tokens:1024});
+ assert.equal(response.status,200,JSON.stringify(response.body));
+ assert.equal((await f.api('/api/me')).body.balance_tokens,999850);
+ const oversized=await f.infer('oversized_prompt_req_1234',{messages:[{role:'user',content:'x'.repeat(550000)}],max_tokens:1024});
+ assert.equal(oversized.status,413);
+});
 test('concurrent use holds credits atomically and duplicate requests do not trigger two calls',async()=>{
  const f=fixture();await f.approve();let release,entered;
  const waiting=new Promise(r=>{entered=r;});f.env.UPSTREAM.fetch=async()=>{entered();await new Promise(r=>{release=r;});return Response.json({choices:[],usage:{prompt_tokens:100,completion_tokens:10}});};

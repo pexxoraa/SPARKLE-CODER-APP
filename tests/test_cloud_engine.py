@@ -139,6 +139,22 @@ class CloudEngineTests(unittest.TestCase):
         self.assertEqual(self.api(p+'/file?path=src/edit.txt')['content'],'original')
         self.assertEqual(len(self.api(p+'/sessions')['sessions']),3)
 
+    def test_long_cloud_prompt_is_saved_exactly_and_oversize_is_explained(self):
+        p=self.project();pid=p.split('/')[-1]
+        goal=('Build a complex software product.\n'+
+              'Each interface must be tested end to end.\n'*1000+
+              'FINAL_REQUIREMENT: Preserve the existing database schema.')
+        self.assertTrue(12000<len(goal)<48000)
+        run=self.api('/api/runs',{'project_id':pid,'goal':goal})
+        self.wait_run(run['id'],lambda r:r['status'] not in ACTIVE)
+        app=self.manager.apps[ALICE]
+        from sparkle_coder.state import Session
+        history=app.history(pid)
+        stored=Session.load(app.project(pid)[1],history[0]['id'])
+        self.assertEqual(stored.state['goal'],goal)
+        self.assertEqual(stored.state['messages'][0]['content'],goal)
+        self.assertEqual(self.request('/api/runs',{'project_id':pid,'goal':'x'*48001})[0],400)
+
     def test_multifile_agent_edits_auto_run_history_download_report_and_undo(self):
         p=self.project();pid=p.split('/')[-1]
         run=self.api('/api/runs',{'project_id':pid,'goal':'Create two files','review_edits':True})

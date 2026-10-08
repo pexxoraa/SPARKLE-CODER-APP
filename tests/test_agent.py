@@ -126,6 +126,26 @@ class AgentTests(unittest.TestCase):
                 self.assertIn(message["tool_call_id"], known_ids)
         self.assertEqual(context[-1]["tool_call_id"], "call_11")
 
+    def test_long_prompt_preserves_last_requirement_and_full_followup(self):
+        initial = ('Build an application with these detailed requirements.\n' +
+                   'Keep the behavior robust and maintainable.\n' * 1000 +
+                   'ABSOLUTE_FINAL_REQUIREMENT: Use offline mode for exported data.')
+        self.assertGreater(len(initial), 12000)
+        self.assertLess(len(initial), 48000)
+        session = Session.create(self.workspace, initial, [], {})
+        agent = Agent(self.workspace, session, self.config, SequenceProvider([]), lambda _: True, lambda _: None)
+        context = agent.context()
+        self.assertEqual(context[1]['content'], initial)
+        self.assertIn('ABSOLUTE_FINAL_REQUIREMENT: Use offline mode', context[1]['content'])
+        self.assertLessEqual(len(json.dumps(context, ensure_ascii=False)), 200000)
+        followup = 'Modify the existing project accordingly.\n' + 'Keep existing APIs unchanged.\n' * 1400 + 'FINAL_FOLLOWUP: Also retain the original offline mode.'
+        session.state['messages'].append({'role': 'user', 'content': followup})
+        session.state['user_requests'].append(followup)
+        context = agent.context()
+        self.assertEqual(context[1]['content'], initial)
+        self.assertTrue(any(followup == m.get('content') for m in context if m.get('role') == 'user'))
+        self.assertIn('FINAL_FOLLOWUP: Also retain', json.dumps(context))
+
     def test_truncated_generation_cannot_execute_a_partial_action(self):
         response = calls(("write_file", {"path": "bad.py", "content": "partial"}))
         response.finish_reason = "length"

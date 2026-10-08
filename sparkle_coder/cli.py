@@ -208,6 +208,8 @@ def main(argv=None):
                     raise ValueError("An undone session cannot be resumed; start a new task.")
                 session.repair_interrupted_calls()
                 if args.message:
+                    if len(args.message) > 48000 or len(args.message.encode("utf-8")) > 131072:
+                        raise ValueError("Follow-up exceeds 48,000 characters or 128 KiB. No text was submitted.")
                     message = redactor.text(args.message)
                     session.state["messages"].append({"role": "user", "content": message})
                     session.state.setdefault("user_requests", [session.state["goal"]]).append(message)
@@ -216,8 +218,8 @@ def main(argv=None):
                         session.state["required_checks"].append(check)
                 session.state["model"] = config.public_info()
             elif args.command == "run":
-                if len(args.goal) > 12000:
-                    raise ValueError("Task exceeds 12000 characters; put supporting details in a project file.")
+                if len(args.goal) > 48000 or len(args.goal.encode("utf-8")) > 131072:
+                    raise ValueError("Task exceeds 48,000 characters or 128 KiB of UTF-8 text. The full prompt was not submitted; shorten it or put details in a project brief.")
                 session = Session.create(workspace, redactor.text(args.goal),
                                          args.verify if args.verify is not None else config.verify,
                                          config.public_info())

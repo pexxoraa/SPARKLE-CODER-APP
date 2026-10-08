@@ -82,7 +82,7 @@ def detect_domains(workspace, goal="", *, files=None):
     """Return at most three relevant domains with inspectable, bounded signals."""
     names = (workspace.files(limit=2001) if files is None else files)
     names = names[:2000]
-    prompt = " ".join(str(goal or "").split())[:12000]
+    prompt = " ".join(str(goal or "").split())[:48000]
     detected = []
     for identity, title, expression, patterns, skills, acceptance in DOMAINS:
         requested = bool(re.search(r"(?<!\w)(?:" + expression + r")(?!\w)", prompt, re.I))

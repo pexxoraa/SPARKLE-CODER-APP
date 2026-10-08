@@ -122,7 +122,7 @@ id("app").innerHTML = `
           <form id="taskForm" class="composer">
             <div class="task-mode-row"><label for="taskMode">Mode</label><select id="taskMode"><option value="build">Build</option><option value="ask">Ask</option></select><label for="efficiencyMode">Effort</label><select id="efficiencyMode"><option value="efficient">Auto</option><option value="thorough">Thorough</option></select><span id="runBudgetLabel">Unlimited run</span></div>
             <label class="sr-only" for="goal">Task for SPARKLE</label>
-            <textarea id="goal" rows="3" maxlength="12000" placeholder="Describe what you want to build or change…"></textarea>
+            <textarea id="goal" rows="3"  placeholder="Describe what you want to build or change…"></textarea>
             <div id="verificationFields" class="verification-fields" hidden><label for="verifyCommands">Required checks <span>One command per line</span></label><textarea id="verifyCommands" rows="2" placeholder="For example: python3 -m unittest discover -s tests -v"></textarea><p>These checks run automatically when the agent proposes completion.</p></div>
             <div id="supervisionChoice" class="supervision-choice" hidden><label><input type="checkbox" id="reviewEdits"> Review each file edit</label><span>SPARKLE will still ask before protected actions</span></div><div class="composer-toolbar"><button type="button" id="modelButton" class="model-button"><span data-icon="bolt"></span><span id="modelName">SPARKLE Core</span><span class="chevron">⌄</span></button><button type="button" id="toggleChecks" class="text-button"><span data-icon="check"></span><span>Checks</span></button><span class="composer-spacer"></span><button type="button" id="pauseButton" class="button secondary" hidden>Pause</button><button type="button" id="stopButton" class="button danger" hidden><span data-icon="stop"></span>Stop</button><button type="submit" id="runButton" class="button primary">Run agent<span data-icon="arrow"></span></button></div>
           </form>
@@ -919,7 +919,7 @@ function renderSession(session) {
       if(activeEdit){
         const form=node("form","sent-message-edit-form");
         const field=node("textarea","sent-message-editor");
-        field.value=editing.draft;field.maxLength=12000;field.rows=4;
+        field.value=editing.draft;field.rows=4;
         field.setAttribute("aria-label","Edit your sent message");
         field.oninput=()=>{editing.draft=field.value;const error=id("sentMessageEditError");if(error)error.hidden=true;};
         const note=node("p","sent-message-edit-note",
@@ -1316,6 +1316,12 @@ async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=fals
   const explicitGoal=goalOverride===null?null:String(goalOverride);
   const goal=explicitGoal??(resumeOnly?"":id("goal").value.trim()); if(!goal&&(!currentSession||freshTask)) { id("goal").focus(); return false; }
   // After an Ask session, an actual change request must run in Build mode.
+  // Do not silently truncate pasted or edited instructions at the browser boundary.
+  if(goal.length>48000||new TextEncoder().encode(goal).length>131072){
+    id("taskError").hidden=false;
+    id("taskError").textContent="This prompt is longer than the 48,000-character / 128 KiB limit. No text was removed. Shorten it or split it into follow-up instructions, then try again.";
+    return false;
+  }
   if(!resumeOnly&&goal&&codeChangeRequested(goal))id("taskMode").value="build";
   if(appState.account?.enabled&&!appState.account.ready){await openAccount();return false;}
   if(!projectId||(isCloud&&!appState.engine?.available)){id("taskError").hidden=false;id("taskError").textContent=appState.engine?.message||"Select a project before starting a task.";return false;}
