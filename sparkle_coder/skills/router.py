@@ -1,6 +1,7 @@
 """Selective expert routing across software-product domains."""
 import re
 from .registry import builtin_registry
+from ..engineering import DOMAINS
 
 def _rx(pattern): return re.compile(r"\b(?:"+pattern+r")\b", re.I)
 
@@ -71,7 +72,7 @@ _MOTION=_rx(r"animation|animated|motion|interactive|microinteraction")
 _BOOKING=_rx(r"book|booking|appointment|inquiry|enquiry|contact\s+form|reservation")
 _MULTI=_rx(r"multi[- ]page|about\s+page|contact\s+page|gallery\s+page|services\s+page")
 
-def select_skills(goal, *, task_profile="standard", limit=12):
+def select_skills(goal, *, task_profile="standard", limit=12, domains=()):
     text=" ".join(str(goal or "").split())
     chosen=[]
     def add(*names):
@@ -184,5 +185,12 @@ def select_skills(goal, *, task_profile="standard", limit=12):
     # General product work gets architecture expertise if no stronger domain bundle filled the task.
     if not chosen and re.search(r"\b(?:build|create|develop|design|implement)\b",text,re.I):
         add("product_architecture","testing_mastery")
+
+    # Supplement prompt-selected expertise with evidence from the actual project.
+    # Keep explicit user intent first and preserve the specialized web route.
+    if not web_task and domains:
+        domain_skills = {identity: skills for identity, _, _, _, skills, _ in DOMAINS}
+        for identity in domains:
+            add(*domain_skills.get(identity, ()))
 
     return chosen[:max(0,int(limit))]
