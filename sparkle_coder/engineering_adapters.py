@@ -90,7 +90,10 @@ def _manifest_roots(files, marker):
     matches = []
     for path in files:
         item = PurePosixPath(path)
-        if len(item.parts) > 4:
+        # A nested project root plus addons/gut/gut_cmdln.gd is deeper than
+        # a one-file manifest. Bound the *project root*, not the full marker.
+        allowance = len(PurePosixPath(marker).parts) + 3
+        if len(item.parts) > allowance:
             continue
         if "/" in marker:
             suffix = PurePosixPath(marker).parts
