@@ -17,6 +17,7 @@ from .state import now
 from .tools import READ_ONLY_TOOLS, SCHEMAS, ToolSet
 from .skills import SKILL_VERSION, record_skill_outcome, render_skills, resolve_project_skills, select_skills
 from .engineering import detect_domains
+from .engineering_contracts import evaluate_contract, execution_plan
 from .workspace import atomic_write, clean_terminal
 
 
@@ -123,6 +124,7 @@ class Agent:
         self.task_profile = profile
         goal_text = " ".join(session.state.get("user_requests", [session.state.get("goal", "")])[-2:])
         self.engineering_domains = detect_domains(workspace, goal_text)
+        self.engineering_profile = (profile.get("name", "standard"))
         routed = select_skills(goal_text, task_profile=profile.get("name", "standard"),
                                domains=[d["id"] for d in self.engineering_domains])
         routed = resolve_project_skills(workspace, goal_text, routed)
@@ -267,6 +269,16 @@ class Agent:
         state = self.session.state
         system = SYSTEM + "\nExecution environment: " + self.config.execution
         if self.engineering_domains and state.get("task_mode") != "ask":
+            system += ("\nENGINEERING ACCEPTANCE: Use plan_engineering before substantive edits. "
+                       "For each explicitly requested domain, verify separate real behavior and "
+                       "target/integration checks. After successful verify calls, use "
+                       "record_engineering_evidence(domain, facet, check_id, reason), choosing "
+                       "behavior and target with distinct fresh check IDs. Inert commands are "
+                       "not acceptable. Never claim test coverage that an actual check does not "
+                       "exercise, or fabricate a simulator, hardware, credential or service. "
+                       "If the required target environment is unavailable, report a precise "
+                       "blocker; do not bypass or weaken domain acceptance.")
+        if self.engineering_domains and state.get("task_mode") != "ask":
             system += ("\nENGINEERING DOMAIN CONTRACT: Respect the detected software domain; "
                        "do not default to a website or claim unsupported platform integration. "
                        "Inspect relevant source, implement the requested change, and collect "
@@ -375,6 +387,12 @@ class Agent:
                 "file_tool_changes": changed_paths[-50:],
                 "project_memory": project_memory,
             }
+        checkpoint["engineering_contracts"] = evaluate_contract(
+            self.workspace, state, self.engineering_domains,
+            task_profile=self.engineering_profile)
+        checkpoint["engineering_plan"] = execution_plan(
+            self.workspace, " ".join(state.get("user_requests", [state.get("goal", "")])[-2:]),
+            self.config.execution, files=[], task_profile=self.engineering_profile)["steps"]
         checkpoint["engineering_domains"] = [
             {"id": domain["id"], "source": domain["source"],
              "signals": domain["signals"], "acceptance": domain["acceptance"]}
@@ -596,6 +614,15 @@ class Agent:
                 return False, ("These user requirements still lack current passing evidence. Implement and test them, "
                                "then link their requirement_ids with update_delivery. Do not remove requirements.\n"
                                + json.dumps(pending))
+            contract = evaluate_contract(self.workspace, self.session.state,
+                                         self.engineering_domains,
+                                         task_profile=self.engineering_profile)
+            if contract["blocking"]:
+                return False, ("Engineering acceptance is not yet supported by distinct, fresh "
+                               "behavior and target check IDs. Run the real checks, then use "
+                               "record_engineering_evidence. Do not claim completion if the "
+                               "target environment is unavailable.\n" +
+                               json.dumps(contract["blocking"]))
             return True, "All active recorded and discovered checks passed against the current tracked project files."
         if latest:
             failures = [{"check_id": c.get("id"), "command": c["command"], "cwd": c["cwd"], "ok": c.get("ok", False),

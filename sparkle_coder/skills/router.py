@@ -190,7 +190,19 @@ def select_skills(goal, *, task_profile="standard", limit=12, domains=()):
     # Keep explicit user intent first and preserve the specialized web route.
     if not web_task and domains:
         domain_skills = {identity: skills for identity, _, _, _, skills, _ in DOMAINS}
+        prioritized = []
         for identity in domains:
-            add(*domain_skills.get(identity, ()))
+            for skill in domain_skills.get(identity, ()):
+                if skill in builtin_registry() and skill not in prioritized:
+                    prioritized.append(skill)
+        # Generic "fix this project" previously let generic debugging skills
+        # consume the limit before the actual domain expertise was reached.
+        if len(chosen) >= max(0, int(limit)):
+            chosen = ([name for name in chosen if name == "delivery_excellence"]
+                      + prioritized
+                      + [name for name in chosen if name != "delivery_excellence"
+                         and name not in prioritized])
+        else:
+            add(*prioritized)
 
     return chosen[:max(0,int(limit))]
