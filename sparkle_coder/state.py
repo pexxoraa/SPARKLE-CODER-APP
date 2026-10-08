@@ -4,9 +4,10 @@ from datetime import datetime, timezone
 import json
 import re
 import stat
+import time
 import uuid
 
-from .workspace import Workspace, WorkspaceError, atomic_write, sha256, write_json
+from .workspace import Workspace, WorkspaceError, atomic_write, sha256, write_json, IS_WINDOWS
 from .verification import identify_checks
 from .brief import read_brief, task_requirements
 
@@ -59,7 +60,15 @@ class Session:
         path = workspace.state_dir / "sessions" / session_id / "state.json"
         if path.is_symlink() or path.parent.is_symlink() or path.parent.parent.is_symlink():
             raise WorkspaceError("Session paths must not be symlinks.")
-        state = json.loads(path.read_text("utf-8"))
+        for attempt in range(6 if IS_WINDOWS else 1):
+            try:
+                state = json.loads(path.read_text("utf-8"))
+                break
+            except PermissionError as exc:
+                if (not IS_WINDOWS or getattr(exc, "winerror", None) not in (5, 32, 33)
+                        or attempt == 5):
+                    raise
+                time.sleep(min(0.025 * 2 ** attempt, 0.2))
         if state.get("version") != 1 or state.get("id") != session_id:
             raise ValueError("Unsupported or invalid session state.")
         return cls(workspace, state)
