@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import tempfile
+import time
 
 from .locking import LockError, workspace_lock
 
@@ -38,6 +39,8 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+IS_WINDOWS = os.name == "nt"
+
 def atomic_write(path: Path, data: bytes, mode: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".nemotron-tmp-", dir=path.parent)
@@ -48,7 +51,15 @@ def atomic_write(path: Path, data: bytes, mode: int | None = None) -> None:
             os.fsync(stream.fileno())
         if mode is not None:
             os.chmod(tmp, mode)
-        os.replace(tmp, path)
+        for attempt in range(6 if IS_WINDOWS else 1):
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError as exc:
+                if (not IS_WINDOWS or getattr(exc, "winerror", None) not in (5, 32, 33)
+                        or attempt == 5):
+                    raise
+                time.sleep(min(0.025 * 2 ** attempt, 0.2))
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
