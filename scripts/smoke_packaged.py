@@ -114,7 +114,9 @@ def smoke(executable, bundled=False):
                 elif run["status"] == "checked":
                     break
                 elif run["status"] in {"blocked", "needs_input", "interrupted"}:
-                    raise AssertionError("Packaged demo stopped: " + run["status"])
+                    raise AssertionError("Packaged demo stopped: " + run["status"] +
+                        "; " + str(run.get("error") or (run.get("session") or {}).get("summary")
+                                    or "No error details provided")[:1200])
                 time.sleep(0.05)
             else:
                 raise AssertionError("Packaged demo did not finish")

@@ -23,6 +23,11 @@ from sparkle_coder.workspace import Workspace
 
 
 class PackagingVersionTests(unittest.TestCase):
+    def test_frozen_bundle_declares_builtin_skill_resources(self):
+        spec = (Path(__file__).resolve().parents[1] / "packaging" / "sparkle-coder.spec").read_text()
+        self.assertIn('sparkle_coder/skills/builtin', spec)
+        self.assertIn('sparkle_coder.skills.builtin', spec)
+
     def test_packaged_smoke_expected_version_tracks_release_metadata(self):
         from scripts.smoke_packaged import expected_app_version
         from sparkle_coder import __version__

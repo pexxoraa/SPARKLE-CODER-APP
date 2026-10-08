@@ -21,9 +21,11 @@ a = Analysis(
     datas=[
         (str(project_root / 'sparkle_coder' / 'distribution.json'), 'sparkle_coder'),
         (str(project_root / "sparkle_coder" / "ui"), "sparkle_coder/ui"),
+        (str(project_root / "sparkle_coder" / "skills" / "builtin"), "sparkle_coder/skills/builtin"),
         (str(project_root / "OPEN_FIRST.html"), "."),
     ],
-    hiddenimports=["tkinter", "tkinter.filedialog", "tkinter.messagebox"],
+    hiddenimports=["tkinter", "tkinter.filedialog", "tkinter.messagebox",
+                   "sparkle_coder.skills.builtin"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
