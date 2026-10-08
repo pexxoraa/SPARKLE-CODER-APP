@@ -170,6 +170,8 @@ class Handler(BaseHTTPRequestHandler):
                     result = app.project_context(project_id)
                 elif operation == "setup" and len(parts) == 4:
                     result = app.setup(project_id)
+                elif operation == "brief-suggestion" and len(parts) == 4:
+                    result = app.suggest_brief(project_id)
                 elif operation == "skills" and len(parts) == 4:
                     result = app.project_skills(project_id)
                 elif operation == "file":
@@ -270,7 +272,19 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/connect":
                 result = app.connect()
             elif path == "/api/projects":
-                result = app.add_project(body.get("name", ""), body.get("path", ""))
+                result = app.add_project(body.get("name", ""), body.get("path", ""), body.get("purpose", ""))
+            elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "delete":
+                if body.get("confirm") is not True:
+                    raise ValueError("Confirm project deletion before continuing.")
+                result = app.delete_project(parts[2], body.get("name"), body.get("delete_files", False))
+            elif len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "sessions" and parts[5] == "delete":
+                if body.get("confirm") is not True:
+                    raise ValueError("Confirm saved task deletion before continuing.")
+                result = app.delete_session(parts[2], parts[4])
+            elif len(parts) == 5 and parts[:2] == ["api", "projects"] and parts[3:] == ["sessions", "clear"]:
+                if body.get("confirm") is not True:
+                    raise ValueError("Confirm clearing all saved task history before continuing.")
+                result = app.clear_history(parts[2])
             elif path == "/api/storage":
                 result = app.storage(body.get("path"))
             elif path == "/api/retry-project-migration":

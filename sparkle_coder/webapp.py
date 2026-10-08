@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 import threading
 import uuid
@@ -250,10 +251,13 @@ class AppService:
             result["balance_name"] = balance.get("name")
         return result
 
-    def add_project(self, name="", path=""):
+    def add_project(self, name="", path="", purpose=""):
         if not isinstance(name, str) or not isinstance(path, str) or len(name) > 100 or len(path) > 2000:
             raise ValueError("Invalid project name or path.")
         name = name.strip() or "Untitled project"
+        if not isinstance(purpose, str) or len(purpose) > 2000:
+            raise ValueError("Keep the project purpose under 2000 characters.")
+        purpose = purpose.strip()
         if not path.strip():
             slug = re.sub(r"[^a-z0-9_-]+", "-", name.lower()).strip("-") or "project"
             path = str(self.projects_directory / (slug + "-" + uuid.uuid4().hex[:6]))
@@ -270,6 +274,11 @@ class AppService:
                 self.data["selected_project"] = existing["id"]
                 self.save()
                 return existing
+            if purpose:
+                saved = read_brief(workspace)
+                # Importing an existing folder never silently replaces its brief.
+                if not saved["brief"]["purpose"]:
+                    save_brief(workspace, {**saved["brief"], "purpose": purpose}, saved["revision"])
             project = {"id": uuid.uuid4().hex[:12], "name": name, "path": str(workspace.root), "created": now()}
             self.data["projects"].append(project)
             self.data["selected_project"] = project["id"]
@@ -284,6 +293,131 @@ class AppService:
             if project.get("migration_pending"):
                 raise ValueError("This project is waiting to move. Choose Retry project move. " + project["migration_pending"])
             return project, Workspace(Path(project["path"]), create=False)
+
+    def delete_project(self, project_id, name, delete_files=False):
+        if type(delete_files) is not bool:
+            raise ValueError("Choose whether to keep or permanently delete project files.")
+        with self.lock:
+            project = next((p for p in self.data["projects"] if p["id"] == project_id), None)
+            if project is None:
+                raise ValueError("Project not found.")
+            if not isinstance(name, str) or name != project["name"]:
+                raise ValueError("Enter the exact project name to confirm removal.")
+            if self.active(project_id):
+                raise ValueError("Stop this project's running task before deleting it.")
+            root = Path(project["path"])
+            managed = (not root.is_symlink() and root.resolve().parent == self.projects_directory.resolve()
+                       and root.resolve() != self.projects_directory.resolve())
+            if delete_files and (not managed or not root.is_dir()):
+                raise ValueError("Only available SPARKLE-managed project folders can be permanently deleted. Remove this project from the list and manage external files separately.")
+            original = list(self.data["projects"])
+            selected = self.data["selected_project"]
+            quarantine = None
+            if delete_files:
+                quarantine = self.projects_directory / (".sparkle-deleting-" + project_id)
+                if quarantine.exists() or quarantine.is_symlink():
+                    raise ValueError("Previous project deletion needs owner attention.")
+                root.rename(quarantine)
+            self.data["projects"] = [p for p in original if p["id"] != project_id]
+            if selected == project_id:
+                self.data["selected_project"] = self.data["projects"][0]["id"] if self.data["projects"] else None
+            try:
+                self.save()
+            except Exception:
+                self.data["projects"] = original
+                self.data["selected_project"] = selected
+                if quarantine is not None:
+                    quarantine.rename(root)
+                raise
+            if quarantine is not None:
+                try:
+                    shutil.rmtree(quarantine)
+                except OSError:
+                    return {"removed": True, "files_deleted": False,
+                            "message": "Project removed from the list, but some files could not be deleted. Ask the owner to inspect the pending deletion folder."}
+            return {"removed": True, "files_deleted": delete_files,
+                    "message": "Project and its files deleted." if delete_files else
+                               "Project removed from the list. Its files and saved tasks remain in the original folder."}
+
+    def delete_session(self, project_id, session_id):
+        with self.lock:
+            if self.active(project_id):
+                raise ValueError("Stop this project's running task before deleting its history.")
+            _, workspace = self.project(project_id)
+            with workspace.lock():
+                session = Session.load(workspace, session_id)
+                if session.directory.is_symlink():
+                    raise ValueError("Saved task directory cannot be a symlink.")
+                shutil.rmtree(session.directory)
+                # The task has already been removed. A statistics failure must
+                # not report a false deletion failure and tempt a second request.
+                warning = ""
+                metrics = workspace.state_dir / "skill-metrics.json"
+                if metrics.exists() and not metrics.is_symlink():
+                    try:
+                        values = json.loads(metrics.read_text("utf-8"))
+                        if isinstance(values, dict) and isinstance(values.get("sessions"), dict):
+                            values["sessions"].pop(session_id, None)
+                            write_json(metrics, values)
+                    except (OSError, ValueError, TypeError):
+                        warning = " Skill statistics could not be refreshed."
+            return {"deleted": session_id, "message": "Saved task history deleted. Project files were not changed." + warning}
+
+    def clear_history(self, project_id):
+        with self.lock:
+            if self.active(project_id):
+                raise ValueError("Stop this project's running task before clearing its history.")
+            _, workspace = self.project(project_id)
+            directory = workspace.state_dir / "sessions"
+            if directory.is_symlink():
+                raise ValueError("Saved tasks folder must not be a symlink.")
+            with workspace.lock():
+                if not directory.exists():
+                    return {"deleted": 0}
+                session_ids = [p.name for p in directory.iterdir()]
+                if any(not (directory / item).is_dir() for item in session_ids):
+                    raise ValueError("Unexpected saved task file. Inspect it before clearing history.")
+                if any(not re.fullmatch(r"[a-f0-9]{12}", item) for item in session_ids):
+                    raise ValueError("Unexpected history folder. Inspect it before deleting saved tasks.")
+                if any((directory / item).is_symlink() for item in session_ids):
+                    raise ValueError("A saved task is a symlink. Review it before clearing history.")
+                for item in session_ids:
+                    shutil.rmtree(directory / item)
+                warning = ""
+                metrics = workspace.state_dir / "skill-metrics.json"
+                if metrics.exists() and not metrics.is_symlink():
+                    try:
+                        write_json(metrics, {"version": 1, "sessions": {}})
+                    except OSError:
+                        warning = " Skill statistics could not be refreshed."
+            return {"deleted": len(session_ids), "message": "Saved conversations and undo history deleted. Project files were not changed." + warning}
+
+    def suggest_brief(self, project_id):
+        _, workspace = self.project(project_id)
+        saved = read_brief(workspace)
+        history = self.history(project_id)
+        goals = []
+        for item in reversed(history):
+            try:
+                state = Session.load(workspace, item["id"]).state
+            except (OSError, ValueError):
+                continue
+            # Questions in Ask mode are not implementation requirements.
+            if state.get("task_mode") == "ask":
+                continue
+            text = item.get("goal")
+            if isinstance(text, str) and text.strip() and text.strip() not in goals:
+                goals.append(text.strip())
+        purpose = next((goal for goal in goals if len(goal) <= 2000), "")
+        requirements = [goal for goal in goals if goal != purpose and len(goal) <= 300][-19:]
+        if purpose and len(purpose) <= 300:
+            requirements.insert(0, purpose)
+        requirements = requirements[:20]
+        return {"brief": {"purpose": purpose, "requirements": requirements, "constraints": ""},
+                "revision": saved["revision"], "sources": len(goals),
+                "note": ("Suggestions use your saved task requests only, not AI-invented features or verified functionality. "
+                         "Review and edit before saving. Existing brief fields are preserved." if goals else
+                         "No saved task requests yet. Add your project purpose and requirements manually.")}
 
     def reconnect_project(self, project_id, path):
         if not isinstance(path, str) or not path.strip() or len(path) > 2000:
@@ -353,7 +487,10 @@ class AppService:
             jobs = self.active_jobs()
             job = next((entry for entry in jobs if entry.project_id == selected), None)
             return {"version": __version__, "projects": [
-                        {**p, "available": Path(p["path"]).is_dir() and not p.get("migration_pending", False)} for p in self.data["projects"]],
+                        {**p, "available": Path(p["path"]).is_dir() and not p.get("migration_pending", False),
+                         "managed": (not Path(p["path"]).is_symlink() and
+                                     Path(p["path"]).resolve().parent == self.projects_directory.resolve())}
+                        for p in self.data["projects"]],
                     "experience": self.data["experience"],
                     "selected_project": self.data["selected_project"],
                     "settings": self.public_settings(), "active_run": job.public() if job else None,
@@ -514,6 +651,8 @@ class AppService:
             config.require_credentials()
         goal = Redactor((config.api_key,)).text(goal)
         with self.lock:
+            if not any(p["id"] == project_id for p in self.data["projects"]):
+                raise ValueError("Project was removed. Select an available project before starting a task.")
             if self.active(project_id):
                 raise ValueError("A task is already running in this project. Switch to another project or wait.")
             if len(self.active_jobs()) >= 2:

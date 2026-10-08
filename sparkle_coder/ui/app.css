@@ -49,3 +49,14 @@
 .workspace-mode-switch.offline{color:var(--muted);border-style:dashed}
 .workspace-mode-switch:disabled{opacity:.65;cursor:wait}
 .workspace-mode-switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Project and conversation removal stays secondary to the working workspace. */
+.history-entry{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line)}
+.history-entry .history-row{border-bottom:0;min-width:0;flex:1}
+.history-delete{flex-shrink:0;font-size:12px;color:var(--muted)}
+#deleteProject{white-space:nowrap;color:var(--muted);font-size:11px}
+#clearHistory{margin:18px 0;color:var(--muted)}
+#deleteProjectFilesLabel{display:flex;gap:8px;align-items:center;line-height:1.5}
+#deleteProjectFilesLabel input{flex-shrink:0}
+#briefSuggestionStatus{white-space:pre-line;line-height:1.5}
+@media(max-width:760px){#deleteProject{font-size:10px;padding:4px}.history-entry .history-row{padding:12px 0}}

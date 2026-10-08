@@ -226,6 +226,33 @@ class WebTests(unittest.TestCase):
         self.assertTrue(decisions[0]["remember"])
         self.assertEqual(self.request(target, request)[0], 400)
 
+    def test_project_creation_brief_and_deletion_routes_require_confirmation(self):
+        project = self.api("/api/projects", {"name": "API project",
+                                                "purpose": "Make a well-tested web app"})
+        project_id = project["id"]
+        root = Path(project["path"])
+        root.joinpath("index.html").write_text("project data")
+        status, brief, _ = self.request("/api/projects/" + project_id + "/brief")
+        self.assertEqual(status, 200)
+        self.assertEqual(brief["brief"]["purpose"], "Make a well-tested web app")
+        session = Session.create(Workspace(root), "Implement keyboard navigation", [], {})
+        suggestion = self.api("/api/projects/" + project_id + "/brief-suggestion")
+        self.assertEqual(suggestion["sources"], 1)
+        self.assertIn("Implement keyboard navigation", suggestion["brief"]["requirements"])
+        url = "/api/projects/" + project_id + "/sessions/" + session.id + "/delete"
+        self.assertEqual(self.request(url, {})[0], 400)
+        self.assertTrue(session.directory.exists())
+        deleted = self.api(url, {"confirm": True})
+        self.assertEqual(deleted["deleted"], session.id)
+        self.assertTrue(root.joinpath("index.html").exists())
+        url = "/api/projects/" + project_id + "/delete"
+        self.assertEqual(self.request(url, {"confirm": True, "name": "Wrong"})[0], 400)
+        self.assertEqual(self.request(url, {"name": "API project"})[0], 400)
+        self.assertTrue(root.exists())
+        deleted = self.api(url, {"confirm": True, "name": "API project", "delete_files": True})
+        self.assertTrue(deleted["files_deleted"])
+        self.assertFalse(root.exists())
+
     def test_denied_command_does_not_run_and_approval_cannot_be_replayed(self):
         data, waiting = self.start_demo()
         body = {"approval_id": waiting["approval"]["id"], "allow": False}

@@ -67,13 +67,17 @@ def set_overrides(workspace, enabled, disabled, vision_review=False):
     return dict(store['overrides'])
 
 def resolve_project_skills(workspace, goal, automatic, limit=12):
-    store=load_store(workspace);over=store['overrides'];chosen=[x for x in automatic if x not in set(over['disabled'])]
+    store=load_store(workspace);over=store['overrides']
+    # Explicit user overrides have priority even when automatic skills fill
+    # the available slots; previously forced-on skills were silently truncated.
+    disabled=set(over['disabled'])
+    chosen=[skill_id for skill_id in over['enabled'] if skill_id not in disabled]
+    chosen.extend(skill_id for skill_id in automatic if skill_id not in disabled and skill_id not in chosen)
     text=' '.join(str(goal or '').lower().split())
     for skill in store['custom'].values():
-        if skill['id'] in over['disabled']: continue
-        if skill.get('triggers') and any(trigger in text for trigger in skill['triggers']) and skill['id'] not in chosen: chosen.append(skill['id'])
-    for skill_id in over['enabled']:
-        if skill_id not in chosen: chosen.append(skill_id)
+        if skill['id'] in disabled: continue
+        if skill.get('triggers') and any(trigger in text for trigger in skill['triggers']) and skill['id'] not in chosen:
+            chosen.append(skill['id'])
     return chosen[:max(0,min(12,int(limit)))]
 
 def custom_skill(workspace, skill_id): return load_store(workspace)['custom'].get(skill_id)

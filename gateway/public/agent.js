@@ -81,7 +81,7 @@ id("app").innerHTML = `
       <button class="icon-button mobile-only" id="menuButton" aria-label="Open navigation"><span data-icon="menu"></span></button>
       <span class="project-icon" data-icon="folder"></span>
       <select id="projectSelect" aria-label="Selected project"></select>
-      <button class="icon-button" id="addProject" title="Add project" aria-label="Add project"><span data-icon="plus"></span></button>
+      <button class="icon-button" id="addProject" title="Add project" aria-label="Add project"><span data-icon="plus"></span></button><button class="text-button" id="deleteProject" title="Remove the selected project" type="button">Delete project</button>
       <span class="topbar-divider"></span><span class="project-path" id="projectPath"></span>
       <div class="topbar-actions"><button type="button" id="workspaceModeSwitch" class="workspace-mode-switch" hidden aria-label="Check cloud workspace connection" title="Check cloud connection"><span class="workspace-mode-label">Cloud</span></button><button id="topAccountButton" class="text-button" type="button" hidden>Account</button><button id="trackTask" class="text-button" title="Open live run monitor">Monitor <span id="headerRunStatus">Ready</span></button><button class="icon-button details-toggle" id="detailsButton" aria-label="Show activity panel"><span data-icon="panel"></span></button></div>
     </header>
@@ -147,7 +147,7 @@ id("app").innerHTML = `
           <section class="console-panel"><div class="panel-toolbar"><h2>Command output</h2><div><button id="copyConsole" class="text-button">Copy</button><button id="downloadLog" class="text-button" disabled>Save log</button></div></div><label class="console-follow"><input id="followConsole" type="checkbox" checked> Follow new output</label><pre id="liveConsole" tabindex="0">Command output will appear here as it is emitted.</pre><p>Some programs buffer their output. The current action and elapsed time stay visible while you wait.</p></section></div>
           <div id="monitorAttention" class="monitor-attention" hidden><span>An action needs your approval.</span><button id="reviewPending" class="button primary">Review action</button></div>
         </div>
-        <div id="historyView" class="page-view history-view" hidden><div class="view-heading"><div><span class="eyebrow">SAVED WORK</span><h1>Run history</h1></div><span id="historyCount" class="muted"></span></div><div id="historyList"></div></div>
+        <div id="historyView" class="page-view history-view" hidden><div class="view-heading"><div><span class="eyebrow">SAVED WORK</span><h1>Run history</h1></div><span id="historyCount" class="muted"></span></div><div id="historyList"></div><button id="clearHistory" class="text-button" type="button">Clear saved history</button></div>
       </section>
       <aside class="inspector" id="inspector" aria-label="Task details">
         <div class="inspector-heading"><span>Task details</span><button id="closeDetails" class="icon-button details-toggle" aria-label="Close activity panel"><span data-icon="close"></span></button><span class="status-badge" id="runStatus">Ready</span></div>
@@ -198,7 +198,7 @@ id("app").innerHTML = `
     <div class="dialog-actions"><button type="button" id="testConnection" class="button secondary">Test connection</button><button type="submit" class="button primary" id="saveSettings">Save connection</button></div>
   </form>
 </dialog>
-<dialog id="projectDialog"><div class="dialog-header"><div><span class="eyebrow">YOUR FILES</span><h2>Add a project</h2></div><button class="icon-button" data-close="projectDialog" aria-label="Close project dialog"><span data-icon="close"></span></button></div><form id="projectForm"><label for="projectName">Project name</label><input id="projectName" required maxlength="100" placeholder="My next project"><label for="projectFolder">Existing folder <span>Optional</span></label><div class="folder-input"><input id="projectFolder" placeholder="Leave blank to create a new folder"><button type="button" id="browseFolder" class="button secondary">Browse</button></div><p class="settings-note">A new folder is created when you leave this blank. Existing files are preserved.</p><div id="projectError" class="inline-result" hidden></div><div class="dialog-actions"><button type="submit" class="button primary" id="saveProject">Open project</button></div></form></dialog>
+<dialog id="projectDialog"><div class="dialog-header"><div><span class="eyebrow">YOUR FILES</span><h2>Add a project</h2></div><button class="icon-button" data-close="projectDialog" aria-label="Close project dialog"><span data-icon="close"></span></button></div><form id="projectForm"><label for="projectName">Project name</label><input id="projectName" required maxlength="100" placeholder="My next project"><label for="projectPurpose">What is this project for? <span>Optional — starts its Project Brief</span></label><textarea id="projectPurpose" rows="2" maxlength="2000" placeholder="A website for my small business"></textarea><label for="projectFolder">Existing folder <span>Optional</span></label><div class="folder-input"><input id="projectFolder" placeholder="Leave blank to create a new folder"><button type="button" id="browseFolder" class="button secondary">Browse</button></div><p class="settings-note">A new folder is created when you leave this blank. Existing files are preserved.</p><div id="projectError" class="inline-result" hidden></div><div class="dialog-actions"><button type="submit" class="button primary" id="saveProject">Open project</button></div></form></dialog>
 <dialog id="undoDialog"><div class="dialog-header"><h2>Undo these file changes?</h2><button class="icon-button" data-close="undoDialog" aria-label="Close rollback dialog"><span data-icon="close"></span></button></div><p class="dialog-intro">Restore files edited by this task. Later changes are protected. Shell commands and external actions cannot be undone here.</p><ul id="undoFiles"></ul><div class="dialog-actions"><button class="button secondary" data-close="undoDialog">Cancel</button><button class="button danger" id="confirmUndo">Undo file changes</button></div></dialog>
 <dialog id="storageDialog"><div class="dialog-header"><div><span class="eyebrow">LOCAL DEVICE STORAGE</span><h2>Your data folder</h2></div><button class="icon-button" data-close="storageDialog" aria-label="Close storage settings"><span data-icon="close"></span></button></div><p class="dialog-intro">New projects live in the PROJECTS folder inside SPARKLE CODER. Saved tasks stay with each project. Settings live in APP_DATA beside PROJECTS. Choose an empty folder to move managed data there. Existing projects outside this folder stay in their current locations.</p><label for="projectsPath">Your projects folder</label><input id="projectsPath" readonly><button id="openProjectsDirectory" class="button secondary projects-open">Open PROJECTS folder</button><p id="storageMigration" class="settings-note" hidden></p><label for="storagePath">Settings and managed data <span>Advanced: choose another location</span></label><div class="folder-input"><input id="storagePath"><button id="browseStorage" class="button secondary">Browse</button></div><div class="storage-links"><button id="openStorage" class="text-button">Open current folder ↗</button><button id="copyStoragePath" class="text-button">Copy current path</button></div><p class="settings-note">Switching folders copies data first and keeps the original as a backup. API keys remain in memory.</p><div id="storageResult" class="inline-result" hidden></div><div class="dialog-actions"><button id="saveStorage" class="button primary">Copy data and use this folder</button></div></dialog>
 <dialog id="migrationDialog"><div class="dialog-header"><h2>Projects waiting to move</h2><button class="icon-button" data-close="migrationDialog" aria-label="Close project move details"><span data-icon="close"></span></button></div>
@@ -217,17 +217,25 @@ id("app").innerHTML = `
   <form id="editorForm"><label for="editorPath">Path inside this project</label><input id="editorPath" required placeholder="src/example.py"><label for="editorContent">File content</label><textarea id="editorContent" rows="18" spellcheck="false" autocomplete="off"></textarea><p class="settings-note">Changes are saved with an undo record in History. If another task changes this file, reopen its latest version before saving.</p><p id="editorError" class="inline-result" role="alert" hidden></p><div class="dialog-actions"><button id="saveEditor" type="submit" class="button primary">Save file</button></div></form></dialog>
 <dialog id="duplicateDialog"><div class="dialog-header"><h2>Copy a project file</h2><button class="icon-button" data-close="duplicateDialog" aria-label="Close"><span data-icon="close"></span></button></div><form id="duplicateForm"><label for="duplicatePath">New path inside this project</label><input id="duplicatePath" required><p class="settings-note">Use forward slashes for folders. Existing files are preserved.</p><div class="dialog-actions"><button type="submit" class="button primary">Create copy</button></div></form></dialog>
 <dialog id="exportDialog"><div class="dialog-header"><h2>Copy project to your device</h2><button class="icon-button" data-close="exportDialog" aria-label="Close"><span data-icon="close"></span></button></div><form id="exportForm"><label for="exportPath">Destination folder</label><div class="folder-input"><input id="exportPath" required placeholder="Absolute device-folder path"><button type="button" id="browseExport" class="button secondary">Browse</button></div><p class="settings-note">Creates a new project copy inside this folder. Existing files are preserved. Dependencies, credentials, Git internals, and agent history are excluded.</p><div id="exportResult" class="inline-result" hidden></div><div class="dialog-actions"><button type="submit" id="saveExport" class="button primary">Copy project</button></div></form></dialog>
+<dialog id="deleteProjectDialog"><div class="dialog-header"><h2>Delete selected project</h2><button class="icon-button" data-close="deleteProjectDialog" aria-label="Close"><span data-icon="close"></span></button></div>
+  <p id="deleteProjectDescription" class="dialog-intro"></p>
+  <label class="check-label" id="deleteProjectFilesLabel"><input type="checkbox" id="deleteProjectFiles"> Also permanently delete this SPARKLE-managed project's files and task history</label>
+  <label for="confirmProjectName">Type the exact project name to confirm</label><input id="confirmProjectName" autocomplete="off">
+  <p id="deleteProjectError" class="inline-result" role="alert" hidden></p>
+  <div class="dialog-actions"><button id="confirmDeleteProject" type="button" class="button danger">Delete project</button></div></dialog>
 <dialog id="briefDialog"><div class="dialog-header"><h2>Tell SPARKLE about your project</h2><button class="icon-button" data-close="briefDialog" aria-label="Close project brief"><span data-icon="close"></span></button></div>
   <form id="briefForm"><p class="dialog-intro">Keep your goals in one place. Each new task gets a copy. Saved tasks keep their original checklist, so changes here cannot quietly remove their requirements.</p>
   <label for="briefPurpose">What is this project for?</label><textarea id="briefPurpose" rows="3" maxlength="2000" placeholder="A personal expense tracker I can use offline."></textarea>
   <label for="briefRequirements">What must work? <span>One requirement per line; up to 20</span></label><textarea id="briefRequirements" rows="5" maxlength="6020" placeholder="Add, edit, and delete an expense&#10;Keep expenses after restarting&#10;Export expenses to CSV"></textarea>
   <label for="briefConstraints">Preferences and things to preserve</label><textarea id="briefConstraints" rows="3" maxlength="2000" placeholder="Explain things simply. Keep my existing data. Use local storage."></textarea>
   <p class="settings-note">No programming commands needed. Saved on your device with this project. Do not put passwords or API keys here.</p><div id="briefResult" class="inline-result" role="status" hidden></div>
-  <div class="dialog-actions"><button type="submit" id="saveBrief" class="button primary">Save project brief</button></div></form></dialog>
+  <div id="briefSuggestionStatus" class="settings-note" role="status" hidden></div>
+  <div class="dialog-actions"><button id="suggestBrief" type="button" class="button secondary">Draft from saved tasks</button><button type="submit" id="saveBrief" class="button primary">Save project brief</button></div></form></dialog>
 <dialog id="skillsDialog"><div class="dialog-header"><h2>Project skills</h2><button class="icon-button" data-close="skillsDialog" aria-label="Close project skills"><span data-icon="close"></span></button></div>
   <p class="dialog-intro">SPARKLE auto-selects a small set of relevant skills. Override only when this project needs a specialist skill every time.</p>
   <div id="skillsList" class="skills-list"></div>
   <label class="check-label"><input id="visionReview" type="checkbox"> Use optional vision-model review for rendered web screenshots</label><p id="visionReviewStatus" class="settings-note"></p>
+  <p id="skillSaveStatus" class="settings-note" role="status">Changes to skill choices are saved when you select Save.</p>
   <div class="dialog-actions"><button id="saveSkillOverrides" class="button primary">Save skill overrides</button></div>
   <details class="technical-details"><summary>Add a custom project skill</summary><form id="customSkillForm">
     <label for="customSkillId">Skill ID</label><input id="customSkillId" maxlength="48" placeholder="brand_voice">
@@ -501,6 +509,8 @@ function renderControls() {
   id("supervisionChoice").hidden=isCloud; id("reviewEdits").disabled=isCloud||!!working||id("taskMode").value==="ask";
   id("stopButton").hidden=!working; id("stopButton").disabled=currentRun?.status==="stopping";
   // Other projects remain available while this project's agent runs.
+  id("deleteProject").disabled=!projectId||startingRun||!!working||transferBusy;
+  id("clearHistory").disabled=!projectId||startingRun||!!working||transferBusy||!historyItems.length;
   id("projectSelect").disabled=startingRun||transferBusy;
   id("addProject").disabled=startingRun||transferBusy||(isCloud&&!(appState.account?.ready&&appState.engine?.available));
   id("newTask").disabled=startingRun||!!working||transferBusy;
@@ -716,7 +726,15 @@ async function openFile(path) {
   renderFileList();renderFileButtons();
 }
 async function loadHistory() {
-  if(!projectId)return; historyItems=(await api("/projects/"+projectId+"/sessions")).sessions;
+  if(!projectId){
+    historyItems=[];id("recentTasks").replaceChildren();id("historyList").replaceChildren();
+    id("historyCount").textContent="0 saved";id("continueLastTask").hidden=true;
+    id("clearHistory").disabled=true;return;
+  }
+  const requestedProject=projectId;
+  const result=await api("/projects/"+requestedProject+"/sessions");
+  if(requestedProject!==projectId)return;
+  historyItems=result.sessions;
   id("recentTasks").replaceChildren(); id("historyList").replaceChildren(); id("historyCount").textContent=historyItems.length+" saved";
   const unfinished=historyItems.find(s=>["paused","interrupted","needs_input","blocked","unverified"].includes(s.status));
   id("continueLastTask").hidden=!unfinished;
@@ -726,9 +744,64 @@ async function loadHistory() {
   if(!historyItems.length) { id("recentTasks").append(node("p","muted","Your tasks will appear here.")); id("historyList").append(emptyPanel("A fresh start","Every task is saved here so you can review or continue it.")); }
   historyItems.forEach((s,index)=> {
     const date=new Date(s.updated).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
-    const button=node("button","history-row"); const copy=node("div"); copy.append(node("strong","",s.goal),node("span","",date)); button.append(copy,node("span","status-badge "+s.status,friendly(s.status))); button.onclick=()=>action(()=>loadSession(s.id)); id("historyList").append(button);
+    const entry=node("div","history-entry"),button=node("button","history-row"),copy=node("div");
+    copy.append(node("strong","",s.goal),node("span","",date));
+    button.append(copy,node("span","status-badge "+s.status,friendly(s.status)));
+    button.onclick=()=>action(()=>loadSession(s.id));
+    const remove=node("button","text-button history-delete","Delete");
+    remove.type="button";remove.setAttribute("aria-label","Delete saved task: "+s.goal);
+    remove.disabled=!!busy();remove.onclick=()=>action(()=>deleteSavedTask(s.id));
+    entry.append(button,remove);id("historyList").append(entry);
     if(index<6) { const recent=node("button","recent-item",s.goal); recent.title=s.goal; recent.onclick=()=>action(()=>loadSession(s.id)); id("recentTasks").append(recent); }
   });
+  id("clearHistory").disabled=!!busy()||!historyItems.length;
+}
+async function deleteSavedTask(sessionId){
+  if(busy()||!projectId)return;
+  if(!window.confirm("Permanently delete this saved task and its undo history? Project files will not change."))return;
+  const result=await api("/projects/"+projectId+"/sessions/"+sessionId+"/delete",{confirm:true});
+  if(result.deleted!==sessionId)throw Error("The server did not confirm saved task deletion.");
+  if(currentSession?.id===sessionId){currentRun=null;runEvents=[];lastMessageKey="";renderSession(null);}
+  await loadHistory();
+  toast(result.message||"Saved task deleted. Project files are unchanged.");
+}
+async function clearSavedHistory(){
+  if(busy()||!projectId||!historyItems.length)return;
+  const name=appState.projects.find(p=>p.id===projectId)?.name||"this project";
+  if(!window.confirm("Permanently delete ALL saved tasks, conversations and undo history for "+name+"? Project files will stay unchanged."))return;
+  const result=await api("/projects/"+projectId+"/sessions/clear",{confirm:true});
+  currentRun=null;currentSession=null;runEvents=[];lastMessageKey="";renderSession(null);
+  await loadHistory();toast(result.message||result.deleted+" saved tasks deleted. Project files are unchanged.");
+}
+function openDeleteProject(){
+  const project=appState.projects.find(p=>p.id===projectId);
+  if(!project||busy())return;
+  id("confirmProjectName").value="";id("deleteProjectFiles").checked=false;
+  id("deleteProjectFilesLabel").hidden=!project.managed;
+  id("deleteProjectDescription").textContent="Remove “"+project.name+"” from your project list. Files and task history stay on disk unless you explicitly choose permanent deletion below.";
+  id("deleteProjectError").hidden=true;id("deleteProjectDialog").showModal();
+}
+async function confirmDeleteProject(){
+  const project=appState.projects.find(p=>p.id===projectId);
+  if(!project||busy())return;
+  const removeFiles=!!project.managed&&id("deleteProjectFiles").checked;
+  id("confirmDeleteProject").disabled=true;id("deleteProjectError").hidden=true;
+  try{
+    const result=await api("/projects/"+project.id+"/delete",{
+      confirm:true,name:id("confirmProjectName").value,delete_files:removeFiles
+    });
+    if(!result.removed)throw Error("The server did not confirm project deletion.");
+    clearDraft(project.id);
+    id("deleteProjectDialog").close();
+    projectId=null;currentRun=null;currentSession=null;runEvents=[];lastMessageKey="";
+    clearFileSelection();
+    await refreshState();
+    if(currentRun) {changeView("monitor");schedulePoll(20);}
+    else {await newTask(false);}
+    await Promise.all([loadFiles(),loadHistory()]);
+    toast(result.message||"Project removed.");
+  }catch(error){id("deleteProjectError").hidden=false;id("deleteProjectError").textContent=error.message;}
+  finally{id("confirmDeleteProject").disabled=false;}
 }
 async function loadSession(sessionId) { if(startingRun||busy()) { toast("Finish or stop the current task first."); return; } currentRun=null; runEvents=[]; const data=await api("/projects/"+projectId+"/sessions/"+sessionId); runEvents=data.events||[]; id("taskMode").value=data.task_mode||"build"; renderSession(data); id("verifyCommands").value=(data.required_checks||[]).join("\n"); changeView("build"); if(tab==="changes")await loadChanges(); }
 async function newTask(clearSaved=false) { if(startingRun||busy()||transferBusy)return; if(clearSaved)clearDraft(); currentRun=null; runEvents=[]; id("taskError").hidden=true; id("taskMode").value="build"; renderSession(null); id("goal").value=""; id("verifyCommands").value=""; id("verificationFields").hidden=true; if(!clearSaved)restoreDraft(); changeView("build"); setTab("activity"); id("goal").focus(); }
@@ -880,16 +953,37 @@ function renderExperience() {
 }
 async function openProjectBrief() {
   briefProjectId=projectId;
-  id("briefResult").hidden=true;id("saveBrief").disabled=true;
+  id("briefResult").hidden=true;id("briefSuggestionStatus").hidden=true;
+  id("saveBrief").disabled=true;
   const result=await api("/projects/"+briefProjectId+"/brief");
+  if(briefProjectId!==projectId)return;
   briefRevision=result.revision;
   id("briefPurpose").value=result.brief.purpose;
   id("briefRequirements").value=result.brief.requirements.join("\n");
   id("briefConstraints").value=result.brief.constraints;
   id("saveBrief").disabled=!!busy();id("briefDialog").showModal();
 }
+async function suggestProjectBrief(){
+  if(!briefProjectId||briefProjectId!==projectId)return;
+  id("suggestBrief").disabled=true;id("briefSuggestionStatus").hidden=false;
+  try{
+    const suggestion=await api("/projects/"+briefProjectId+"/brief-suggestion");
+    if(briefProjectId!==projectId)return;
+    if(suggestion.revision!==briefRevision)throw Error("The saved brief changed. Reopen it before using suggestions.");
+    if(!id("briefPurpose").value.trim())id("briefPurpose").value=suggestion.brief.purpose||"";
+    const existing=id("briefRequirements").value.split("\n").map(x=>x.trim()).filter(Boolean);
+    const seen=new Set(existing.map(x=>x.toLowerCase()));
+    for(const text of suggestion.brief.requirements||[]){
+      if(existing.length>=20)break;
+      if(!seen.has(text.toLowerCase())){existing.push(text);seen.add(text.toLowerCase());}
+    }
+    id("briefRequirements").value=existing.join("\n");
+    id("briefSuggestionStatus").textContent=suggestion.note+" Saved tasks considered: "+suggestion.sources+". Nothing was saved yet.";
+  }catch(error){id("briefSuggestionStatus").textContent=error.message;}
+  finally{id("suggestBrief").disabled=false;}
+}
 async function saveProjectBrief(event) {
-  event.preventDefault();if(busy())return;
+  event.preventDefault();if(busy()||briefProjectId!==projectId)return;
   id("saveBrief").disabled=true;id("briefResult").hidden=false;
   try {
     const result=await api("/projects/"+briefProjectId+"/brief",{revision:briefRevision,brief:{
@@ -898,32 +992,82 @@ async function saveProjectBrief(event) {
   } catch(error) {id("briefResult").textContent=error.message;}
   finally {id("saveBrief").disabled=!!busy();}
 }
-let projectSkillState=null;
-function renderProjectSkills(data){
+let projectSkillState=null,skillProjectId=null;
+function skillDraft(){
+  const selected={};
+  document.querySelectorAll("#skillsList [data-skill-id]").forEach(select=>selected[select.dataset.skillId]=select.value);
+  return {selected,vision:id("visionReview").checked};
+}
+function renderProjectSkills(data,draft=null){
   projectSkillState=data;const target=id("skillsList");target.replaceChildren();
   const enabled=new Set(data.overrides?.enabled||[]),disabled=new Set(data.overrides?.disabled||[]);
   for(const skill of data.skills||[]){
     const row=node("div","skill-row"),copy=node("div","skill-copy"),title=node("strong","",skill.title||skill.id),meta=node("span","",skill.source==="custom"?"Custom":"Built in");
     const m=skill.metrics||{};if(m.runs)meta.textContent+=" · "+m.runs+" runs · "+m.checked+" checked · "+Number(m.tokens||0).toLocaleString()+" tokens";
     if(skill.triggers?.length)meta.textContent+=" · triggers: "+skill.triggers.join(", ");copy.append(title,meta);
-    const mode=node("select","skill-mode");mode.dataset.skillId=skill.id;[["auto","Auto"],["on","On"],["off","Off"]].forEach(([value,label])=>{const option=node("option","",label);option.value=value;mode.append(option);});mode.value=enabled.has(skill.id)?"on":disabled.has(skill.id)?"off":"auto";row.append(copy,mode);
+    const mode=node("select","skill-mode");mode.dataset.skillId=skill.id;[["auto","Auto"],["on","On"],["off","Off"]].forEach(([value,label])=>{const option=node("option","",label);option.value=value;mode.append(option);});mode.value=draft?.selected?.[skill.id]|| (enabled.has(skill.id)?"on":disabled.has(skill.id)?"off":"auto");
+    mode.onchange=()=>{id("skillSaveStatus").textContent="Unsaved skill choices. Select Save to apply them.";};
+    row.append(copy,mode);
     if(skill.source==="custom"){const remove=node("button","text-button","Delete");remove.type="button";remove.onclick=()=>action(()=>deleteProjectSkill(skill.id));row.append(remove);}target.append(row);
   }
-  id("visionReview").checked=Boolean(data.overrides?.vision_review);
+  id("visionReview").checked=draft?draft.vision:Boolean(data.overrides?.vision_review);
   id("visionReviewStatus").textContent=data.vision?.available?("Vision reviewer configured: "+(data.vision.model||"ready")):((data.vision?.reason||"Vision reviewer is not configured on this host.")+" You can leave this off until the owner configures one.");
 }
-async function openProjectSkills(){if(!projectId)throw new Error("Create or select a project first.");const data=await api("/projects/"+projectId+"/skills");renderProjectSkills(data);id("customSkillResult").hidden=true;id("skillsDialog").showModal();}
+async function openProjectSkills(){
+  if(!projectId)throw Error("Create or select a project first.");
+  skillProjectId=projectId;
+  const data=await api("/projects/"+skillProjectId+"/skills");
+  if(skillProjectId!==projectId)return;
+  renderProjectSkills(data);id("customSkillResult").hidden=true;
+  id("skillSaveStatus").textContent="Changes to skill choices are saved when you select Save.";
+  id("skillsDialog").showModal();
+}
 async function saveProjectSkillOverrides(){
-  const enabled=[],disabled=[];document.querySelectorAll("#skillsList [data-skill-id]").forEach(select=>{if(select.value==="on")enabled.push(select.dataset.skillId);if(select.value==="off")disabled.push(select.dataset.skillId);});
-  const data=await api("/projects/"+projectId+"/skills",{action:"overrides",enabled,disabled,vision_review:id("visionReview").checked});renderProjectSkills(data);toast("Project skill overrides saved.");
+  if(!skillProjectId||skillProjectId!==projectId)throw Error("Reopen Skills for the selected project.");
+  const enabled=[],disabled=[];
+  document.querySelectorAll("#skillsList [data-skill-id]").forEach(select=>{
+    if(select.value==="on")enabled.push(select.dataset.skillId);
+    if(select.value==="off")disabled.push(select.dataset.skillId);
+  });
+  const button=id("saveSkillOverrides");button.disabled=true;
+  id("skillSaveStatus").textContent="Saving skill overrides…";
+  try{
+    const vision=id("visionReview").checked;
+    const data=await api("/projects/"+skillProjectId+"/skills",{action:"overrides",enabled,disabled,vision_review:vision});
+    if(skillProjectId!==projectId)return;
+    if(JSON.stringify(data.overrides?.enabled)!==JSON.stringify(enabled)||
+       JSON.stringify(data.overrides?.disabled)!==JSON.stringify(disabled)||
+       data.overrides?.vision_review!==vision)throw Error("The server did not confirm all skill changes.");
+    renderProjectSkills(data);
+    id("skillSaveStatus").textContent="Saved for this project. These skill choices will be used in new tasks.";
+  }catch(error){id("skillSaveStatus").textContent="Could not save: "+error.message;}
+  finally{button.disabled=false;}
 }
-async function saveCustomProjectSkill(event){event.preventDefault();const triggers=id("customSkillTriggers").value.split(/[,\n]/).map(x=>x.trim()).filter(Boolean);
-  try{const data=await api("/projects/"+projectId+"/skills",{action:"save_custom",id:id("customSkillId").value,title:id("customSkillTitle").value,triggers,body:id("customSkillBody").value});renderProjectSkills(data);id("customSkillForm").reset();id("customSkillResult").hidden=false;id("customSkillResult").textContent="Custom skill saved.";}catch(error){id("customSkillResult").hidden=false;id("customSkillResult").textContent=error.message;}
+async function saveCustomProjectSkill(event){
+  event.preventDefault();if(!skillProjectId||skillProjectId!==projectId)return;
+  const draft=skillDraft();
+  const triggers=id("customSkillTriggers").value.split(/[,\n]/).map(x=>x.trim()).filter(Boolean);
+  try{
+    const data=await api("/projects/"+skillProjectId+"/skills",{action:"save_custom",id:id("customSkillId").value,title:id("customSkillTitle").value,triggers,body:id("customSkillBody").value});
+    if(skillProjectId!==projectId)return;
+    renderProjectSkills(data,draft);id("customSkillForm").reset();id("customSkillResult").hidden=false;
+    id("customSkillResult").textContent="Custom skill saved. Unsaved skill choices above were preserved.";
+  }catch(error){id("customSkillResult").hidden=false;id("customSkillResult").textContent=error.message;}
 }
-async function deleteProjectSkill(skillId){if(!window.confirm("Delete this custom project skill?"))return;const data=await api("/projects/"+projectId+"/skills",{action:"delete_custom",id:skillId});renderProjectSkills(data);toast("Custom skill deleted.");}
+async function deleteProjectSkill(skillId){
+  if(!skillProjectId||skillProjectId!==projectId)return;
+  if(!window.confirm("Delete this custom project skill?"))return;
+  const draft=skillDraft();delete draft.selected[skillId];
+  const data=await api("/projects/"+skillProjectId+"/skills",{action:"delete_custom",id:skillId});
+  if(skillProjectId!==projectId)return;
+  renderProjectSkills(data,draft);toast("Custom skill deleted. Other unsaved selections are preserved.");
+}
 
 function renderSetupReport(report) {
-  id("setupSummary").textContent=report.attention?report.attention+" setup item(s) need attention. Your files are saved.":"No missing tools were identified by this scan. Project tests still need to run.";
+  id("setupSummary").textContent=report.overview?.file_count===0?
+    "This project is empty. Start a task or import files to begin. Project tests still need to run.":
+    report.attention?report.attention+" setup item(s) need attention. Your files are saved.":
+    "No missing tools were identified by this scan. Project tests still need to run.";
   const target=id("setupItems");target.replaceChildren();
   const labels={found:"Found",attention:"Needs attention",info:"Not verified"};
   report.items.forEach(item=>{
@@ -1183,6 +1327,11 @@ id("continueLastTask").onclick=()=>action(()=>loadSession(id("continueLastTask")
 id("briefButton").onclick=()=>action(openProjectBrief);
 id("skillsButton").onclick=()=>action(openProjectSkills);
 id("saveSkillOverrides").onclick=()=>action(saveProjectSkillOverrides);
+id("visionReview").onchange=()=>{id("skillSaveStatus").textContent="Unsaved skill choices. Select Save to apply them.";};
+id("suggestBrief").onclick=()=>action(suggestProjectBrief);
+id("deleteProject").onclick=openDeleteProject;
+id("confirmDeleteProject").onclick=()=>action(confirmDeleteProject);
+id("clearHistory").onclick=()=>action(clearSavedHistory);
 id("customSkillForm").onsubmit=e=>action(()=>saveCustomProjectSkill(e));
 id("briefForm").onsubmit=e=>action(()=>saveProjectBrief(e));
 id("setupButton").onclick=()=>action(openSetup);
@@ -1261,7 +1410,7 @@ id("executionMode").onchange=()=>id("executionNote").textContent=id("executionMo
 id("projectSelect").onchange=()=>action(()=>selectProject(id("projectSelect").value));
 id("addProject").onclick=()=>{id("projectForm").reset();id("projectError").hidden=true;id("projectDialog").showModal();};
 id("browseFolder").onclick=()=>action(async()=>{id("browseFolder").disabled=true;try{const result=await api("/select-folder",{});if(result.path){id("projectFolder").value=result.path;if(!id("projectName").value)id("projectName").value=result.path.split(/[\\/]/).pop();}}finally{id("browseFolder").disabled=false;}});
-id("projectForm").onsubmit=e=>{e.preventDefault();action(async()=>{id("saveProject").disabled=true;try{const project=await api("/projects",{name:id("projectName").value,path:id("projectFolder").value});await refreshState();await selectProject(project.id);id("projectDialog").close();}catch(error){id("projectError").hidden=false;id("projectError").textContent=error.message;}finally{id("saveProject").disabled=false;}});};
+id("projectForm").onsubmit=e=>{e.preventDefault();action(async()=>{id("saveProject").disabled=true;try{const project=await api("/projects",{name:id("projectName").value,path:id("projectFolder").value,purpose:id("projectPurpose").value});await refreshState();await selectProject(project.id);id("projectDialog").close();}catch(error){id("projectError").hidden=false;id("projectError").textContent=error.message;}finally{id("saveProject").disabled=false;}});};
 id("refreshFiles").onclick=()=>action(isCloud?openWorkspace:loadFiles);
 id("undoButton").onclick=()=>action(async()=>{const result=await api("/projects/"+projectId+"/sessions/"+currentSession.id+"/undo");id("undoFiles").replaceChildren(...result.paths.map(p=>node("li","",p)));id("undoDialog").showModal();});
 id("confirmUndo").onclick=()=>action(async()=>{await api("/projects/"+projectId+"/sessions/"+currentSession.id+"/undo",{confirm:true});id("undoDialog").close();await loadSession(currentSession.id);await loadFiles();await loadChanges();toast("File-tool edits were undone.");});
