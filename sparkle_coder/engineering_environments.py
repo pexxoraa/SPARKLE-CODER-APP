@@ -69,7 +69,7 @@ def _host_status(workspace, tool, root, which):
 
 
 def inspect_environment(workspace, goal="", execution="local", *,
-                        docker_image="", files=None, which=None):
+                        docker_image="", files=None, which=None, state=None):
     """Inspect native toolchain and dependency lockfile signals, never execute."""
     names = workspace.files(limit=2001) if files is None else files
     names = names[:2000]
@@ -208,6 +208,27 @@ def inspect_environment(workspace, goal="", execution="local", *,
                 "changes_project_or_cache": True,
                 "acceptance_evidence": False,
             })
+    # An observed command is not a device or target build. Show only verified
+    # *command-execution* evidence and make stale observations visible on revisit.
+    observations = state.get("engineering_probes", []) if isinstance(state, dict) else []
+    if not isinstance(observations, list):
+        observations = []
+    revision = state.get("environment_revision", 0) if isinstance(state, dict) else 0
+    by_id = {item["id"]: item for item in observations[-30:]
+             if isinstance(item, dict) and isinstance(item.get("id"), str)}
+    for entry in probes:
+        record = by_id.get(entry["id"])
+        if not record:
+            entry["probe_status"] = "not_run"
+        elif (record.get("fingerprint") != fingerprint or
+              record.get("environment_revision", 0) != revision or
+              record.get("environment") != execution):
+            entry["probe_status"] = "stale"
+        elif record.get("ok"):
+            entry["probe_status"] = "command_passed_not_target_verified"
+        else:
+            entry["probe_status"] = "denied" if record.get("denied") else "failed"
+
     return {
         "version": 1, "execution": execution,
         "docker_image": docker_image if execution == "docker" else None,
