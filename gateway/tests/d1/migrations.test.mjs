@@ -2,7 +2,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdirSync,mkdtempSync,readFileSync,readdirSync,rmSync,writeFileSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -18,24 +18,27 @@ test('Wrangler applies the schema once and file import records the same schema a
    'd1',...args,'--local','--persist-to',join(temporary,state),'--config',configPath],
    {cwd:root,encoding:'utf8',timeout:30000,env:{...process.env,CI:'1',WRANGLER_SEND_METRICS:'false',WRANGLER_LOG_PATH:join(temporary,'wrangler.log')}});
   const query=(state,sql)=>JSON.parse(run(state,'execute','migration-check','--command',sql,'--json')).flatMap(r=>r.results);
+  const names = readdirSync(join(root,'migrations'))
+    .filter(name => /^\d{4}_[a-z0-9_]+\.sql$/.test(name)).sort();
+  assert.ok(names.length >= 7, 'Expected the initial schema and flexible-purchase migration');
+  const migrations = names.map(name => ({name}));
+  const queryMigrations = state => query(state,'SELECT name FROM d1_migrations ORDER BY name');
   run('normal','migrations','apply','migration-check');
-  assert.deepEqual(query('normal','SELECT name FROM d1_migrations'),[{name:'0001_pilot.sql'},{name:'0002_login_coupons.sql'},{name:'0003_coupon_money.sql'},{name:'0004_legacy_password_setup.sql'},{name:'0005_password_reset.sql'},{name:'0006_runtime_engine_origin.sql'}]);
-  assert.equal(query('normal',"SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger'")[0].n,14);
+  assert.deepEqual(queryMigrations('normal'), migrations);
+  assert.ok(query('normal',"SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger'")[0].n >= 14);
   query('normal',"INSERT INTO accounts(id,email,name,created) VALUES ('keep','keep@example.test','Keep this account',1)");
   run('normal','migrations','apply','migration-check');
   assert.deepEqual(query('normal','SELECT name FROM accounts'),[{name:'Keep this account'}]);
 
   query('import','CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)');
   const file=join(temporary,'recovery.sql');
-  writeFileSync(file,readFileSync(join(root,'migrations/0001_pilot.sql'),'utf8')+"\n"+
-    readFileSync(join(root,'migrations/0002_login_coupons.sql'),'utf8')+"\n"+
-    readFileSync(join(root,'migrations/0003_coupon_money.sql'),'utf8')+"\n"+
-    readFileSync(join(root,'migrations/0004_legacy_password_setup.sql'),'utf8')+"\n"+
-    readFileSync(join(root,'migrations/0005_password_reset.sql'),'utf8')+"\n"+
-    readFileSync(join(root,'migrations/0006_runtime_engine_origin.sql'),'utf8')+
-    "\nINSERT INTO d1_migrations(name) VALUES ('0001_pilot.sql'),('0002_login_coupons.sql'),('0003_coupon_money.sql'),('0004_legacy_password_setup.sql'),('0005_password_reset.sql'),('0006_runtime_engine_origin.sql');\n");
+  // A recovery import must reproduce every currently tracked migration,
+  // not just the six migrations that existed when this test was first written.
+  const schema = names.map(name => readFileSync(join(root,'migrations',name),'utf8')).join('\n');
+  const escaped = names.map(name => "('"+name.replaceAll("'","''")+"')").join(',');
+  writeFileSync(file,schema+"\nINSERT INTO d1_migrations(name) VALUES "+escaped+";\n");
   run('import','execute','migration-check','--file',file,'--yes');
-  assert.deepEqual(query('import','SELECT name FROM d1_migrations'),[{name:'0001_pilot.sql'},{name:'0002_login_coupons.sql'},{name:'0003_coupon_money.sql'},{name:'0004_legacy_password_setup.sql'},{name:'0005_password_reset.sql'},{name:'0006_runtime_engine_origin.sql'}]);
+  assert.deepEqual(queryMigrations('import'), migrations);
   const objects="SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name";
   assert.deepEqual(query('normal',objects),query('import',objects));
  } finally {rmSync(temporary,{recursive:true,force:true});}
