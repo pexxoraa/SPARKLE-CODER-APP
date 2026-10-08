@@ -1010,7 +1010,6 @@ function visibleActivityActions(actions=[]) {
   actions.forEach((item,index)=>{if(item.tool==="inspect_setup")latestSetup=index;});
   return actions.filter((item,index)=>item.tool!=="inspect_setup"||index===latestSetup);
 }
-let lastActivitySnapshot="";
 function renderActivity() {
   const target=id("activityList");
   const actions=visibleActivityActions(currentSession?.actions||[]);
@@ -1020,8 +1019,8 @@ function renderActivity() {
     actions.slice(-25).map(a=>[a.tool,a.ok,a.label,a.purpose,a.path,a.query,a.command?true:false,a.error?.slice(0,250)]),
     recent.map(e=>[e.sequence,e.kind,e.ok,e.text?.slice(0,250),e.path,e.purpose,e.label])
   ]);
-  if(snapshot===lastActivitySnapshot)return;
-  lastActivitySnapshot=snapshot;
+  if(target._sparkleActivitySnapshot===snapshot)return;
+  target._sparkleActivitySnapshot=snapshot;
   target.replaceChildren();
   if(!actions.length && !runEvents.length && !busy()) { target.append(emptyPanel("Ready when you are","The agent's progress and decisions will appear here.")); return; }
   const names={inspect_setup:"Inspected project setup",inspect_static_site:"Checked static site",inspect_visual_site:"Reviewed visual quality",render_page:"Rendered page",revise_check:"Corrected a test",update_delivery:"Prepared usage instructions",discover_checks:"Found project checks",request_input:"Asked for a missing detail",list_files:"Explored project",read_file:"Read file",search_files:"Searched code",web_search:"Searched the web",search_assets:"Searched public image assets",read_web_page:"Read web page",download_asset:"Downloaded project asset",write_file:"Wrote file",edit_file:"Edited file",delete_file:"Removed file",run_command:"Ran command",verify:"Ran verification",update_plan:"Updated plan",remember:"Saved project memory"};
