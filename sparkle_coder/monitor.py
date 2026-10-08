@@ -65,7 +65,7 @@ class Run:
             elif kind == "verification_start":
                 self.current_action = "Checking: " + check_title(data["command"])
             elif kind == "budget_upgrade":
-                self.current_action = "Fast pass complete · continuing with Standard effort"
+                self.current_action = data.get("text", "Continuing automatically with another work segment")
             elif kind == "repair":
                 self.current_action = "Diagnosing check failures and continuing repairs"
             elif kind == "tool_start":

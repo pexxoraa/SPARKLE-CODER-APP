@@ -22,6 +22,28 @@ const elements = new Map();
 const id = name => {if(!elements.has(name))elements.set(name,node("div"));return elements.get(name);};
 const descendants = element => [element, ...element.children.flatMap(descendants)];
 const visibleText = element => element.hidden ? "" : element.text + " " + (element.tag==="details"&&!element.open ? element.children.filter(x=>x.tag==="summary") : element.children).map(visibleText).join(" ");
+// The Activity panel must show the live current action even before a
+// task creates files or has any event history, and report reconnects.
+const liveActivityCode=source.slice(source.indexOf('function renderActivity()'),source.indexOf('function renderRecovery('));
+const activityUI=new Function('id','node','icon','visibleActivityActions','emptyPanel',`
+  let currentRun={id:'live',status:'running',current_action:'Waiting for AI response'};
+  let currentSession=null,runEvents=[],lastPollError='';
+  function busy(){return currentRun?.status==='running';}
+  function eventDescription(e){return e.text||e.kind;}
+  ${liveActivityCode}
+  return {render:renderActivity,setError:error=>lastPollError=error,setEvents:events=>runEvents=events,
+          finish:()=>currentRun={id:'live',status:'checked'}};
+`)(id,node,()=>'<check/>',visibleActivityActions,(title,text)=>node('div','',title+': '+text));
+activityUI.render();
+assert.match(visibleText(id('activityList')),/Waiting for AI response/);
+assert.doesNotMatch(visibleText(id('activityList')),/Ready when you are/);
+activityUI.setEvents([{kind:'tool_start',text:'Reading a file',path:'main.py'}]);
+activityUI.render();assert.match(visibleText(id('activityList')),/Reading a file/);
+activityUI.setError('Connection lost');activityUI.render();
+assert.match(visibleText(id('activityList')),/Reconnecting to the live task/);
+activityUI.setError('');activityUI.finish();activityUI.render();
+assert.doesNotMatch(visibleText(id('activityList')),/Waiting for AI response/);
+
 let working=false, submissions=0, settingsOpened=0;
 id("taskForm").requestSubmit=()=>submissions++;
 const ui = new Function("id","node","friendly","busy","openSettings","action","api","setTab","document",

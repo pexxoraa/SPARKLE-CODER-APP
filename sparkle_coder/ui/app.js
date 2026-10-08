@@ -966,10 +966,27 @@ function visibleActivityActions(actions=[]) {
 function renderActivity() {
   const target=id("activityList"); target.replaceChildren();
   const actions=visibleActivityActions(currentSession?.actions||[]);
-  if(!actions.length && !runEvents.length) { target.append(emptyPanel("Ready when you are","The agent's progress and decisions will appear here.")); return; }
+  if(!actions.length && !runEvents.length && !busy()) { target.append(emptyPanel("Ready when you are","The agent's progress and decisions will appear here.")); return; }
   const names={inspect_setup:"Inspected project setup",inspect_static_site:"Checked static site",inspect_visual_site:"Reviewed visual quality",render_page:"Rendered page",revise_check:"Corrected a test",update_delivery:"Prepared usage instructions",discover_checks:"Found project checks",request_input:"Asked for a missing detail",list_files:"Explored project",read_file:"Read file",search_files:"Searched code",web_search:"Searched the web",search_assets:"Searched public image assets",read_web_page:"Read web page",download_asset:"Downloaded project asset",write_file:"Wrote file",edit_file:"Edited file",delete_file:"Removed file",run_command:"Ran command",verify:"Ran verification",update_plan:"Updated plan",remember:"Saved project memory"};
   actions.slice(-25).reverse().forEach(a=> { const row=node("div","activity-row"); const marker=node("span","activity-marker "+(a.ok?"ok":"failed")); marker.innerHTML=icon(a.ok?"check":"close"); const detail=node("div"); detail.append(node("strong","",names[a.tool]||a.tool),node("span","",a.label||a.purpose||a.path||a.query||(a.command?"Command recorded — open Run monitor for details":a.ok?"Completed":"Needs attention"))); row.append(marker,detail); if(a.error) row.title=a.error; target.append(row); });
-  if(busy()) { const latest=runEvents[runEvents.length-1]; const row=node("div","live-activity",latest?.text?.slice(0,250)||"Working…"); target.prepend(row); }
+  // A running task is visible even before the first file edit or model event.
+  // Use the engine's structured current action, not the last log message (which
+  // may be missing text or describe an older step).
+  if(busy()) {
+    const latest=runEvents[runEvents.length-1];
+    const current=lastPollError?"Reconnecting to the live task… Last step: "+(currentRun?.current_action||"Starting task"):
+      (currentRun?.current_action||((latest&&eventDescription(latest))||"Starting task…"));
+    target.prepend(node("div","live-activity",current.slice(0,250)));
+  }
+  // The engine's event stream includes model calls and active checks, even
+  // when the durable file-action history is still empty.
+  const recent=runEvents.filter(e=>["model_start","model_end","action_context","tool_start","tool_end","verification_start","command_start","command_end","budget_upgrade","repair","finished"].includes(e.kind)).slice(-12).reverse();
+  recent.forEach(e=>{
+    const row=node("div","activity-row"),marker=node("span","activity-marker "+(e.ok===false?"failed":"ok")),detail=node("div");
+    marker.innerHTML=icon(e.ok===false?"close":"check");
+    detail.append(node("strong","",eventDescription(e)),node("span","",e.path||e.purpose||e.label||""));
+    row.append(marker,detail);target.append(row);
+  });
 }
 function renderRecovery(session) {
   const banner=id("resultBanner"),recovery=session.recovery,attention=["needs_input","blocked","unverified"].includes(session.status);
@@ -1242,15 +1259,21 @@ async function refreshState() {
     currentRun=selectedRun;runEvents=[];lastConsoleKey="";monitorEventsTruncated=false;
     schedulePoll(50);
   }else if(!selectedRun&&busy()){
-    currentRun=null;renderControls();
+    // A transient /state failure or a freshly completed job may omit
+    // active_run. Only /runs/:id confirms the final state; never discard a
+    // live monitor or stop polling because of an unrelated state refresh.
+    renderControls();schedulePoll(50);
   }
 }
 
 function schedulePoll(ms=isCloud?2500:600) { clearTimeout(pollTimer); pollTimer=setTimeout(()=>action(pollRun),ms); }
 async function pollRun() {
-  // A slow network response must never race a newer poll and rewind run status.
-  if(!currentRun||pollInFlight)return;
+  // Never let an overlapping timer silently drop the only pending refresh.
+  // One request remains in flight; the next refresh is scheduled on completion.
+  if(!currentRun)return;
+  if(pollInFlight){if(busy())schedulePoll(500);return;}
   pollInFlight=true;
+  let disconnected=false;
   const runId=currentRun.id, after=runEvents[runEvents.length-1]?.sequence||0;
   try {
     const result=await api("/runs/"+runId+"?after="+after);
@@ -1274,14 +1297,18 @@ async function pollRun() {
     const changeKey=(result.session?.changed_files||[]).join()+":"+(result.session?.actions?.length||0);
     if(tab==="changes"&&changeKey!==lastChangeKey) { lastChangeKey=changeKey; await loadChanges(); }
     if(currentRun?.id!==runId)return;
-    if(busy())schedulePoll();
-    else { await Promise.all([loadFiles(),loadHistory()]); renderControls(); if(appState.account?.enabled)await refreshAccount(); }
+    if(!busy()){await Promise.all([loadFiles(),loadHistory()]);renderControls();if(appState.account?.enabled)await refreshAccount();}
   } catch(error) {
     if(currentRun?.id!==runId)return;
+    disconnected=true;
     if(lastPollError!==error.message){toast(error.message);lastPollError=error.message;}
     id("monitorHeartbeat").textContent="Run monitor disconnected. Reconnecting; your saved task is not being restarted.";
-    if(busy())schedulePoll(2000);
-  } finally {pollInFlight=false;}
+    renderActivity();
+  } finally {
+    pollInFlight=false;
+    // Scheduling in finally survives slow calls, errors, and refresh overlap.
+    if(currentRun?.id===runId&&busy())schedulePoll(disconnected?2000:undefined);
+  }
 }
 async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=false) {
   event?.preventDefault(); if(startingRun||busy()||transferBusy)return false;
@@ -1584,7 +1611,7 @@ function eventDescription(e) {
   if(e.kind==="verification_start")return "Running a project check";
   if(e.kind==="action_context")return e.purpose;
   if(e.kind==="check_revised")return "Corrected a test: "+e.label;
-  const labels={model_start:"Model request started",model_end:"Model response received",budget_upgrade:"Fast pass complete · continuing with Standard effort",tool_start:"Started "+(e.tool||"tool"),tool_end:(e.ok?"Completed ":"Failed ")+(e.tool||"tool"),command_start:"Command started",command_end:e.cancelled?"Command stopped":"Command exited "+e.exit_code,approval_requested:"Approval needed",approval_decision:e.allowed?"You approved this action":"You denied this action",paused:"Paused by you",resumed:"Resumed by you",pause_requested:"Pause requested",stop_requested:"Stop requested",finished:"Task finished",message:e.text};
+  const labels={model_start:"Model request started",model_end:"Model response received",budget_upgrade:e.text||"Continuing automatically with another work segment",tool_start:"Started "+(e.tool||"tool"),tool_end:(e.ok?"Completed ":"Failed ")+(e.tool||"tool"),command_start:"Command started",command_end:e.cancelled?"Command stopped":"Command exited "+e.exit_code,approval_requested:"Approval needed",approval_decision:e.allowed?"You approved this action":"You denied this action",paused:"Paused by you",resumed:"Resumed by you",pause_requested:"Pause requested",stop_requested:"Stop requested",finished:"Task finished",message:e.text};
   return labels[e.kind]||e.text||e.kind;
 }
 function renderMonitor() {
