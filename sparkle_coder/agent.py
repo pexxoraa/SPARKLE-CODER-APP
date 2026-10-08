@@ -149,7 +149,13 @@ class Agent:
             allowed = SIMPLE_TOOL_NAMES | web_tools
         else:
             allowed = None
-        self.schemas = [s for s in SCHEMAS if allowed is None or s["function"]["name"] in allowed]
+        target_tools = frozenset(("inspect_target_integrations", "probe_target_devices",
+                                  "run_target_integration"))
+        target_applicable = any(d["id"] in ("mobile_apps", "embedded_iot")
+                                for d in self.engineering_domains)
+        self.schemas = [s for s in SCHEMAS
+                        if (allowed is None or s["function"]["name"] in allowed)
+                        and (target_applicable or s["function"]["name"] not in target_tools)]
         if callable(getattr(provider, "bind_runtime", None)):
             provider.bind_runtime(self.tools.observe, self.should_stop)
         self.required_cache = {}
@@ -270,15 +276,6 @@ class Agent:
         system = SYSTEM + "\nExecution environment: " + self.config.execution
         if self.engineering_domains and state.get("task_mode") != "ask":
             system += ("\nENGINEERING ACCEPTANCE: Use plan_engineering before substantive edits. "
-                       "For mobile app work, inspect_target_integrations before claiming a "
-                       "device, simulator or app integration test. Only probe_target_devices "
-                       "can establish freshly observed connected targets, and it asks for "
-                       "explicit user permission. A device list is not application evidence. "
-                       "When the project has actual Flutter integration_test or Android "
-                       "instrumented tests, use run_target_integration with one freshly "
-                       "connected target; this also asks explicit user permission and records "
-                       "a real check result. Never boot simulators, install to unapproved "
-                       "hardware, or claim an unexecuted test passed. "
                        "First call inspect_engineering_environment to distinguish discovered tools "
                        "from version-checked toolchains and explicit target probes. "
                        "If necessary, probe_engineering_environment with a listed ID. "
@@ -301,6 +298,14 @@ class Agent:
                        "exercise, or fabricate a simulator, hardware, credential or service. "
                        "If the required target environment is unavailable, report a precise "
                        "blocker; do not bypass or weaken domain acceptance.")
+        if (state.get("task_mode") != "ask" and
+                any(d["id"] in ("mobile_apps", "embedded_iot") for d in self.engineering_domains)):
+            system += ("\nTARGET DEVICES: inspect_target_integrations for known inventory and "
+                       "existing integration suites. probe_target_devices lists actual targets "
+                       "with explicit approval; a device list is not an application test. "
+                       "run_target_integration runs a project-owned mobile test with separate "
+                       "explicit approval and a fresh connected target. Never boot/flash "
+                       "devices or claim unexecuted tests passed.")
         if self.engineering_domains and state.get("task_mode") != "ask":
             system += ("\nENGINEERING DOMAIN CONTRACT: Respect the detected software domain; "
                        "do not default to a website or claim unsupported platform integration. "
