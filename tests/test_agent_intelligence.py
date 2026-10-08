@@ -88,6 +88,19 @@ class AgentIntelligenceTests(unittest.TestCase):
         self.assertEqual(impact["status"], "legacy_baseline_unavailable")
         self.assertFalse(impact["enforced"])
 
+    def test_symlink_replacement_cannot_bypass_existing_source_guard(self):
+        self.write("app.py", "value = 1\\n")
+        baseline = capture_source_baseline(self.workspace, "Fix current code")
+        with tempfile.TemporaryDirectory() as outside:
+            outside_path = Path(outside) / "outside.py"
+            outside_path.write_text("value = 8\\n")
+            (self.workspace.root / "app.py").unlink()
+            (self.workspace.root / "app.py").symlink_to(outside_path)
+            report = inspect_change_impact(self.workspace, {"source_baseline": baseline})
+            self.assertEqual(report["status"], "comparison_unavailable")
+            self.assertTrue(report["enforced"])
+            self.assertEqual(report["existing_modified"], [])
+
     def test_existing_source_delete_is_detected_not_confused_with_unrelated_new_file(self):
         target = self.write("outdated.py")
         baseline = capture_source_baseline(self.workspace, "Remove outdated implementation")
