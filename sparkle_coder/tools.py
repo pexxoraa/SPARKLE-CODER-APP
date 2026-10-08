@@ -218,7 +218,8 @@ class ToolSet:
     def inspect_engineering_environment(self):
         return inspect_environment(self.workspace, self._engineering_goal(),
                                    self.runner.config.execution,
-                                   docker_image=self.runner.config.docker_image)
+                                   docker_image=self.runner.config.docker_image,
+                                   state=self.session.state)
 
     def probe_engineering_environment(self, probe_id):
         action = resolve_environment_action(
