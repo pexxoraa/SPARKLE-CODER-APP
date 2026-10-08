@@ -8,6 +8,7 @@ import uuid
 from .checks import discover_checks
 from .diagnostics import inspect_setup
 from .engineering import inspect_engineering as engineering_report
+from .engineering_contracts import execution_plan, link_evidence
 from .explanations import check_title, explain_failure
 from .execution import CommandRunner
 from .internet import (download_public_asset as fetch_public_asset, read_web_page as fetch_web_page,
@@ -34,6 +35,10 @@ SCHEMAS = [
            "Use to investigate missing dependencies; this is not a verification pass.", {}),
     schema("discover_checks", "Find existing test, typecheck, lint and build commands. Does not execute them.", {}),
     schema("inspect_engineering", "Identify relevant engineering domains, toolchains and candidate verification contracts from project evidence without executing code. Tool presence is NOT runtime proof.", {}),
+    schema("plan_engineering", "Read-only phased capability plan, missing toolchains and required evidence contracts; does not execute checks.", {}),
+    schema("record_engineering_evidence", "Link a distinct, already executed and passing check ID to a domain's behavior or target acceptance facet. Does NOT imply independently audited semantic coverage.", {
+        "domain": S, "facet": {"type": "string", "enum": ["behavior", "target"]},
+        "check_id": S, "reason": S}, ["domain", "facet", "check_id", "reason"]),
     schema("request_input", "Ask the user for a specific missing decision, credential setup, or unavailable dependency "
            "only after useful work is exhausted. Include the exact next step; work will be saved.",
            {"question": S, "next_step": S}, ["question", "next_step"]),
@@ -191,6 +196,18 @@ class ToolSet:
                          [self.session.state.get("goal", "")])[-2:])
         return engineering_report(self.workspace, goal, self.runner.config.execution,
                                   state=self.session.state)
+
+    def plan_engineering(self):
+        goal = " ".join(self.session.state.get("user_requests",
+                         [self.session.state.get("goal", "")])[-2:])
+        profile = self.session.state.get("task_profile", {}).get("name", "standard")
+        return execution_plan(self.workspace, goal, self.runner.config.execution,
+                              state=self.session.state, task_profile=profile)
+
+    def record_engineering_evidence(self, domain, facet, check_id, reason):
+        profile = self.session.state.get("task_profile", {}).get("name", "standard")
+        return link_evidence(self.workspace, self.session.state, domain, facet,
+                             check_id, reason, task_profile=profile)
 
     def request_input(self, question, next_step):
         if not question.strip() or not next_step.strip():
@@ -520,5 +537,5 @@ class ToolSet:
 
 
 READ_ONLY_TOOLS = {"list_files", "read_file", "search_files", "web_search", "read_web_page",
-                   "discover_checks", "inspect_setup", "inspect_engineering", "inspect_static_site", "inspect_visual_site", "render_page",
+                   "discover_checks", "inspect_setup", "inspect_engineering", "plan_engineering", "inspect_static_site", "inspect_visual_site", "render_page",
                    "request_input", "update_plan"}
