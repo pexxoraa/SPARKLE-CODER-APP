@@ -93,7 +93,7 @@ id("app").innerHTML = `
     <div class="work-area" id="cloudWorkArea">
       <section class="main-column">
         <div id="buildView" class="page-view build-view">
-          <div class="supervision-strip" id="supervisionStrip" hidden><span class="pulse-dot"></span><span id="currentAction">Ready</span><span id="elapsedTime">0s</span><button id="showMonitor" class="text-button">Details ↗</button></div><div class="conversation" id="conversation">
+          <div class="supervision-strip" id="supervisionStrip" hidden><span class="pulse-dot"></span><span id="currentAction">Ready</span><span id="elapsedTime">0s</span><button id="showMonitor" class="text-button">Details ↗</button></div><section id="taskSnapshot" class="task-snapshot" aria-label="Verified task progress" aria-live="polite" hidden></section><div class="conversation" id="conversation">
             <div id="welcome" class="welcome">
               <div class="workspace-label"><span></span>YOUR PERSONAL CODING AGENT</div>
               <h1>What do you want to build?</h1>
@@ -892,13 +892,58 @@ async function retryEditedMessage(){
     }
   }
 }
+// Polling frequently returns fresh JSON objects with the same large messages.
+// Compare only displayed fields; never serialize the whole conversation merely
+// to decide whether to rebuild its DOM. Cache strings by reference, not copies.
+let renderedConversation={project:null,session:null,edit:-1,rows:[]};
+function conversationNeedsRender(session,editing){
+  const messages=Array.isArray(session?.messages)?session.messages:[];
+  const editIndex=editing?.index??-1,cache=renderedConversation;
+  let changed=lastMessageKey===""||cache.project!==projectId||cache.session!==(session?.id||null)||
+    cache.edit!==editIndex||cache.rows.length!==messages.length;
+  if(!changed)for(let i=0;i<messages.length;i++){
+    const message=messages[i]||{},saved=cache.rows[i];
+    if(saved.role!==message.role||saved.content!==message.content){changed=true;break;}
+  }
+  if(changed){
+    renderedConversation={project:projectId,session:session?.id||null,edit:editIndex,
+      rows:messages.map(message=>({role:message?.role,content:message?.content}))};
+    lastMessageKey=String(projectId)+":"+(session?.id||"")+":"+editIndex+":"+messages.length;
+  }
+  return changed;
+}
+// All counts are drawn from saved plan, project edits and recorded check proof.
+// No synthetic percent complete, inferred test success or estimated billing.
+function taskSnapshotText(session,run){
+  const active=!!run&&["queued","running","approval","pausing","paused_by_user","stopping"].includes(run.status);
+  if(!session&&!active)return "";
+  const phase=active?({
+    queued:"Queued",running:"Working",approval:"Approval required",pausing:"Pausing",
+    paused_by_user:"Paused by you",stopping:"Stopping"})[run.status]:friendly(session?.status);
+  const parts=[phase||"Task"];
+  const plan=Array.isArray(session?.plan)?session.plan:[];
+  if(plan.length)parts.push(plan.filter(item=>item.status==="completed").length+" of "+plan.length+" plan steps complete");
+  const edits=Array.isArray(session?.changed_files)?session.changed_files.length:0;
+  if(edits)parts.push(edits+" changed "+(edits===1?"file":"files")+" recorded");
+  const proof=session?.proof;
+  if(Number.isInteger(proof?.total)&&proof.total>0&&Number.isInteger(proof.passed))
+    parts.push(proof.passed+" of "+proof.total+" current checks passed");
+  const review=session?.interruption_review||{};
+  const unresolved=Math.max(0,Number(review.actions||0)),uncertain=Math.max(0,Number(review.uncertain_file_edits||0));
+  if(unresolved||uncertain)parts.push((unresolved+uncertain)+" interrupted "+(unresolved+uncertain===1?"action":"actions")+" to inspect; not replayed");
+  return parts.join(" · ");
+}
+function renderTaskSnapshot(session){
+  const target=id("taskSnapshot"),message=taskSnapshotText(session,currentRun);
+  if(target.textContent!==message)target.textContent=message;
+  target.hidden=!message;
+}
 function renderSession(session) {
   currentSession=session;
   id("welcome").hidden=!!session; id("messages").hidden=!session;
   const editing=editingSentMessage?.projectId===projectId&&editingSentMessage?.sessionId===session?.id?
     editingSentMessage:null;
-  const messageKey=JSON.stringify(session?.messages||[])+":"+(editing?editing.index+":editing":"");
-  if(messageKey!==lastMessageKey) {
+  if(conversationNeedsRender(session,editing)) {
     const container=id("conversation"), nearBottom=container.scrollHeight-container.scrollTop-container.clientHeight<120;
     id("messages").replaceChildren();
     (session?.messages||[]).forEach((message,index)=> {
@@ -942,7 +987,6 @@ function renderSession(session) {
       }
       id("messages").append(row);
     });
-    lastMessageKey=messageKey;
     if(nearBottom || !session)container.scrollTop=container.scrollHeight;
   }
   id("resultBanner").hidden=!session || busy() || session.status==="running";
@@ -951,6 +995,7 @@ function renderSession(session) {
   renderRepairHistory(session);
   id("callsMetric").textContent=session?.usage?.calls ?? "—";
   renderTokenUsage(session?.usage);
+  renderTaskSnapshot(session);
   id("changeCount").textContent=session?.changed_files?.length||0; id("checkCount").textContent=session?.checks?.length||0;
   id("plan").replaceChildren();
   if(session?.skills?.length){const wrap=node("div","active-skills");wrap.append(node("div","panel-label","ACTIVE SKILLS"));const chips=node("div","active-skill-chips");session.skills.forEach(skill=>chips.append(node("span","status-badge",skill.replaceAll("_"," "))));wrap.append(chips);id("plan").append(wrap);}
@@ -966,8 +1011,17 @@ function visibleActivityActions(actions=[]) {
   return actions.filter((item,index)=>item.tool!=="inspect_setup"||index===latestSetup);
 }
 function renderActivity() {
-  const target=id("activityList"); target.replaceChildren();
+  const target=id("activityList");
   const actions=visibleActivityActions(currentSession?.actions||[]);
+  const recent=runEvents.filter(e=>["model_start","model_end","action_context","tool_start","tool_end","verification_start","command_start","command_end","budget_upgrade","repair","finished"].includes(e.kind)).slice(-12).reverse();
+  const snapshot=JSON.stringify([
+    currentSession?.id||"",!!busy(),currentRun?.current_action||"",lastPollError,
+    actions.slice(-25).map(a=>[a.tool,a.ok,a.label,a.purpose,a.path,a.query,a.command?true:false,a.error?.slice(0,250)]),
+    recent.map(e=>[e.sequence,e.kind,e.ok,e.text?.slice(0,250),e.path,e.purpose,e.label])
+  ]);
+  if(target._sparkleActivitySnapshot===snapshot)return;
+  target._sparkleActivitySnapshot=snapshot;
+  target.replaceChildren();
   if(!actions.length && !runEvents.length && !busy()) { target.append(emptyPanel("Ready when you are","The agent's progress and decisions will appear here.")); return; }
   const names={inspect_setup:"Inspected project setup",inspect_static_site:"Checked static site",inspect_visual_site:"Reviewed visual quality",render_page:"Rendered page",revise_check:"Corrected a test",update_delivery:"Prepared usage instructions",discover_checks:"Found project checks",request_input:"Asked for a missing detail",list_files:"Explored project",read_file:"Read file",search_files:"Searched code",web_search:"Searched the web",search_assets:"Searched public image assets",read_web_page:"Read web page",download_asset:"Downloaded project asset",write_file:"Wrote file",edit_file:"Edited file",delete_file:"Removed file",run_command:"Ran command",verify:"Ran verification",update_plan:"Updated plan",remember:"Saved project memory"};
   actions.slice(-25).reverse().forEach(a=> { const row=node("div","activity-row"); const marker=node("span","activity-marker "+(a.ok?"ok":"failed")); marker.innerHTML=icon(a.ok?"check":"close"); const detail=node("div"); detail.append(node("strong","",names[a.tool]||a.tool),node("span","",a.label||a.purpose||a.path||a.query||(a.command?"Command recorded — open Run monitor for details":a.ok?"Completed":"Needs attention"))); row.append(marker,detail); if(a.error) row.title=a.error; target.append(row); });
@@ -982,7 +1036,6 @@ function renderActivity() {
   }
   // The engine's event stream includes model calls and active checks, even
   // when the durable file-action history is still empty.
-  const recent=runEvents.filter(e=>["model_start","model_end","action_context","tool_start","tool_end","verification_start","command_start","command_end","budget_upgrade","repair","finished"].includes(e.kind)).slice(-12).reverse();
   recent.forEach(e=>{
     const row=node("div","activity-row"),marker=node("span","activity-marker "+(e.ok===false?"failed":"ok")),detail=node("div");
     marker.innerHTML=icon(e.ok===false?"close":"check");
