@@ -207,7 +207,7 @@ class ToolSet:
     def record_engineering_evidence(self, domain, facet, check_id, reason):
         profile = self.session.state.get("task_profile", {}).get("name", "standard")
         return link_evidence(self.workspace, self.session.state, domain, facet,
-                             check_id, reason, task_profile=profile)
+                             check_id, self.redactor.text(reason), task_profile=profile)
 
     def request_input(self, question, next_step):
         if not question.strip() or not next_step.strip():
