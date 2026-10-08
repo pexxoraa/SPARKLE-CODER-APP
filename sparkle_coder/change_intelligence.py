@@ -101,8 +101,8 @@ def inspect_change_impact(workspace, requested_change):
     except (OSError, ValueError):
         # Filesystem errors are not proof of a successful change.
         return {"status": "comparison_unavailable", "existing_modified": [],
-                "existing_unchanged": [], "enforced": False,
-                "reason": "Existing project files could not be compared safely."}
+                "existing_unchanged": [], "enforced": enforce,
+                "reason": "Existing project files could not be compared safely. Do not accept completion as proof of an existing-code fix."}
     return {
         "status": ("existing_source_modified" if modified else
                    "existing_source_unchanged" if enforce else "not_enforced"),
