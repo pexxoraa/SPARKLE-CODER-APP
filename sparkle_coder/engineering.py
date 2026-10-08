@@ -145,12 +145,28 @@ def detect_toolchains(files, execution="local", *, which=None):
              "verified": False} for tool in sorted(tools)]
 
 
-def inspect_engineering(workspace, goal="", execution="local", *, files=None):
+def inspect_engineering(workspace, goal="", execution="local", *, files=None, state=None):
     """Planning evidence only. Real verification remains in existing check gates."""
     names = workspace.files(limit=2001) if files is None else files
     domains = detect_domains(workspace, goal, files=names)
     tools = detect_toolchains(names, execution)
     candidates = discover_checks(workspace, execution, files=names)["checks"]
+    recorded = []
+    if state is not None and state.get("checks"):
+        # Observations are tied to real recorded runs and current workspace
+        # contents; none of them automatically proves a domain acceptance rule.
+        from .verification import active_checks
+        fingerprint = workspace.fingerprint()
+        revision = state.get("environment_revision", 0)
+        for check in active_checks(state)[-30:]:
+            fresh = bool(fingerprint and check.get("fingerprint") == fingerprint
+                         and check.get("environment_revision", 0) == revision)
+            recorded.append({
+                "id": check.get("id"),
+                "command": check["command"],
+                "status": "passed" if fresh and check.get("ok") else (
+                    "failed" if fresh and not check.get("ok") else "stale"),
+            })
     return {
         "version": VERSION,
         "domains": domains,
@@ -161,6 +177,7 @@ def inspect_engineering(workspace, goal="", execution="local", *, files=None):
              "status": "not_verified_by_inspection"} for d in domains
         ],
         "candidate_checks": candidates[:30],
+        "recorded_checks": recorded,
         "scan_truncated": len(names) > 2000,
         "note": ("Read-only inference. Tool presence does not prove availability in the "
                  "execution environment; discovered commands have NOT been run. "
