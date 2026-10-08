@@ -273,11 +273,16 @@ class CloudSetupTests(unittest.TestCase):
         credentials=self.owner/'admin-credentials.json'
         credentials.write_text('{"unchanged":"test-only"}')
         url='https://saved-pilot.example.workers.dev'
+        payment_schema=[{'sql': 'CREATE TABLE payments_v2 (amount_paise INTEGER CHECK(amount_paise <= 150000), credits INTEGER CHECK(credits >= 1000000 AND credits <= 100000000 AND credits % 1000000 = 0))'}]
         with patch.dict(sys.modules,{'setup_cloud':setup_cloud}), \
              patch.object(sys,'path',sys.path[:]), \
+             patch.object(setup_cloud,'check_migrations',return_value=7), \
+             patch.object(setup_cloud,'apply_migrations') as migrate, \
+             patch.object(setup_cloud,'database_rows',return_value=payment_schema), \
              patch.object(setup_cloud,'deploy_worker',return_value=url) as deploy, \
              patch.object(setup_cloud.urllib.request,'urlopen',return_value=io.BytesIO(b'{"ok":true,"version":"0.8.0"}')) as health:
             exec(compile(script,str(source),'exec'),{})
+        migrate.assert_called_once()
         request=health.call_args.args[0]
         self.assertEqual(request.get_header('User-agent'),'SPARKLE-CODER/0.8.0')
         self.assertEqual(request.get_header('Accept'),'application/json')
@@ -296,6 +301,7 @@ class CloudSetupTests(unittest.TestCase):
         previous=self.saved_config()
         source=Path(__file__).resolve().parents[1]/'Deploy_Web_App.sh'
         script=source.read_text().split("python3 - <<'PY'\n",1)[1].rsplit('\nPY',1)[0]
+        payment_schema=[{'sql': 'CREATE TABLE payments_v2 (amount_paise INTEGER CHECK(amount_paise <= 150000), credits INTEGER CHECK(credits >= 1000000 AND credits <= 100000000 AND credits % 1000000 = 0))'}]
         old_url='https://saved-pilot.oldacct.workers.dev'
         new_url='https://saved-pilot.newacct.workers.dev'
         tunnel='https://current-engine.trycloudflare.com'
@@ -309,11 +315,15 @@ class CloudSetupTests(unittest.TestCase):
         public=io.BytesIO(b'{"ok":true,"version":"0.8.0","engine_configured":true}')
         with patch.dict(sys.modules,{'setup_cloud':setup_cloud}), \
              patch.object(sys,'path',sys.path[:]), \
+             patch.object(setup_cloud,'check_migrations',return_value=7), \
+             patch.object(setup_cloud,'apply_migrations') as migrate, \
+             patch.object(setup_cloud,'database_rows',return_value=payment_schema), \
              patch.object(setup_cloud,'deploy_worker',return_value=new_url), \
              patch('urllib.request.build_opener',return_value=Opener()), \
              patch.object(setup_cloud.urllib.request,'urlopen',return_value=public), \
              patch('subprocess.run') as command:
             exec(compile(script,str(source),'exec'),{})
+        migrate.assert_called_once()
         saved=json.loads((self.owner/'wrangler.json').read_text())
         self.assertEqual(saved['vars']['ENGINE_ORIGIN'],tunnel)
         self.assertEqual(json.loads((self.owner/'engine.json').read_text())['gateway_url'],new_url)
