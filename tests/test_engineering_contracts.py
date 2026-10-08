@@ -140,6 +140,17 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("domain build/test tool", result["error"])
 
+    def test_recorded_links_survive_session_reload_without_false_success(self):
+        check_id = self.check("assert 5 + 2 == 7")
+        self.agent.tools.execute("record_engineering_evidence", {
+            "domain": "systems_programming", "facet": "behavior",
+            "check_id": check_id,
+            "reason": "Recorded passing assertion validates one claimed behavior but not target integration."})
+        restored = Session.load(self.workspace, self.session.id)
+        restored_view = evaluate_contract(self.workspace, restored.state, self.domains)
+        self.assertEqual(restored_view["blocking"][0]["missing"], ["target"])
+        self.assertEqual(restored_view["contracts"][0]["facets"][0]["check_id"], check_id)
+
     def test_unknown_skill_limit_does_not_drown_out_project_domain(self):
         skills = select_skills("Fix the project", domains=["embedded_iot"], limit=5)
         self.assertIn("embedded_iot", skills)
