@@ -189,7 +189,8 @@ class ToolSet:
     def inspect_engineering(self):
         goal = " ".join(self.session.state.get("user_requests",
                          [self.session.state.get("goal", "")])[-2:])
-        return engineering_report(self.workspace, goal, self.runner.config.execution)
+        return engineering_report(self.workspace, goal, self.runner.config.execution,
+                                  state=self.session.state)
 
     def request_input(self, question, next_step):
         if not question.strip() or not next_step.strip():
