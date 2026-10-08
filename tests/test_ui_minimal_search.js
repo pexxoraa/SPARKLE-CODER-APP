@@ -90,16 +90,25 @@ const ui=new Function("id","node","api","action","changeView","loadFiles","openF
  const renderTokenUsage=new Function("id",tokenCode+";return renderTokenUsage;")(id);
  renderTokenUsage({prompt_tokens:1300,completion_tokens:700,calls:2});
  assert.equal(id("tokensMetric").textContent,"2,000");
- assert.equal(id("tokensMetricLabel").textContent,"MODEL TOKENS");
+ assert.equal(id("tokensMetricLabel").textContent,"MODEL TOKENS · REPORTED");
  assert.match(id("tokensMetricDetail").textContent,/Input 1,300.*Output 700/);
  renderTokenUsage({prompt_tokens:1300,completion_tokens:700,estimated_calls:1});
  assert.match(id("tokensMetric").textContent,/≈ 2,000/);
  assert.match(id("tokensMetricLabel").textContent,/EST\./);
- assert.match(id("tokensMetric").title,/not your billing balance/);
+ assert.match(id("tokensMetric").title,/not exact/);
  renderTokenUsage(undefined);
  assert.equal(id("tokensMetric").textContent,"—");
  renderTokenUsage({prompt_tokens:null,completion_tokens:100,estimated_calls:1});
  assert.equal(id("tokensMetric").textContent,"—","missing provider usage must never display a fabricated total");
+ renderTokenUsage({measurement:"separate",prompt_tokens:84,completion_tokens:31,confirmed_calls:1,
+                   estimated_calls:2,estimated_prompt_tokens:400,estimated_completion_tokens:100});
+ assert.equal(id("tokensMetric").textContent,"115","only provider-reported usage belongs in the confirmed total");
+ assert.match(id("tokensMetricLabel").textContent,/PARTIAL/);
+ assert.match(id("tokensMetricDetail").textContent,/500 additional, NOT confirmed/);
+ assert.match(id("tokensMetric").title,/never billed from this estimate/);
+ renderTokenUsage({prompt_tokens:1500,completion_tokens:400,estimated_calls:2});
+ assert.equal(id("tokensMetric").textContent,"≈ 1,900","older mixed usage must be explicitly marked approximate");
+ assert.match(id("tokensMetric").title,/Legacy run/);
 
  assert.ok(source.includes('id="advancedSettings"'));
  const advanced=between('id="advancedSettings"',"</details>");

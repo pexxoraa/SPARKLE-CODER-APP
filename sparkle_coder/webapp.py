@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from . import __version__
 from .agent import Agent
 from .answers import display_reply
+from .change_intent import requests_code_change
 from .config import Config, load_config, SPARKLE_GATEWAY_URL
 from .brief import read_brief, save_brief
 from .diagnostics import inspect_setup
@@ -699,7 +700,20 @@ class AppService:
                             session.save()
                         else:
                             session = Session.create(workspace, goal, verify, config.public_info())
-                        session.state["task_mode"] = task_mode or session.state.get("task_mode", "build")
+                        intended_mode = task_mode or session.state.get("task_mode", "build")
+                        # The browser retains Ask mode from an earlier explanation.
+                        # An explicit code-change follow-up must never become a read-only chat.
+                        if goal.strip() and requests_code_change(goal):
+                            intended_mode = "build"
+                        session.state["task_mode"] = intended_mode
+                        if goal.strip() and intended_mode == "build" and requests_code_change(goal):
+                            session.state["requested_change"] = {
+                                "goal": goal,
+                                "baseline": workspace.fingerprint(),
+                                "journal_start": len(session.state["journal"]),
+                            }
+                        elif goal.strip():
+                            session.state.pop("requested_change", None)
                         session.state["previous_workspaces"] = list(dict.fromkeys(
                             session.state.get("previous_workspaces", []) + project.get("previous_paths", [])))
                         session.save()

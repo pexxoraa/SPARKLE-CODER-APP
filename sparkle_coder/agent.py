@@ -151,6 +151,29 @@ class Agent:
         self.completion_failures = {}
         self.environment_changed = False
         self.repair_reviews = set()
+        self.auto_continuations = 0
+
+    def usage_budget_total(self):
+        usage=self.session.state["usage"]
+        return (usage["prompt_tokens"]+usage["completion_tokens"]+
+                usage.get("estimated_prompt_tokens",0)+usage.get("estimated_completion_tokens",0))
+
+    def continue_hosted_budget(self, reason):
+        """Continue through a bounded work segment on managed Cloud, not forever.
+
+        Up to three segments; explicit smaller user-selected caps remain binding.
+        Provider credits and policy limits are independent and never bypassed.
+        """
+        if (not getattr(self.config, "_auto_continue_cloud", False)
+                or self.session.state.get("task_mode")=="ask"
+                or self.auto_continuations>=2):
+            return False
+        self.auto_continuations+=1
+        self.observe("budget_upgrade", {
+            "text":"The task is not finished. Continuing automatically with another work segment.",
+            "reason":reason,"segment":self.auto_continuations+1})
+        self.say("Continuing the saved project automatically. No manual resume needed.")
+        return True
 
     def say(self, text):
         self.emit(clean_terminal(self.tools.redactor.text(text)))
@@ -359,13 +382,19 @@ class Agent:
 
     def write_report(self):
         state = self.session.state
+        legacy_mixed = (state["usage"].get("measurement") != "separate"
+                        and state["usage"].get("estimated_calls", 0) > 0)
+        usage_prefix = "Mixed reported/estimated" if legacy_mixed else "Provider-reported"
         lines = [
             "# SPARKLE CODER run report", "",
             f"- Session: {self.session.id}", f"- Status: {state['status']}",
             f"- Model: {state['model'].get('model', 'unknown')}",
             f"- API calls: {state['usage']['calls']}",
-            f"- Input tokens: {state['usage']['prompt_tokens']}",
-            f"- Output tokens: {state['usage']['completion_tokens']}", "",
+            f"- {usage_prefix} input tokens: {state['usage']['prompt_tokens']}",
+            f"- {usage_prefix} output tokens: {state['usage']['completion_tokens']}",
+            f"- Calls with missing provider usage: {state['usage'].get('estimated_calls', 0)}",
+            f"- Unconfirmed input-token estimate (not billing): {state['usage'].get('estimated_prompt_tokens', 0)}",
+            f"- Unconfirmed output-token estimate (not billing): {state['usage'].get('estimated_completion_tokens', 0)}", "",
             "## Task", "", state["goal"], "",
             "## Result", "", state["summary"], "",
             "## Changes recorded by file tools", "",
@@ -397,7 +426,7 @@ class Agent:
         lines += ["", "Passing recorded commands is evidence only for what those commands check. "
                   "It does not establish that all requirements are met or that the software is bug-free.",
                   "A model-authored test may be incomplete. Prefer user-owned acceptance checks.",
-                  "Token counts are estimates for responses whose provider omitted usage data.",
+                  "Only provider-reported tokens are confirmed in new sessions; estimates are separate and are not billing figures.",
                   "File-tool undo does not revert shell commands, package installations, database "
                   "changes, or external side effects.", ""]
         atomic_write(self.session.directory / "report.md",
@@ -470,6 +499,13 @@ class Agent:
         self.environment_changed = False
         current = self.workspace.fingerprint()
         self.session.state["verification_fingerprint"] = current
+        requested_change = self.session.state.get("requested_change")
+        if (isinstance(requested_change, dict)
+                and requested_change.get("baseline") == current):
+            return False, ("The user asked for changes to the existing project, but no project file "
+                           "has changed. Inspect the relevant original file, implement the requested "
+                           "change, and verify the updated behavior. Do not report success without "
+                           "an actual edit or explain a concrete blocker.")
         if current and latest and all(c.get("ok") and c.get("fingerprint") == current
                                      and c.get("environment_revision", 0) == self.session.state.get("environment_revision", 0)
                                      for c in latest.values()):
@@ -557,7 +593,7 @@ class Agent:
         state["status"] = "running"
         self.session.save()
         started = time.monotonic()
-        starting_tokens = state["usage"]["prompt_tokens"] + state["usage"]["completion_tokens"]
+        starting_tokens = self.usage_budget_total()
         state.pop("input_request", None)
         state["recovery"] = None
         malformed = 0
@@ -576,22 +612,31 @@ class Agent:
                     if self.promote_effort("model calls"):
                         step = 0
                         started = time.monotonic()
-                        starting_tokens = state["usage"]["prompt_tokens"] + state["usage"]["completion_tokens"]
+                        starting_tokens = self.usage_budget_total()
+                        continue
+                    if self.continue_hosted_budget("model calls"):
+                        step=0;started=time.monotonic();starting_tokens=self.usage_budget_total()
                         continue
                     return self.finish("paused", "Model-call limit reached. Work is saved; resume to continue.")
-                used = state["usage"]["prompt_tokens"] + state["usage"]["completion_tokens"] - starting_tokens
+                used = self.usage_budget_total() - starting_tokens
                 if self.config.max_seconds is not None and time.monotonic() - started >= self.config.max_seconds:
                     if self.promote_effort("run time"):
                         step = 0
                         started = time.monotonic()
-                        starting_tokens = state["usage"]["prompt_tokens"] + state["usage"]["completion_tokens"]
+                        starting_tokens = self.usage_budget_total()
+                        continue
+                    if self.continue_hosted_budget("elapsed time"):
+                        step=0;started=time.monotonic();starting_tokens=self.usage_budget_total()
                         continue
                     return self.finish("paused", "Run time budget reached. Resume to continue.")
                 if self.config.max_total_tokens is not None and used >= self.config.max_total_tokens:
                     if self.promote_effort("token budget"):
                         step = 0
                         started = time.monotonic()
-                        starting_tokens = state["usage"]["prompt_tokens"] + state["usage"]["completion_tokens"]
+                        starting_tokens = self.usage_budget_total()
+                        continue
+                    if self.continue_hosted_budget("total tokens"):
+                        step=0;started=time.monotonic();starting_tokens=self.usage_budget_total()
                         continue
                     return self.finish("paused", "Run token budget reached. Resume to continue.")
                 progress = str(step) if self.config.max_steps is None else f"{step}/{self.config.max_steps}"
@@ -624,13 +669,26 @@ class Agent:
                 self.checkpoint()
                 malformed = 0
                 usage = response.usage
-                if "prompt_tokens" in usage and "completion_tokens" in usage:
+                if ("prompt_tokens" in usage and "completion_tokens" in usage
+                        and type(usage["prompt_tokens"]) is int and type(usage["completion_tokens"]) is int
+                        and usage["prompt_tokens"]>=0 and usage["completion_tokens"]>=0):
                     state["usage"]["prompt_tokens"] += usage["prompt_tokens"]
                     state["usage"]["completion_tokens"] += usage["completion_tokens"]
+                    state["usage"]["confirmed_calls"]=state["usage"].get("confirmed_calls",0)+1
                 else:
                     state["usage"]["estimated_calls"] = state["usage"].get("estimated_calls", 0) + 1
-                    state["usage"]["prompt_tokens"] += (len(json.dumps(messages)) + len(json.dumps(self.schemas))) // 3
-                    state["usage"]["completion_tokens"] += max(1, len(response.content + json.dumps(response.calls)) // 3)
+                    estimated_input=(len(json.dumps(messages)) + len(json.dumps(self.schemas))) // 3
+                    estimated_output=max(1, len(response.content + json.dumps(response.calls)) // 3)
+                    if state["usage"].get("measurement")=="separate":
+                        state["usage"]["estimated_prompt_tokens"]=state["usage"].get("estimated_prompt_tokens",0)+estimated_input
+                        state["usage"]["estimated_completion_tokens"]=state["usage"].get("estimated_completion_tokens",0)+estimated_output
+                    else:
+                        # Legacy sessions already mixed estimates into these
+                        # counters. Keep their historical meaning, label as
+                        # approximate, and never silently call them exact.
+                        state["usage"]["prompt_tokens"] += estimated_input
+                        state["usage"]["completion_tokens"] += estimated_output
+                self.session.save()
                 if self.should_stop():
                     return self.finish("interrupted", "Stopped by the user before executing further actions.")
                 if response.finish_reason == "length":

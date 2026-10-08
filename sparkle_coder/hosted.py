@@ -61,8 +61,16 @@ class HostedAppService(AppService):
         config.request_timeout = min(config.request_timeout,300)
         config.max_tokens = min(config.max_tokens, 8192)
         config.context_chars = min(config.context_chars, 24000)
-        for field, maximum in [('max_steps',24),('max_seconds',900),('max_total_tokens',200000),('command_timeout',120)]:
+        standard_caps={'max_steps':24,'max_seconds':900,'max_total_tokens':200000}
+        for field, maximum in [*standard_caps.items(),('command_timeout',120)]:
             setattr(config,field,min(getattr(config,field) or maximum,maximum))
+        # User-selected smaller caps always stop as requested. Automatic
+        # continuation is limited to default managed work segments.
+        config._auto_continue_cloud=all(
+            getattr(config,field)==maximum and
+            (self.data["settings"].get(field) is None or
+             self.data["settings"].get(field)>=maximum)
+            for field,maximum in standard_caps.items())
         return config
 
     def public_settings(self):

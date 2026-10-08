@@ -43,7 +43,9 @@ class Session:
             # narration and unverified completion attempts remain in history.
             "visible_message_indices": [],
             "plan": [], "actions": [], "journal": [], "checks": [],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0},
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0,
+                      "measurement": "separate", "confirmed_calls": 0, "estimated_calls": 0,
+                      "estimated_prompt_tokens": 0, "estimated_completion_tokens": 0},
             "summary": "",
             "project_brief": brief, "requirements": task_requirements(brief), "repair_history": [],
         })

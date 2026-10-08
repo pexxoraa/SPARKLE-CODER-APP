@@ -17,6 +17,7 @@ function fixture(){
     function hostedNoKey(){return false;} function openSettings(){} function toast(){} function clearDraft(){}
     function changeView(){} function schedulePoll(){} async function openAccount(){}
     async function refreshState(){const value=await recover();if(value)currentRun=value;}
+    function codeChangeRequested(text){return /\\b(fix|repair|patch|refactor|implement|add|remove|delete|rename|update|modify|change|edit|replace|redesign|improve|build|create|make|correct|integrate|upgrade|rework|rewrite)\\b/i.test(text);}
     ${controller}
     return {start:()=>startTask({preventDefault(){}}),resume:()=>{currentSession={id:'saved-session'};return startTask(null,true);},
       state:()=>({startingRun,currentRun,renderCount}),offline(){appState.engine={available:false,message:'Engine offline.'};}};
@@ -36,6 +37,10 @@ function fixture(){
   const lost=fixture();lost.setSend(async()=>{throw Error('Connection lost');});lost.recover({id:'accepted-run',status:'running'});await lost.start();
   assert.equal(lost.state().currentRun.id,'accepted-run');assert.equal(lost.calls.length,1);assert.match(lost.id('taskError').textContent,/Reconnected/);
   const offline=fixture();offline.offline();await offline.start();assert.equal(offline.calls.length,0);assert.equal(offline.id('taskError').textContent,'Engine offline.');
+  const changed=fixture();changed.id('taskMode').value='ask';changed.id('goal').value='Fix the existing login page';
+  await changed.start();assert.equal(changed.calls[0].b.task_mode,'build',
+    'An actual code-change request after Ask mode must not remain read-only.');
+
   assert.match(source,/sparkleDraft:v1:/);
   assert.match(source,/Draft restored/);
   assert.match(source,/continueLastTask/);

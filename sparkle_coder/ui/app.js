@@ -821,15 +821,27 @@ function renderTokenUsage(usage){
   const known=Number.isSafeInteger(inputValue)&&inputValue>=0&&
               Number.isSafeInteger(outputValue)&&outputValue>=0;
   const input=known?inputValue:0,output=known?outputValue:0;
-  const estimates=Number(usage?.estimated_calls||0);
-  const estimated=estimates>0;
-  const label=estimated?"MODEL TOKENS · EST.":"MODEL TOKENS";
-  id("tokensMetricLabel").textContent=label;
-  id("tokensMetric").textContent=known?(estimated?"≈ ":"")+(input+output).toLocaleString():"—";
-  id("tokensMetricDetail").textContent=known?"Input "+input.toLocaleString()+" · Output "+output.toLocaleString():"";
-  id("tokensMetric").title=estimated?
-    estimates+" model call(s) returned no token usage. This approximate figure is not your billing balance.":
-    "Input and output tokens reported for this task. Account credits are shown separately in Account.";
+  const missing=Math.max(0,Number(usage?.estimated_calls||0));
+  const separated=usage?.measurement==="separate";
+  const legacyEstimates=missing>0&&!separated;
+  const approximateInput=separated?Number(usage?.estimated_prompt_tokens||0):0;
+  const approximateOutput=separated?Number(usage?.estimated_completion_tokens||0):0;
+  const approximate=approximateInput+approximateOutput;
+  const count=known?input+output:null;
+  id("tokensMetricLabel").textContent=legacyEstimates?"MODEL TOKENS · EST.":
+    separated&&missing?"REPORTED TOKENS · PARTIAL":"MODEL TOKENS · REPORTED";
+  id("tokensMetric").textContent=count===null?"—":(legacyEstimates?"≈ ":"")+count.toLocaleString();
+  const detail=count===null?"":legacyEstimates?
+    "Includes "+missing+" estimated model call"+(missing===1?"":"s")+" · not confirmed":
+    "Input "+input.toLocaleString()+" · Output "+output.toLocaleString();
+  id("tokensMetricDetail").textContent=detail+
+    (separated&&missing?" · "+missing+" unreported call"+(missing===1?"":"s")+
+      " (≈ "+approximate.toLocaleString()+" additional, NOT confirmed)":"");
+  id("tokensMetric").title=legacyEstimates?
+    "Legacy run: reported and estimated tokens were mixed. This total is not exact.":
+    separated&&missing?
+      "Only provider-confirmed tokens are counted above. Additional estimated tokens are shown separately, never billed from this estimate.":
+      "Provider-reported input and output tokens. Account credits and billing are shown separately in Account.";
 }
 function editSentMessage(session,index,content){
   if(startingRun||busy()||transferBusy){
@@ -936,7 +948,7 @@ function renderSession(session) {
   renderDelivery(session);
   renderRepairHistory(session);
   id("callsMetric").textContent=session?.usage?.calls ?? "—";
-  const usage=session?.usage; id("tokensMetric").textContent=usage ? ((usage.prompt_tokens||0)+(usage.completion_tokens||0)).toLocaleString() : "—";
+  renderTokenUsage(session?.usage);
   id("changeCount").textContent=session?.changed_files?.length||0; id("checkCount").textContent=session?.checks?.length||0;
   id("plan").replaceChildren();
   if(session?.skills?.length){const wrap=node("div","active-skills");wrap.append(node("div","panel-label","ACTIVE SKILLS"));const chips=node("div","active-skill-chips");session.skills.forEach(skill=>chips.append(node("span","status-badge",skill.replaceAll("_"," "))));wrap.append(chips);id("plan").append(wrap);}
@@ -984,6 +996,12 @@ function renderRecovery(session) {
   if(attention||session.status==="checked"){const checks=node("button","button secondary","See checks");checks.onclick=()=>{setTab("checks");document.body.classList.add("details-open");};actions.append(checks);}
   banner.append(actions);
 }
+function codeChangeRequested(text){
+  const request=String(text||"").trim();
+  if(!/\b(fix|repair|patch|refactor|implement|add|remove|delete|rename|update|modify|change|edit|replace|redesign|improve|build|create|make|correct|integrate|upgrade|rework|rewrite)\b/i.test(request))return false;
+  return !/^(how (do|can|would|should|to)\b|what\b|why\b|explain\b|describe\b|tell me\b|can you (explain|describe|show|tell)\b|is it\b|do you\b)/i.test(request)||
+    /\b(please|can you|could you) (also )?(fix|change|add|edit|implement|update|remove|modify|build|create|make)\b/i.test(request);
+}
 function budgetResumeGoal(session) {
   return session?.status==="paused"&&/^(Model-call|Run time|Run token) limit reached\./.test(session.summary||"")
     ?"Continue the saved work on this existing project. Finish the implementation, run the relevant checks, and fix anything still incomplete. Preserve the original request and existing work."
@@ -992,8 +1010,9 @@ function budgetResumeGoal(session) {
 async function resumeSavedTask(button) {
   if(startingRun||busy()||!currentSession)return;
   button.disabled=true;button.textContent="Resuming…";
-  const continuation=budgetResumeGoal(currentSession);
-  await startTask(null,!continuation,continuation||null);
+  // True checkpoint resume, never insert a manufactured follow-up that
+  // changes the saved task's goal or accidentally resets its edit profile.
+  await startTask(null,true);
   if(!busy()){button.disabled=false;button.textContent="Resume task";}
 }
 function followup(message,mode) {
@@ -1268,6 +1287,8 @@ async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=fals
   event?.preventDefault(); if(startingRun||busy()||transferBusy)return false;
   const explicitGoal=goalOverride===null?null:String(goalOverride);
   const goal=explicitGoal??(resumeOnly?"":id("goal").value.trim()); if(!goal&&(!currentSession||freshTask)) { id("goal").focus(); return false; }
+  // After an Ask session, an actual change request must run in Build mode.
+  if(!resumeOnly&&goal&&codeChangeRequested(goal))id("taskMode").value="build";
   if(appState.account?.enabled&&!appState.account.ready){await openAccount();return false;}
   if(!projectId||(isCloud&&!appState.engine?.available)){id("taskError").hidden=false;id("taskError").textContent=appState.engine?.message||"Select a project before starting a task.";return false;}
   if(hostedNoKey(appState.settings.base_url)&&!appState.settings.key_configured) { openSettings(); toast("Add your API key to start a live task."); return false; }

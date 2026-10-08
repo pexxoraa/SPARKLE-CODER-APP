@@ -85,8 +85,12 @@ def parse_completion(data: dict, tool_format: str) -> Completion:
             normalized.append({"id": call_id, "type": "function",
                                "function": {"name": function["name"], "arguments": arguments}})
         usage = data.get("usage") or {}
-        usage = ({key: max(0, int(usage[key])) for key in ("prompt_tokens", "completion_tokens")}
-                 if isinstance(usage, dict) and all(usage.get(k) is not None for k in ("prompt_tokens", "completion_tokens")) else {})
+        # Trust only exact, nonnegative integers. Converting floats, numeric
+        # strings or booleans silently misreports consumption as confirmed.
+        usage = ({key: usage[key] for key in ("prompt_tokens", "completion_tokens")}
+                 if isinstance(usage, dict) and all(
+                     type(usage.get(k)) is int and 0<=usage[k]<=10**10
+                     for k in ("prompt_tokens", "completion_tokens")) else {})
         return Completion(content, normalized, usage, reason)
     except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
         raise ModelError(f"Invalid model response: {exc}") from None

@@ -59,6 +59,7 @@ const harness=[
  'function renderActivity(){}function renderChecks(){}function renderMonitor(){}',
  'function clearDraft(){events.push("clear-draft");} function changeView(){events.push("view");}function schedulePoll(){events.push("poll");}',
  'function hostedNoKey(){return false;}function openSettings(){}async function openAccount(){}',
+ 'function codeChangeRequested(text){return /\\b(fix|add|change|edit|build|create|make)\\b/i.test(text);}',
  'async function refreshState(){if(recover())currentRun=recover();}',
  renderCode,
  submitCode,
