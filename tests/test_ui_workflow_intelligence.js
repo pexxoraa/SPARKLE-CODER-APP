@@ -91,4 +91,31 @@ ui.setEvents([{sequence:2,kind:"tool_end",text:"Check finished",ok:true}]);ui.re
 assert.equal(panel.replaceChildrenCalls,first+2,"new run event must invalidate");
 ui.setAction([{tool:"write_file",path:"new.js",ok:true}]);ui.render();
 assert.equal(panel.replaceChildrenCalls,first+3,"new file action must invalidate");
-console.log("Milestone 8 UI: long conversations avoid repeated JSON serialization; edits, switches, factual progress, interruption warnings and event repaint caching passed.");
+// Opening check details must survive an identical API refresh.
+const checksBlock=code.slice(code.indexOf("function checkCard("),code.indexOf("function renderRepairHistory("));
+assert.ok(checksBlock.includes("function checksNeedRender("));
+const checkPanel=element("checksList");
+const checkUI=new Function("id","node",
+  'let currentSession={id:"checked-run",checks:[{id:"one",active:true,ok:false,'+
+  'required:false,source:"agent",label:"Integration test",command:"npm test",output:"AssertionError"}]};'+
+  checksBlock+
+  '\nreturn {render:renderChecks,setChecks:items=>currentSession.checks=items};')(
+    element,mockNode);
+checkUI.render();
+const checksFirst=checkPanel.replaceChildrenCalls;
+assert.ok(checksFirst>0);
+const opened=checkPanel.children[0];
+opened.open=true;
+checkUI.render();
+assert.equal(checkPanel.replaceChildrenCalls,checksFirst,"same check result must retain expanded details");
+assert.equal(checkPanel.children[0],opened,"the exact opened node is retained");
+checkUI.setChecks([{id:"one",active:true,ok:false,required:false,source:"agent",
+  label:"Integration test",command:"npm test",output:"AssertionError"}]);
+checkUI.render();
+assert.equal(checkPanel.replaceChildrenCalls,checksFirst,"new equivalent API objects must not recreate check cards");
+checkUI.setChecks([{id:"one",active:true,ok:true,required:false,source:"agent",
+  label:"Integration test",command:"npm test",output:"All passed"}]);
+checkUI.render();
+assert.equal(checkPanel.replaceChildrenCalls,checksFirst+1,"new real check outcome must update displayed evidence");
+
+console.log("Milestone 8 UI: long conversations avoid repeated JSON serialization; edits, switches, factual progress, interruption warnings and event/check repaint caching passed.");
