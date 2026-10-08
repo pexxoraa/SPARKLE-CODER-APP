@@ -270,6 +270,15 @@ class Agent:
         system = SYSTEM + "\nExecution environment: " + self.config.execution
         if self.engineering_domains and state.get("task_mode") != "ask":
             system += ("\nENGINEERING ACCEPTANCE: Use plan_engineering before substantive edits. "
+                       "First call inspect_engineering_environment to distinguish discovered tools "
+                       "from version-checked toolchains and explicit target probes. "
+                       "If necessary, probe_engineering_environment with a listed ID. "
+                       "For locked project dependencies only, request preparation via "
+                       "prepare_engineering_dependencies; this requires the normal "
+                       "user command approval even in automatic execution mode. "
+                       "Never install system tools, bypass denied setup, claim that a "
+                       "version check proves hardware readiness, or confuse setup "
+                       "success with functional verification. "
                        "Use discover_engineering_checks to find native toolchain commands from the "
                        "actual project. If one fits the task, run it with run_engineering_check "
                        "and examine the real recorded result; discovery is read-only. "
@@ -883,9 +892,9 @@ class Agent:
                                           "Change the hypothesis, inspect new evidence, or report the blocker."}
                             else:
                                 result = self.tools.execute(name, arguments)
-                                if name in ("verify", "revise_check"):
+                                if name in ("verify", "revise_check", "run_engineering_check"):
                                     self.required_cache.clear()
-                                if name == "run_command" and result.get("exit_code") is not None:
+                                if name in ("run_command", "prepare_engineering_dependencies") and result.get("exit_code") is not None:
                                     self.required_cache.clear()
                                     self.environment_changed = True
                                     if result.get("ok"):
