@@ -55,7 +55,7 @@ def parse_inventory(kind, output):
             platform = str(item.get("targetPlatform", "")).lower()
             if "android" not in platform and "ios" not in platform:
                 continue
-            ready = item.get("isSupported") is not False
+            ready = item.get("isSupported") is True
             found.append({"device_id": item["id"], "name": _clean(item.get("name", "Mobile device")),
                           "platform": "ios" if "ios" in platform else "android",
                           "kind": "emulator" if item.get("emulator") is True else "device",
@@ -85,7 +85,7 @@ def parse_inventory(kind, output):
         if not isinstance(versions, dict):
             raise ValueError("simctl inventory has no devices map.")
         for version, items in list(versions.items())[:30]:
-            if not str(version).lower().startswith("ios") or not isinstance(items, list):
+            if "ios" not in str(version).lower() or not isinstance(items, list):
                 continue
             for item in items[:30]:
                 if not isinstance(item, dict) or not _valid_id(item.get("udid")):
@@ -250,8 +250,12 @@ def resolve_integration(workspace, execution, docker_image, state, integration_i
     if target is None:
         raise ValueError("Device is not freshly verified as connected/booted. Probe again.")
     records = state.get("target_inventories", [])
+    if not isinstance(records, list):
+        raise ValueError("Saved device inventory is unavailable.")
     matching = next((obs for obs in reversed(records[-20:])
-                     if obs.get("id") == target["probe_id"]), None)
+                     if isinstance(obs, dict) and obs.get("id") == target["probe_id"]), None)
+    if not isinstance(matching, dict):
+        raise ValueError("Saved device inventory is unavailable.")
     device = next((d for d in matching.get("devices", []) if d["token"] == token), None)
     if not device or not _valid_id(device.get("device_id")):
         raise ValueError("Device identity is no longer available.")
