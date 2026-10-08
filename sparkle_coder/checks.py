@@ -33,6 +33,23 @@ def discover_checks(workspace, execution="local", *, files=None):
         except (OSError, ValueError, UnicodeError):
             return ""
 
+    # A CMakeLists.txt inside src/ or tests/ usually belongs to its parent
+    # project. Only treat a nested CMakeLists.txt as a separate root if it
+    # declares its own project, or if it has no CMake ancestor.
+    cmake_manifests = sorted((name for name in files
+                              if PurePosixPath(name).name == "CMakeLists.txt"
+                              and len(PurePosixPath(name).parts) <= 4),
+                             key=lambda name: (len(PurePosixPath(name).parts), name))
+    cmake_roots = set()
+    for name in cmake_manifests:
+        directory = str(PurePosixPath(name).parent)
+        has_parent = any(parent == "." or directory.startswith(parent + "/")
+                         for parent in cmake_roots)
+        owns_project = bool(re.search(r"(?im)^\\s*project\\s*\\(", read(name)))
+        if not has_parent or owns_project:
+            cmake_roots.add(directory)
+            roots.add(directory)
+
     def add(command, cwd, source):
         checks.append({"command": command, "cwd": cwd, "source": source})
 
@@ -43,6 +60,22 @@ def discover_checks(workspace, execution="local", *, files=None):
         argv = argv or (["py", "-3"] if os.name == "nt" else ["python3"])
         python = shell_command(argv, docker=execution == "docker")
         prefix = "" if root == "." else root + "/"
+        if root in cmake_roots:
+            source = prefix + "CMakeLists.txt"
+            build_dir = "build/sparkle-coder"
+            # These are suggestions, not executed until the user authorizes
+            # the normal command/verification workflow. Keep outputs in build/,
+            # which the workspace excludes from AI file operations.
+            add("cmake -S . -B " + build_dir + " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON", root, source + " configure")
+            add("cmake --build " + build_dir + " --parallel 2", root, source + " build")
+            cmake_sources = (name for name in files if name.endswith("CMakeLists.txt")
+                             and name.startswith(prefix))
+            # Only suggest CTest when testing is declared. --no-tests=error
+            # prevents an empty test suite from being reported as successful.
+            if any(re.search(r"(?im)^\\s*(?:enable_testing|add_test)\\s*\\(|^\\s*include\\s*\\(\\s*CTest\\s*\\)",
+                             read(name)) for name in cmake_sources):
+                add("ctest --test-dir " + build_dir + " --output-on-failure --no-tests=error",
+                    root, source + " CTest")
         manifest = prefix + "package.json"
         if manifest in names:
             data = {}
