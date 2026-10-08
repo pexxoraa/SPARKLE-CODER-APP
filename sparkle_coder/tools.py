@@ -10,6 +10,7 @@ from .diagnostics import inspect_setup
 from .engineering import inspect_engineering as engineering_report
 from .engineering_contracts import execution_plan, link_evidence
 from .engineering_adapters import discover_adapters, resolve_adapter
+from .engineering_environments import inspect_environment, resolve_environment_action
 from .explanations import check_title, explain_failure
 from .execution import CommandRunner
 from .internet import (download_public_asset as fetch_public_asset, read_web_page as fetch_web_page,
@@ -37,6 +38,9 @@ SCHEMAS = [
     schema("discover_checks", "Find existing test, typecheck, lint and build commands. Does not execute them.", {}),
     schema("inspect_engineering", "Identify relevant engineering domains, toolchains and candidate verification contracts from project evidence without executing code. Tool presence is NOT runtime proof.", {}),
     schema("plan_engineering", "Read-only phased capability plan, missing toolchains and required evidence contracts; does not execute checks.", {}),
+    schema("inspect_engineering_environment", "Read-only toolchain version/target probe and locked dependency setup options derived from project manifests. Nothing is installed, downloaded, executed or deployed.", {}),
+    schema("probe_engineering_environment", "Run one finite tool version or device/target enumeration command through normal approval, timeout and sandbox controls. Records an observation, not a passing project acceptance test.", {"probe_id": S}, ["probe_id"]),
+    schema("prepare_engineering_dependencies", "Request explicit command approval and run one locked, project-scoped dependency setup option. No system toolchain installation, remote deployment or acceptance pass. Existing project/cache may change.", {"setup_id": S}, ["setup_id"]),
     schema("discover_engineering_checks", "Read-only discovery of finite real project-aware build, test and static-analysis adapters across engineering domains. Does not execute project code or install toolchains.", {}),
     schema("run_engineering_check", "Execute one previously discovered engineering check through the normal permission-controlled verify runner; records its real pass/fail and check ID. Never deploys or provisions hardware.", {"adapter_id": S}, ["adapter_id"]),
     schema("record_engineering_evidence", "Link a distinct, already executed and passing check ID to a domain's behavior or target acceptance facet. Does NOT imply independently audited semantic coverage.", {
@@ -206,6 +210,58 @@ class ToolSet:
         profile = self.session.state.get("task_profile", {}).get("name", "standard")
         return execution_plan(self.workspace, goal, self.runner.config.execution,
                               state=self.session.state, task_profile=profile)
+
+    def _engineering_goal(self):
+        return " ".join(self.session.state.get("user_requests",
+                         [self.session.state.get("goal", "")])[-2:])
+
+    def inspect_engineering_environment(self):
+        return inspect_environment(self.workspace, self._engineering_goal(),
+                                   self.runner.config.execution,
+                                   docker_image=self.runner.config.docker_image,
+                                   state=self.session.state)
+
+    def probe_engineering_environment(self, probe_id):
+        action = resolve_environment_action(
+            self.workspace, self._engineering_goal(), self.runner.config.execution,
+            self.runner.config.docker_image, probe_id)
+        if not probe_id.startswith("probe-"):
+            raise ValueError("Expected a toolchain or target probe ID, not a dependency setup ID.")
+        result = self.runner.run(action["command"], cwd=action["cwd"])
+        observation = {
+            "id": probe_id, "tool": action["tool"], "kind": action["kind"],
+            "environment": self.runner.config.execution,
+            "ok": bool(result.get("ok")), "exit_code": result.get("exit_code"),
+            "denied": bool(result.get("denied")), "timed_out": bool(result.get("timed_out")),
+            "fingerprint": self.workspace.fingerprint(),
+            "environment_revision": self.session.state.get("environment_revision", 0),
+            "output_excerpt": self.redactor.text(result.get("output", ""))[:400],
+        }
+        self.session.state.setdefault("engineering_probes", []).append(observation)
+        self.session.state["engineering_probes"] = self.session.state["engineering_probes"][-30:]
+        self.session.save()
+        return {**result, "probe_id": probe_id, "kind": action["kind"],
+                "target_verified": False,
+                "note": "Command outcome is observed, but no device, simulator or target build is proven."}
+
+    def prepare_engineering_dependencies(self, setup_id):
+        action = resolve_environment_action(
+            self.workspace, self._engineering_goal(), self.runner.config.execution,
+            self.runner.config.docker_image, setup_id)
+        if not setup_id.startswith("setup-"):
+            raise ValueError("Expected a dependency setup ID, not an environment probe ID.")
+        # Dependency changes always trigger the existing command permission UI,
+        # even when ordinary checks use the automatic command approval setting.
+        original = self.runner.config.auto_approve
+        try:
+            self.runner.config.auto_approve = False
+            result = self.run_command(action["command"], cwd=action["cwd"],
+                                      purpose="User-approved locked dependency setup: " + action["description"])
+        finally:
+            self.runner.config.auto_approve = original
+        return {**result, "setup_id": setup_id,
+                "acceptance_evidence": False, "description": action["description"],
+                "note": "Successful dependency setup does not verify application correctness."}
 
     def discover_engineering_checks(self):
         goal = " ".join(self.session.state.get("user_requests",
@@ -555,5 +611,5 @@ class ToolSet:
 
 READ_ONLY_TOOLS = {"list_files", "read_file", "search_files", "web_search", "read_web_page",
                    "discover_checks", "inspect_setup", "inspect_engineering", "plan_engineering",
-                   "discover_engineering_checks", "inspect_static_site", "inspect_visual_site", "render_page",
+                   "discover_engineering_checks", "inspect_engineering_environment", "inspect_static_site", "inspect_visual_site", "render_page",
                    "request_input", "update_plan"}
