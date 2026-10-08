@@ -1,6 +1,7 @@
 """Regressions: project change intent, checkpoint continuation, metered token counts."""
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from sparkle_coder.agent import Agent
@@ -57,10 +58,18 @@ class ChangesAndUsageTests(unittest.TestCase):
         old=Session.create(workspace,'Explain this project',[],{})
         old.state.update(task_mode='ask',status='answered')
         old.save()
-        run=app.start(project['id'],'Change the existing homepage text',session_id=old.id,task_mode='ask')
-        job=app.jobs[run['id']]
-        job.thread.join(5)
-        self.assertFalse(job.thread.is_alive())
+        # This test verifies follow-up mode and checkpoint creation, not how
+        # long an actual agent takes to exhaust its repair loop. Mocking just
+        # execution makes the background session setup deterministic on CI.
+        # Separate tests cover real agent verification and continuation.
+        with patch('sparkle_coder.webapp.Agent.run', return_value='paused') as run_agent:
+            run=app.start(project['id'],'Change the existing homepage text',session_id=old.id,task_mode='ask')
+            job=app.jobs[run['id']]
+            job.thread.join(timeout=15)
+            self.assertFalse(job.thread.is_alive(), 'Background session preparation did not finish')
+            run_agent.assert_called_once()
+        self.assertEqual(job.status, 'paused')
+        self.assertIsNone(job.error)
         state=Session.load(workspace,old.id).state
         self.assertEqual(state['task_mode'],'build')
         self.assertEqual(state['requested_change']['goal'],'Change the existing homepage text')
