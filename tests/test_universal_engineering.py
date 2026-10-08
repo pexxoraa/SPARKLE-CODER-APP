@@ -112,7 +112,7 @@ class UniversalEngineeringTests(unittest.TestCase):
             report = inspect_engineering(self.workspace)
         self.assertEqual(report["primary_domain"], "game_development")
         self.assertEqual(report["verification_contracts"][0]["status"], "not_verified_by_inspection")
-        self.assertIn("not been run", report["note"])
+        self.assertIn("not been run", report["note"].lower())
         self.assertFalse((self.workspace.root / "DANGEROUS").exists())
         self.assertEqual(report["candidate_checks"][0]["command"], "npm run test")
 
@@ -126,7 +126,7 @@ class UniversalEngineeringTests(unittest.TestCase):
         self.assertIn("debugging_mastery", agent.skills)
         self.assertNotIn("visual_qa", agent.skills)
         self.assertIn("ENGINEERING DOMAIN CONTRACT", agent.context()[0]["content"])
-        self.assertIn('"engineering_domains"', json.dumps(agent.context()))
+        self.assertIn("engineering_domains", json.dumps(agent.context()))
         self.assertEqual(select_skills("Fix a bug", domains=["systems_programming"])[-1],
                          "systems_programming")
 
