@@ -155,9 +155,14 @@ class Agent:
                                   "run_target_integration"))
         target_applicable = any(d["id"] in ("mobile_apps", "embedded_iot")
                                 for d in self.engineering_domains)
+        recovery_available = bool(session.state.get("interrupted_actions") or
+                                  any(row.get("applied") is False
+                                      for row in session.state.get("journal", [])
+                                      if isinstance(row, dict)))
         self.schemas = [s for s in SCHEMAS
                         if (allowed is None or s["function"]["name"] in allowed)
-                        and (target_applicable or s["function"]["name"] not in target_tools)]
+                        and (target_applicable or s["function"]["name"] not in target_tools)
+                        and (recovery_available or s["function"]["name"] != "inspect_task_recovery")]
         if callable(getattr(provider, "bind_runtime", None)):
             provider.bind_runtime(self.tools.observe, self.should_stop)
         self.required_cache = {}
@@ -273,8 +278,13 @@ class Agent:
                                 for d in self.engineering_domains)
         target_tools = frozenset(("inspect_target_integrations", "probe_target_devices",
                                   "run_target_integration"))
+        recovery_available = bool(self.session.state.get("interrupted_actions") or
+                                  any(row.get("applied") is False
+                                      for row in self.session.state.get("journal", [])
+                                      if isinstance(row, dict)))
         self.schemas = [schema for schema in SCHEMAS
-                        if target_applicable or schema["function"]["name"] not in target_tools]
+                        if (target_applicable or schema["function"]["name"] not in target_tools)
+                        and (recovery_available or schema["function"]["name"] != "inspect_task_recovery")]
         self.session.save()
         self.observe("budget_upgrade", {"text": "Fast pass complete. Continuing automatically with Standard effort.",
                                         "reason": reason})
