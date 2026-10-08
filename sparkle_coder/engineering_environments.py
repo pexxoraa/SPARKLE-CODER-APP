@@ -9,6 +9,7 @@ import hashlib
 import shutil
 from pathlib import PurePosixPath
 
+from .checks import package_manager
 from .engineering_adapters import discover_adapters
 from .python_runtime import python_argv, shell_command
 
@@ -119,17 +120,53 @@ def inspect_environment(workspace, goal="", execution="local", *,
     for adapter in project["adapters"]:
         add_probe(adapter["tool"], adapter["cwd"], adapter["domain"], adapter["id"])
 
+    # Also recognize real manifests without test scripts: a fresh Python,
+    # Rust, Go or Node project still needs its environment prepared.
+    manifest_tools = {
+        "package.json": "npm", "pyproject.toml": "python",
+        "requirements.txt": "python", "Cargo.toml": "cargo",
+        "go.mod": "go", "pubspec.yaml": "flutter",
+        "platformio.ini": "pio", "project.godot": "godot",
+        "dbt_project.yml": "dbt", "alembic.ini": "python",
+        "compose.yaml": "docker", "docker-compose.yml": "docker",
+    }
+    manifest_roots = set()
+    for path in names:
+        item = PurePosixPath(path)
+        if len(item.parts) > 4:
+            continue
+        if item.name in manifest_tools:
+            root = str(item.parent)
+            manifest_roots.add(root)
+            if item.name == "package.json":
+                tool = package_manager({}, file_set, root)
+            else:
+                tool = manifest_tools[item.name]
+            add_probe(tool, root, "workspace_manifest", None)
+        elif item.suffix == ".tf":
+            manifest_roots.add(str(item.parent))
+            add_probe("terraform", str(item.parent), "workspace_manifest", None)
+
     # Setup candidates are driven by files, NOT arbitrary package scripts or
     # prose. Commands are exact constants with no user-provided shell fragments.
-    roots = sorted({_root_of(a["source"]) for a in project["adapters"]})
+    roots = sorted(manifest_roots | {_root_of(a["source"]) for a in project["adapters"]})
     for root in roots:
         choices = []
         if _project_file(file_set, root, "package.json"):
-            if _project_file(file_set, root, "package-lock.json"):
+            try:
+                package = workspace.read("package.json" if root == "." else root + "/package.json")[0]
+                import json
+                data = json.loads(package)
+                if not isinstance(data, dict):
+                    data = {}
+            except (OSError, ValueError, UnicodeError):
+                data = {}
+            manager = package_manager(data, file_set, root)
+            if manager == "npm" and _project_file(file_set, root, "package-lock.json"):
                 choices.append(("npm", "npm ci --ignore-scripts --no-audit --no-fund",
                                 "Install locked npm dependencies without lifecycle scripts",
                                 "package-lock.json"))
-            if _project_file(file_set, root, "pnpm-lock.yaml"):
+            if manager == "pnpm" and _project_file(file_set, root, "pnpm-lock.yaml"):
                 choices.append(("pnpm", "pnpm install --frozen-lockfile --ignore-scripts",
                                 "Install frozen pnpm dependencies without lifecycle scripts",
                                 "pnpm-lock.yaml"))
@@ -150,7 +187,7 @@ def inspect_environment(workspace, goal="", execution="local", *,
             # Safe first step only: no automatic pip installation of unsigned,
             # unhashed arbitrary code or import-time hooks.
             venv = workspace.root / root / ".venv"
-            if not venv.exists():
+            if not venv.exists() and not venv.is_symlink():
                 if execution == "docker":
                     cmd, tool = "python3 -m venv .venv", "python3"
                 else:
