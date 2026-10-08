@@ -51,7 +51,13 @@ def _regular(info):
 
 
 def _identity(info):
-    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+    # These fields identify the underlying regular file and its bounded size.
+    # Windows can update/cache modification and change timestamps between
+    # lstat/fstat for a single unchanged file (especially while another thread
+    # observes an export). Timestamps are not an ownership or replacement
+    # guarantee. Compare stable inode/device/size, then compare the PID bytes.
+    # The guard below already serializes concurrent lock claims.
+    return info.st_dev, info.st_ino, info.st_size
 
 
 def _read_marker(path):
