@@ -48,7 +48,10 @@ RECIPES = {
         Recipe("package.json", "npm", "npm run test", "test", "Electron or Tauri UI tests", "test")),
     "game_development": (
         Recipe("project.godot", "godot", "godot --headless --editor --path . --quit", "smoke",
-               "Godot resource import and editor startup (not gameplay verification)"),),
+               "Godot resource import and editor startup (not gameplay verification)"),
+        Recipe("addons/gut/gut_cmdln.gd", "godot",
+               "godot --headless --path . -s res://addons/gut/gut_cmdln.gd -gexit",
+               "test", "Run real Godot GUT project-owned game tests")),
     "ai_ml": (
         Recipe("pyproject.toml", "python", "python -m pytest", "test", "ML project evaluation tests"),),
     "data_engineering": (
@@ -87,11 +90,15 @@ def _manifest_roots(files, marker):
     matches = []
     for path in files:
         item = PurePosixPath(path)
-        if len(item.parts) > 4:
+        # A nested project root plus addons/gut/gut_cmdln.gd is deeper than
+        # a one-file manifest. Bound the *project root*, not the full marker.
+        allowance = len(PurePosixPath(marker).parts) + 3
+        if len(item.parts) > allowance:
             continue
-        if marker.startswith("prisma/"):
-            if str(item).endswith(marker):
-                root = item.parent.parent
+        if "/" in marker:
+            suffix = PurePosixPath(marker).parts
+            if len(item.parts) >= len(suffix) and item.parts[-len(suffix):] == suffix:
+                root = PurePosixPath(*item.parts[:-len(suffix)])
             else:
                 continue
         elif item.name == marker:
@@ -160,6 +167,15 @@ def discover_adapters(workspace, goal="", execution="local", *, files=None, whic
                         tool = "python"
                 if recipe.executable == "flutter" and recipe.command == "flutter test" and not _has_tests(files, cwd, "flutter"):
                     continue
+                if recipe.marker == "addons/gut/gut_cmdln.gd":
+                    # GUT runner without any user-owned GDScript tests would
+                    # only prove the plugin launched, not a game test passed.
+                    prefix = "" if cwd == "." else cwd + "/"
+                    if (prefix + "project.godot" not in names or not any(
+                            path.startswith(prefix) and
+                            PurePosixPath(path).name.startswith("test_") and
+                            path.endswith(".gd") for path in files)):
+                        continue
                 if recipe.marker == "main.tf" and not any(name.endswith(".tf") for name in names):
                     continue
                 # Do not execute anything or claim availability inside Docker.

@@ -11,6 +11,7 @@ from .engineering import inspect_engineering as engineering_report
 from .engineering_contracts import execution_plan, link_evidence
 from .engineering_adapters import discover_adapters, resolve_adapter
 from .engineering_environments import inspect_environment, resolve_environment_action
+from .engineering_targets import discover_targets, get_probe, inventory_observation, resolve_integration
 from .explanations import check_title, explain_failure
 from .execution import CommandRunner
 from .internet import (download_public_asset as fetch_public_asset, read_web_page as fetch_web_page,
@@ -39,6 +40,9 @@ SCHEMAS = [
     schema("inspect_engineering", "Identify relevant engineering domains, toolchains and candidate verification contracts from project evidence without executing code. Tool presence is NOT runtime proof.", {}),
     schema("plan_engineering", "Read-only phased capability plan, missing toolchains and required evidence contracts; does not execute checks.", {}),
     schema("inspect_engineering_environment", "Read-only toolchain version/target probe and locked dependency setup options derived from project manifests. Nothing is installed, downloaded, executed or deployed.", {}),
+    schema("inspect_target_integrations", "Read-only discovery of Flutter/Android/iOS mobile device inventories, fresh observed readiness, and real project-owned target integration tests. Does not query devices or execute software.", {}),
+    schema("probe_target_devices", "Enumerate connected Flutter, Android ADB, or iOS simulator devices with explicit command permission, even when ordinary commands are auto-approved. Does not boot devices or prove the app works.", {"probe_id": S}, ["probe_id"]),
+    schema("run_target_integration", "With explicit user approval, run a real project-owned Flutter integration_test or Android connectedAndroidTest against a freshly observed ready target. The result is an actual test record, not independent semantic certification.", {"integration_id": S, "target_id": S}, ["integration_id", "target_id"]),
     schema("probe_engineering_environment", "Run one finite tool version or device/target enumeration command through normal approval, timeout and sandbox controls. Records an observation, not a passing project acceptance test.", {"probe_id": S}, ["probe_id"]),
     schema("prepare_engineering_dependencies", "Request explicit command approval and run one locked, project-scoped dependency setup option. No system toolchain installation, remote deployment or acceptance pass. Existing project/cache may change.", {"setup_id": S}, ["setup_id"]),
     schema("discover_engineering_checks", "Read-only discovery of finite real project-aware build, test and static-analysis adapters across engineering domains. Does not execute project code or install toolchains.", {}),
@@ -220,6 +224,61 @@ class ToolSet:
                                    self.runner.config.execution,
                                    docker_image=self.runner.config.docker_image,
                                    state=self.session.state)
+    def inspect_target_integrations(self):
+        return discover_targets(self.workspace, self.runner.config.execution,
+                                docker_image=self.runner.config.docker_image,
+                                state=self.session.state)
+
+    def probe_target_devices(self, probe_id):
+        probe = get_probe(self.workspace, self.runner.config.execution,
+                          self.runner.config.docker_image, probe_id)
+        # Interrogating a phone/simulator is a device operation: require
+        # explicit approval even if normal checks were auto-approved.
+        original = self.runner.config.auto_approve
+        try:
+            self.runner.config.auto_approve = False
+            run = self.runner.run(probe["command"], cwd=probe["cwd"])
+        finally:
+            self.runner.config.auto_approve = original
+        observation = inventory_observation(
+            probe, run, self.workspace.fingerprint(),
+            self.session.state.get("environment_revision", 0),
+            self.runner.config.execution, self.runner.config.docker_image)
+        self.session.state.setdefault("target_inventories", []).append(
+            self.redactor.value(observation))
+        self.session.state["target_inventories"] = self.session.state["target_inventories"][-20:]
+        self.session.save()
+        return {"ok": bool(run.get("ok")) and not observation["parse_error"],
+                "probe_id": probe_id, "kind": probe["kind"],
+                "command_ok": bool(run.get("ok")), "exit_code": run.get("exit_code"),
+                "denied": bool(run.get("denied")), "timed_out": bool(run.get("timed_out")),
+                "ready_count": observation["ready_count"], "parse_error": observation["parse_error"],
+                "targets": [{key: value for key, value in item.items() if key != "device_id"}
+                            for item in observation["devices"]],
+                "application_tested": False,
+                "note": "Enumerated device presence only. No app behavior or target build was verified."}
+
+    def run_target_integration(self, integration_id, target_id):
+        candidate = resolve_integration(
+            self.workspace, self.runner.config.execution,
+            self.runner.config.docker_image, self.session.state, integration_id, target_id)
+        # Flutter tests may install an app on a selected device. Gradle connected
+        # tests interact with a running emulator/device. Always ask permission.
+        original = self.runner.config.auto_approve
+        try:
+            self.runner.config.auto_approve = False
+            result = self.verify(candidate["command"], cwd=candidate["cwd"],
+                                 label=candidate["description"],
+                                 source="target-integration")
+        finally:
+            self.runner.config.auto_approve = original
+        return {**result, "integration_id": integration_id, "target_id": target_id,
+                "test_type": candidate["target_behavior"],
+                "target_application_test_passed": bool(result.get("ok")),
+                "semantic_coverage": "real_command_not_independently_audited",
+                "note": "Only this executed integration suite was tested. No unobserved devices or features are certified."}
+
+
 
     def probe_engineering_environment(self, probe_id):
         action = resolve_environment_action(
@@ -611,5 +670,6 @@ class ToolSet:
 
 READ_ONLY_TOOLS = {"list_files", "read_file", "search_files", "web_search", "read_web_page",
                    "discover_checks", "inspect_setup", "inspect_engineering", "plan_engineering",
-                   "discover_engineering_checks", "inspect_engineering_environment", "inspect_static_site", "inspect_visual_site", "render_page",
+                   "discover_engineering_checks", "inspect_engineering_environment",
+                   "inspect_target_integrations", "inspect_static_site", "inspect_visual_site", "render_page",
                    "request_input", "update_plan"}
