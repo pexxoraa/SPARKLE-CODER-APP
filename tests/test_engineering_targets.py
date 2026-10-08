@@ -309,6 +309,20 @@ class TargetIntegrationTests(unittest.TestCase):
                                       agent.session.state, listing["integrations"][0]["id"],
                                       target["id"])
         self.assertEqual(command["command"], "gradle connectedAndroidTest")
+        self.write("android/gradlew", "#!/bin/sh")
+        self.write("android/gradlew.bat", "@echo off")
+        with patch("sparkle_coder.engineering_targets.HOST_OS", "nt"):
+            windows = resolve_integration(self.workspace, "local",
+                                          agent.tools.runner.config.docker_image,
+                                          agent.session.state, listing["integrations"][0]["id"],
+                                          target["id"])
+            self.assertEqual(windows["command"], "gradlew.bat connectedAndroidTest")
+        with patch("sparkle_coder.engineering_targets.HOST_OS", "posix"):
+            unix = resolve_integration(self.workspace, "local",
+                                       agent.tools.runner.config.docker_image,
+                                       agent.session.state, listing["integrations"][0]["id"],
+                                       target["id"])
+            self.assertEqual(unix["command"], "./gradlew connectedAndroidTest")
         # A second ready device makes broad connectedAndroidTest unsafe.
         obs = agent.session.state["target_inventories"][-1]
         second = dict(obs["devices"][0], token="device-second", device_id="device123")
