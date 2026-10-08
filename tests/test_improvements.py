@@ -133,6 +133,40 @@ class ImprovementTests(unittest.TestCase):
         self.await_run(waiting['id'], {'interrupted'})
         self.upload('after-stop', b'ok')
 
+    def test_finished_run_releases_workspace_lock_before_reporting_checked(self):
+        from contextlib import contextmanager
+
+        original_lock = Workspace.lock
+        original_finish = Run.finish
+        active_depth = threading.local()
+        depths_at_completion = []
+
+        @contextmanager
+        def monitored_lock(workspace):
+            with original_lock(workspace) as value:
+                active_depth.value = getattr(active_depth, "value", 0) + 1
+                try:
+                    yield value
+                finally:
+                    active_depth.value -= 1
+
+        def monitored_finish(job, status, summary=""):
+            if status == "checked":
+                depths_at_completion.append(getattr(active_depth, "value", 0))
+            return original_finish(job, status, summary)
+
+        with patch.object(Workspace, "lock", monitored_lock), \
+             patch.object(Run, "finish", monitored_finish):
+            data, run = self.finish_demo()
+
+        self.assertEqual(run["status"], "checked")
+        self.assertEqual(depths_at_completion, [0],
+                         "Completed must not be visible while the workspace is locked")
+        code, archive, _ = self.raw("/api/projects/" + data["project"]["id"] + "/download-project")
+        self.assertEqual(code, 200)
+        with zipfile.ZipFile(io.BytesIO(archive)) as exported:
+            self.assertIn("calculator.py", exported.namelist())
+
     def test_orphaned_running_session_becomes_resumable_after_engine_restart(self):
         project_id = self.app.data["selected_project"]
         workspace = self.app.project(project_id)[1]
