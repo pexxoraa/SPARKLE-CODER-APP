@@ -248,7 +248,8 @@ class ToolSet:
             self.redactor.value(observation))
         self.session.state["target_inventories"] = self.session.state["target_inventories"][-20:]
         self.session.save()
-        return {"probe_id": probe_id, "kind": probe["kind"],
+        return {"ok": bool(run.get("ok")) and not observation["parse_error"],
+                "probe_id": probe_id, "kind": probe["kind"],
                 "command_ok": bool(run.get("ok")), "exit_code": run.get("exit_code"),
                 "denied": bool(run.get("denied")), "timed_out": bool(run.get("timed_out")),
                 "ready_count": observation["ready_count"], "parse_error": observation["parse_error"],
