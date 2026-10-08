@@ -39,6 +39,9 @@ class Session:
             "version": 1, "id": uuid.uuid4().hex[:12], "created": now(),
             "goal": goal, "user_requests": [goal], "status": "running", "model": model, "required_checks": verify,
             "messages": [{"role": "user", "content": goal}],
+            # Only actual accepted answers appear in the conversation. Tool
+            # narration and unverified completion attempts remain in history.
+            "visible_message_indices": [],
             "plan": [], "actions": [], "journal": [], "checks": [],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0},
             "summary": "",

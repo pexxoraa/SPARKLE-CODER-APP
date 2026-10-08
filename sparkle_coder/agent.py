@@ -19,32 +19,7 @@ from .skills import SKILL_VERSION, record_skill_outcome, render_skills, resolve_
 from .workspace import atomic_write, clean_terminal
 
 
-def plain_discussion_text(text: str) -> str:
-    """Remove common Markdown decoration from Ask/Discussion answers."""
-    value=str(text or "").replace("\r\n","\n").replace("\r","\n")
-    lines=[]
-    fenced=False
-    for raw in value.split("\n"):
-        stripped=raw.strip()
-        if stripped.startswith("```"):
-            fenced=not fenced
-            continue
-        line=raw
-        line=re.sub(r"^\s{0,3}#{1,6}\s+","",line)
-        line=re.sub(r"^\s*>\s?","",line)
-        line=re.sub(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)","",line)
-        line=re.sub(r"!\[([^\]]*)\]\([^)]*\)",r"\1",line)
-        line=re.sub(r"\[([^\]]+)\]\(([^)]+)\)",r"\1 (\2)",line)
-        line=re.sub(r"\*\*([^*]+)\*\*",r"\1",line)
-        line=re.sub(r"__([^_]+)__",r"\1",line)
-        line=re.sub(r"`([^`]+)`",r"\1",line)
-        if stripped.startswith("|") and stripped.endswith("|"):
-            cells=[c.strip() for c in stripped.strip("|").split("|")]
-            if cells and all(re.fullmatch(r":?-{3,}:?",c or "") for c in cells):
-                continue
-            line=" — ".join(c for c in cells if c)
-        lines.append(line.rstrip())
-    return re.sub(r"\n{3,}","\n\n","\n".join(lines)).strip()
+from .answers import display_reply, plain_discussion_text
 
 
 SYSTEM = """You are SPARKLE CODER, a personal coding assistant.
@@ -64,8 +39,13 @@ Use file tools for edits so they can be journaled and undone. Use terminal comma
 builds, tests, dependencies, and diagnostics. Shell edits are not covered by file-tool undo.
 Explain progress and results in plain language for a user who may not program. Start with what
 works, what failed, what it means, and the next action. Keep stack traces, JSON and command scripts
-in technical details. Give simple usage steps with update_delivery before completing a Build task;
+in technical details. Give only necessary usage steps with update_delivery for Build tasks;
 link feature claims to actual check IDs and explicitly name untested behavior.
+Keep final replies concise: say what changed, what was actually tested, and what remains open.
+Do not repeat tool logs, generic introductions, entire plans, or unrelated suggestions in the
+user-facing answer. Prefer everyday plain text unless the user explicitly requests a
+technical format, table, code, or Markdown. When a question has competing reasonable
+solutions, compare only the useful options and explain the trade-off in simple terms.
 
 Do not commit, push, deploy, send messages, access credentials, or modify external systems unless
 the user specifically requests it. Do not disable failing tests to claim success. Do not change
@@ -194,8 +174,18 @@ class Agent:
         state = self.session.state
         system = SYSTEM + "\nExecution environment: " + self.config.execution
         if state.get("task_mode") == "ask":
-            system += ("\nASK MODE: inspect files and answer the user's question. Do not change files or run commands. "
-                       "A clear, evidence-based explanation completes this task; build verification is not required. Write the answer as normal conversational plain text by default. Do not use Markdown headings, asterisk or underscore emphasis, bullet/list markers, blockquotes, tables, or fenced code blocks. Use short natural paragraphs. Only use Markdown or code formatting when the user explicitly asks for it.")
+            system += ("\nASK MODE: inspect relevant files and answer the user's actual question. Do not change files or run commands. "
+                       "A factual, evidence-based answer completes this task; build verification is not required. "
+                       "Lead with the answer immediately, not an introduction or a restatement of the question. "
+                       "Use simple, everyday language and short natural paragraphs. Avoid unnecessary technical terms; "
+                       "if one is needed, define it briefly. For a straightforward question, answer in a few sentences. "
+                       "Do not pad with generic advice, repeated points, self-congratulation or a long recap. "
+                       "For a genuinely complex choice with multiple reasonable solutions, briefly compare two or three "
+                       "distinct approaches, explain the main trade-off, and recommend one based on available evidence. "
+                       "If the project evidence is incomplete, say exactly what is unknown rather than guessing. "
+                       "Write normal conversational plain text: no Markdown headings, emphasis markers, bullets, "
+                       "tables or code fences unless the user explicitly requests structured formatting or code. "
+                       "When code or an exact format is requested, preserve it as requested.")
         if self.config.execution == "docker":
             system += "\nCommands run in a Linux container using sh, with the project at /workspace."
         else:
@@ -229,7 +219,10 @@ class Agent:
                        "reference actually exists and that filenames match the generated assets. Then run structural and visual "
                        "checks, inspect desktop and mobile renders, and spend up to two focused passes fixing the highest-impact "
                        "composition, typography, imagery, interaction, and content issues before completion.")
-        skill_text = render_skills(self.skills, char_budget=20000, workspace=self.workspace) if self.skills else ""
+        # Build skill contracts describe implementation and verification. In
+        # Ask mode they encourage irrelevant build instructions and long replies.
+        skill_text = (render_skills(self.skills, char_budget=20000, workspace=self.workspace)
+                      if self.skills and state.get("task_mode") != "ask" else "")
         if skill_text:
             system += ("\n\nSELECTED TASK SKILLS — BINDING EXPERTISE CONTRACTS:\n"
                        "Apply every selected skill concretely. Treat each Master standard and acceptance rule as a completion requirement, "
@@ -729,11 +722,16 @@ class Agent:
                     continue
                 unusable = 0
                 if state.get("task_mode") == "ask":
-                    return self.finish("answered", plain_discussion_text(response.content))
+                    if isinstance(state.get("visible_message_indices"), list):
+                        state["visible_message_indices"].append(len(state["messages"]) - 1)
+                    request=state.get("user_requests", [state.get("goal", "")])[-1]
+                    return self.finish("answered", display_reply(response.content, request))
                 passed, evidence = self.verify_completion()
                 if self.should_stop():
                     return self.finish("interrupted", "Stopped by the user. Work is saved and can be resumed.")
                 if passed:
+                    if isinstance(state.get("visible_message_indices"), list):
+                        state["visible_message_indices"].append(len(state["messages"]) - 1)
                     return self.finish("checked", response.content + "\n\nRuntime evidence: " + evidence)
                 # Repairs have no attempt cap. Only identical completion proposals
                 # against the same files and evidence trigger a request for help.

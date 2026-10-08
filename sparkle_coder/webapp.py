@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 from . import __version__
 from .agent import Agent
+from .answers import display_reply
 from .config import Config, load_config, SPARKLE_GATEWAY_URL
 from .brief import read_brief, save_brief
 from .diagnostics import inspect_setup
@@ -561,10 +562,22 @@ class AppService:
                 and workspace.fingerprint() != state["verification_fingerprint"]):
             state["verification_fingerprint"] = None
         user_requests = set(state.get("user_requests", [state["goal"]]))
-        messages = [{"role": m["role"], "content": m["content"]}
-                    for m in state["messages"]
-                    if m.get("content") and (m["role"] == "assistant"
-                                            or m["role"] == "user" and m["content"] in user_requests)]
+        messages = []
+        latest_request = state.get("goal", "")
+        visible = state.get("visible_message_indices")
+        accepted = set(visible) if isinstance(visible, list) else None
+        for index, message in enumerate(state["messages"]):
+            if message.get("role") == "user" and message.get("content") in user_requests:
+                latest_request = message["content"]
+                messages.append({"role": "user", "content": latest_request})
+            elif (message.get("role") == "assistant" and message.get("content")
+                  and not message.get("tool_calls")
+                  and (accepted is None or index in accepted)):
+                # An unverified completion proposal isn't a result. Retain it
+                # internally for continuity and diagnostics, not as a user reply.
+                # Older sessions have no visibility index and stay readable.
+                messages.append({"role": "assistant", "content":
+                                 display_reply(message["content"], latest_request)})
         recovery = state.get("recovery")
         if state["status"] in ("needs_input", "blocked", "unverified") and not (recovery or {}).get("title"):
             recovery = simple_recovery(state, state.get("summary", ""), (recovery or {}).get("action", "checks"))
