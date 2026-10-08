@@ -318,6 +318,7 @@ let files = [], historyItems = [], changes = [], runEvents = [], view = "build",
 let fileData=null, transferBusy=false, cancelTransfer=false, lastConsoleKey="", fileLoadError="";
 let pollTimer = null, cloudReconnectTimer = null, lastMessageKey = "", lastChangeKey = "", selectedFile = "", toastTimer = null;
 let pollInFlight = false, lastPollError = "", monitorEventsTruncated = false;
+let editingSentMessage = null;
 let briefRevision = null, briefProjectId = null, setupProjectId = null;
 const DRAFT_PREFIX="sparkleDraft:v1:";
 let draftTimer=null;
@@ -830,20 +831,105 @@ function renderTokenUsage(usage){
     estimates+" model call(s) returned no token usage. This approximate figure is not your billing balance.":
     "Input and output tokens reported for this task. Account credits are shown separately in Account.";
 }
+function editSentMessage(session,index,content){
+  if(startingRun||busy()||transferBusy){
+    toast("Finish or stop the running task before retrying a message.");
+    return;
+  }
+  if(!session?.id||currentSession?.id!==session.id||!projectId)return;
+  editingSentMessage={projectId,sessionId:session.id,index,original:content,draft:content};
+  lastMessageKey="";
+  renderSession(session);
+  const editor=id("messages").querySelector(".sent-message-editor");
+  editor?.focus();
+}
+function cancelSentMessageEdit(){
+  editingSentMessage=null;
+  lastMessageKey="";
+  renderSession(currentSession);
+}
+async function retryEditedMessage(){
+  const edit=editingSentMessage;
+  if(!edit||edit.projectId!==projectId||edit.sessionId!==currentSession?.id)return;
+  if(startingRun||busy()||transferBusy){
+    toast("Finish or stop the running task before retrying a message.");
+    return;
+  }
+  const prompt=edit.draft.trim();
+  const error=id("sentMessageEditError");
+  if(!prompt){
+    if(error){error.hidden=false;error.textContent="Enter a message before trying again.";}
+    return;
+  }
+  const button=id("sentMessageRetry");
+  if(button)button.disabled=true;
+  const mode=currentSession.task_mode==="ask"?"ask":"build";
+  id("taskMode").value=mode;
+  // The original session remains in history. This is a new request, not a
+  // rewrite of history or an automatic, potentially double-billed retry.
+  const accepted=await startTask(null,false,prompt,true);
+  if(accepted){
+    editingSentMessage=null;
+  }else if(button){
+    button.disabled=false;
+    if(error){
+      error.hidden=false;
+      error.textContent="The revised request was not confirmed. Check the status above before trying again.";
+    }
+  }
+}
 function renderSession(session) {
   currentSession=session;
   id("welcome").hidden=!!session; id("messages").hidden=!session;
-  const messageKey=JSON.stringify(session?.messages||[]);
+  const editing=editingSentMessage?.projectId===projectId&&editingSentMessage?.sessionId===session?.id?
+    editingSentMessage:null;
+  const messageKey=JSON.stringify(session?.messages||[])+":"+(editing?editing.index+":editing":"");
   if(messageKey!==lastMessageKey) {
     const container=id("conversation"), nearBottom=container.scrollHeight-container.scrollTop-container.clientHeight<120;
     id("messages").replaceChildren();
-    (session?.messages||[]).forEach(message=> {
+    (session?.messages||[]).forEach((message,index)=> {
       const row=node("article","message "+message.role);
       const label=node("div","message-author",message.role==="user" ? "You" : "SPARKLE CODER");
-      const avatar=node("span","message-avatar"); avatar.innerHTML=icon(message.role==="user"?"chat":"bolt"); label.prepend(avatar); row.append(label);
-      const body=node("div","message-body"); appendText(body,message.content); row.append(body); id("messages").append(row);
+      const avatar=node("span","message-avatar"); avatar.innerHTML=icon(message.role==="user"?"chat":"bolt");
+      label.prepend(avatar);
+      const activeEdit=editing?.index===index&&message.role==="user";
+      if(message.role==="user"&&typeof message.content==="string"&&message.content.trim()){
+        const actions=node("div","sent-message-actions");
+        const editButton=node("button","text-button sent-message-edit-button","Edit & try again");
+        editButton.type="button";
+        editButton.disabled=startingRun||busy()||transferBusy||activeEdit;
+        editButton.setAttribute("aria-label","Edit and try again: "+message.content.slice(0,80));
+        editButton.onclick=()=>editSentMessage(session,index,message.content);
+        actions.append(editButton);label.append(actions);
+      }
+      row.append(label);
+      if(activeEdit){
+        const form=node("form","sent-message-edit-form");
+        const field=node("textarea","sent-message-editor");
+        field.value=editing.draft;field.maxLength=12000;field.rows=4;
+        field.setAttribute("aria-label","Edit your sent message");
+        field.oninput=()=>{editing.draft=field.value;const error=id("sentMessageEditError");if(error)error.hidden=true;};
+        const note=node("p","sent-message-edit-note",
+          "Only the revised message is sent as a new task. Original conversation stays saved; existing file changes are not undone. Model usage may consume credits.");
+        const error=node("p","inline-result");
+        error.id="sentMessageEditError";error.hidden=true;error.setAttribute("role","alert");
+        const actions=node("div","sent-message-edit-actions");
+        const cancel=node("button","button secondary","Cancel");
+        cancel.type="button";cancel.onclick=cancelSentMessageEdit;
+        const retry=node("button","button primary","Try again");
+        retry.id="sentMessageRetry";retry.type="submit";
+        retry.disabled=startingRun||busy()||transferBusy;
+        actions.append(cancel,retry);
+        form.append(field,note,error,actions);
+        form.onsubmit=e=>{e.preventDefault();action(retryEditedMessage);};
+        row.append(form);
+      }else{
+        const body=node("div","message-body");appendText(body,message.content);row.append(body);
+      }
+      id("messages").append(row);
     });
-    lastMessageKey=messageKey; if(nearBottom || !session) container.scrollTop=container.scrollHeight;
+    lastMessageKey=messageKey;
+    if(nearBottom || !session)container.scrollTop=container.scrollHeight;
   }
   id("resultBanner").hidden=!session || busy() || session.status==="running";
   if(session && !busy()) renderRecovery(session);
@@ -1101,8 +1187,8 @@ async function confirmDeleteProject(){
   }catch(error){id("deleteProjectError").hidden=false;id("deleteProjectError").textContent=error.message;}
   finally{id("confirmDeleteProject").disabled=false;}
 }
-async function loadSession(sessionId) { if(startingRun||busy()) { toast("Finish or stop the current task first."); return; } currentRun=null; runEvents=[]; const data=await api("/projects/"+projectId+"/sessions/"+sessionId); runEvents=data.events||[]; id("taskMode").value=data.task_mode||"build"; renderSession(data); id("verifyCommands").value=(data.required_checks||[]).join("\n"); changeView("build"); if(tab==="changes")await loadChanges(); }
-async function newTask(clearSaved=false) { if(startingRun||busy()||transferBusy)return; if(clearSaved)clearDraft(); currentRun=null; runEvents=[]; id("taskError").hidden=true; id("taskMode").value="build"; renderSession(null); id("goal").value=""; id("verifyCommands").value=""; id("verificationFields").hidden=true; if(!clearSaved)restoreDraft(); changeView("build"); setTab("activity"); id("goal").focus(); }
+async function loadSession(sessionId) { if(startingRun||busy()) { toast("Finish or stop the current task first."); return; } currentRun=null; runEvents=[]; const data=await api("/projects/"+projectId+"/sessions/"+sessionId); runEvents=data.events||[]; editingSentMessage=null;lastMessageKey="";id("taskMode").value=data.task_mode||"build"; renderSession(data); id("verifyCommands").value=(data.required_checks||[]).join("\n"); changeView("build"); if(tab==="changes")await loadChanges(); }
+async function newTask(clearSaved=false) { if(startingRun||busy()||transferBusy)return; if(clearSaved)clearDraft(); editingSentMessage=null; currentRun=null; runEvents=[]; id("taskError").hidden=true; id("taskMode").value="build"; renderSession(null); id("goal").value=""; id("verifyCommands").value=""; id("verificationFields").hidden=true; if(!clearSaved)restoreDraft(); changeView("build"); setTab("activity"); id("goal").focus(); }
 async function selectProject(next) {
   if(startingRun||transferBusy||!next||next===projectId)return;
   const project=appState.projects.find(p=>p.id===next);
@@ -1113,7 +1199,7 @@ async function selectProject(next) {
   if(id("previewDialog").open)id("previewDialog").close();
   if(id("mediaDialog").open)id("mediaDialog").close();
   await api("/select-project",{project_id:next});
-  projectId=next;currentRun=null;currentSession=null;runEvents=[];lastMessageKey="";lastConsoleKey="";monitorEventsTruncated=false;
+  projectId=next;editingSentMessage=null;currentRun=null;currentSession=null;runEvents=[];lastMessageKey="";lastConsoleKey="";monitorEventsTruncated=false;
   selectedFile="";fileData=null;id("fileSearch").value="";
   id("fileName").textContent="Select a file";id("filePreview").textContent="Select a file to inspect its contents.";
   id("goal").value="";id("verifyCommands").value="";
@@ -1178,22 +1264,33 @@ async function pollRun() {
     if(busy())schedulePoll(2000);
   } finally {pollInFlight=false;}
 }
-async function startTask(event,resumeOnly=false,goalOverride=null) {
-  event?.preventDefault(); if(startingRun||busy()||transferBusy)return;
+async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=false) {
+  event?.preventDefault(); if(startingRun||busy()||transferBusy)return false;
   const explicitGoal=goalOverride===null?null:String(goalOverride);
-  const goal=explicitGoal??(resumeOnly?"":id("goal").value.trim()); if(!goal&&!currentSession) { id("goal").focus(); return; }
-  if(appState.account?.enabled&&!appState.account.ready){await openAccount();return;}
-  if(!projectId||(isCloud&&!appState.engine?.available)){id("taskError").hidden=false;id("taskError").textContent=appState.engine?.message||"Select a project before starting a task.";return;}
-  if(hostedNoKey(appState.settings.base_url)&&!appState.settings.key_configured) { openSettings(); toast("Add your API key to start a live task."); return; }
+  const goal=explicitGoal??(resumeOnly?"":id("goal").value.trim()); if(!goal&&(!currentSession||freshTask)) { id("goal").focus(); return false; }
+  if(appState.account?.enabled&&!appState.account.ready){await openAccount();return false;}
+  if(!projectId||(isCloud&&!appState.engine?.available)){id("taskError").hidden=false;id("taskError").textContent=appState.engine?.message||"Select a project before starting a task.";return false;}
+  if(hostedNoKey(appState.settings.base_url)&&!appState.settings.key_configured) { openSettings(); toast("Add your API key to start a live task."); return false; }
   startingRun=true;id("taskError").hidden=true;renderControls();
   try {
-    const result=await api("/runs",{project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:currentSession?.undone?null:currentSession?.id,review_edits:isCloud?false:id("reviewEdits").checked,task_mode:id("taskMode").value});
-    currentRun=result; runEvents=[]; monitorEventsTruncated=false; lastPollError=""; lastChangeKey=""; if(!resumeOnly&&!explicitGoal){id("goal").value="";clearDraft();} changeView("build"); renderSession(currentSession); schedulePoll(50);
+    const result=await api("/runs",{project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:freshTask||currentSession?.undone?null:currentSession?.id,review_edits:isCloud?false:id("reviewEdits").checked,task_mode:id("taskMode").value});
+    currentRun=result; runEvents=[]; monitorEventsTruncated=false; lastPollError=""; lastChangeKey="";
+    if(freshTask){currentSession=null;editingSentMessage=null;lastMessageKey="";}
+    if(!resumeOnly&&!explicitGoal){id("goal").value="";clearDraft();}
+    changeView("build"); renderSession(currentSession); schedulePoll(50);
+    return true;
   } catch(error) {
     id("taskError").hidden=false;id("taskError").textContent=error.message+" Your prompt is kept. Refresh the workspace to check for a running task before retrying.";
     // A lost response must not cause an automatic second model request.
     await refreshState().catch(()=>{});
-    if(busy()){id("taskError").textContent="The task is running. Reconnected to its progress.";if(!resumeOnly&&!explicitGoal){id("goal").value="";clearDraft();}changeView("build");schedulePoll(50);}
+    if(busy()){
+      id("taskError").textContent="The task is running. Reconnected to its progress.";
+      if(freshTask){currentSession=null;editingSentMessage=null;lastMessageKey="";}
+      if(!resumeOnly&&!explicitGoal){id("goal").value="";clearDraft();}
+      changeView("build");renderSession(currentSession);schedulePoll(50);
+      return true;
+    }
+    return false;
   } finally { startingRun=false;renderControls(); }
 }
 async function startDemo() { if(startingRun||busy())return; id("demoButton").disabled=true; try { const result=await api("/demo",{}); currentRun=result.run; projectId=result.project.id; runEvents=[]; currentSession=null; await refreshState(); renderSession(null); changeView("monitor"); schedulePoll(50); } finally { id("demoButton").disabled=false; } }

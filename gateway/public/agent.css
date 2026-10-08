@@ -163,3 +163,17 @@
  .image-thumb{height:200px}
  .media-dialog{padding:16px}
 }
+
+/* Each sent user message can be revised without changing saved conversation history. */
+.sent-message-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
+.sent-message-edit-button{font-size:11px;padding:3px 7px;color:var(--muted);border-radius:6px}
+.sent-message-edit-button:hover:not(:disabled){background:var(--surface);color:var(--text)}
+.sent-message-edit-button:disabled{opacity:.45;cursor:not-allowed}
+.sent-message-edit-form{display:grid;gap:10px;margin-top:5px;max-width:780px}
+.sent-message-editor{width:100%;min-height:104px;resize:vertical;padding:13px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--text);font:inherit;font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.sent-message-editor:focus-visible{border-color:var(--accent)}
+.sent-message-edit-note{margin:0;color:var(--muted);font-size:11px;line-height:1.6}
+.sent-message-edit-actions{display:flex;justify-content:flex-end;gap:9px;align-items:center}
+.sent-message-edit-actions .button{padding:9px 13px}
+.sent-message-edit-form .inline-result{margin:0}
+@media(max-width:760px){.message-author{flex-wrap:wrap;row-gap:7px}.sent-message-actions{margin-left:0}.sent-message-edit-form{width:100%}.sent-message-edit-actions .button{min-width:88px}}
