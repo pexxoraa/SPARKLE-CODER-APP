@@ -42,6 +42,22 @@ class EnvironmentTests(unittest.TestCase):
             "lockfileVersion": 3, "requires": True,
             "packages": {"": {"name": "m4-test", "version": "1.0.0"}}}))
 
+    def test_extended_go_rust_terraform_static_adapters_are_finite_checks(self):
+        from sparkle_coder.engineering_adapters import discover_adapters
+        examples = [
+            ("go.mod", "Implement a REST API", "go vet ./..."),
+            ("Cargo.toml", "Rust systems programming", "cargo fmt --all -- --check"),
+            ("main.tf", "Terraform DevOps infrastructure", "terraform fmt -check -recursive"),
+        ]
+        for manifest, goal, command in examples:
+            with self.subTest(manifest=manifest), tempfile.TemporaryDirectory() as directory:
+                project = Workspace(Path(directory))
+                (project.root / manifest).write_text("fixture")
+                found = discover_adapters(project, goal, which=lambda tool: "/bin/fake")
+                self.assertIn(command, [a["command"] for a in found["adapters"]])
+                self.assertFalse(any(a["command"].startswith("terraform apply")
+                                     for a in found["adapters"]))
+
     def test_read_only_inspection_never_runs_project_commands(self):
         self.npm_project()
         with patch("subprocess.Popen", side_effect=AssertionError("unwanted execution")):
