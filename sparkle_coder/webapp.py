@@ -729,8 +729,11 @@ class AppService:
                                        emit=job.emit, should_stop=job.stop.is_set, observe=job.record,
                                        checkpoint=job.checkpoint,
                                        approve_edit=job.approve_edit if review_edits else None).run()
-                        with job.lock:
-                            job.finish(status, session.state.get("summary", ""))
+                    # Publish completion only after releasing the project lock.
+                    # Otherwise an export that follows a "checked" status can
+                    # intermittently fail with HTTP 400 on Windows.
+                    with job.lock:
+                        job.finish(status, session.state.get("summary", ""))
                 except Exception as exc:
                     with job.lock:
                         job.error = clean_terminal(Redactor((config.api_key,)).text(str(exc)))
