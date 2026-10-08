@@ -105,7 +105,44 @@ class TargetIntegrationTests(unittest.TestCase):
             {"id": "$(echo compromised)", "name": "hijack",
              "targetPlatform": "android-arm64", "isSupported": True}])
         self.assertEqual(parse_inventory("flutter", dangerous), [])
-        self.assertEqual(parse_inventory("ios", "{}") if False else [], [])
+
+    def test_platformio_serial_ports_never_count_as_verified_hardware(self):
+        self.write("platformio.ini", "[env:esp32]\nplatform = espressif32")
+        payload = json.dumps([
+            {"port": "/dev/ttyUSB0", "description": "USB serial bridge"},
+            {"port": "COM5", "description": "Windows serial port"},
+            {"port": "; rm -rf /", "description": "Injected port"},
+        ])
+        parsed = parse_inventory("platformio", payload)
+        self.assertEqual(len(parsed), 2)
+        self.assertTrue(all(not item["ready"] for item in parsed))
+        agent = self.agent(goal="Build ESP32 firmware")
+        with patch("sparkle_coder.engineering_targets.shutil.which", return_value="/bin/pio"), \
+             patch.object(agent.tools.runner, "run", return_value={
+                 "ok": True, "exit_code": 0, "output": payload}):
+            listing = agent.tools.inspect_target_integrations()
+            self.assertEqual(listing["probes"][0]["kind"], "platformio")
+            result = agent.tools.execute("probe_target_devices", {"probe_id": listing["probes"][0]["id"]})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["ready_count"], 0)
+        self.assertFalse(result["application_tested"])
+        after = agent.tools.inspect_target_integrations()
+        self.assertEqual(after["probes"][0]["inventory_status"], "ports_detected_unverified")
+        self.assertEqual(after["integrations"], [])
+        self.assertTrue(all(not target["ready"] for target in after["targets"]))
+
+    def test_native_godot_gut_adapter_requires_plugin_and_project_tests(self):
+        from sparkle_coder.engineering_adapters import discover_adapters
+        self.write("games/puzzler/project.godot", "[application]\n")
+        self.write("games/puzzler/addons/gut/gut_cmdln.gd", "extends SceneTree")
+        found = discover_adapters(self.workspace, "Build Godot game", which=lambda _: "/bin/godot")
+        self.assertFalse(any("gut_cmdln.gd" in a["command"] for a in found["adapters"]))
+        self.write("games/puzzler/test/test_rules.gd", "extends GutTest\n")
+        ready = discover_adapters(self.workspace, "Build Godot game", which=lambda _: "/bin/godot")
+        match = next(a for a in ready["adapters"] if "gut_cmdln.gd" in a["command"])
+        self.assertEqual(match["cwd"], "games/puzzler")
+        self.assertEqual(match["category"], "test")
+        self.assertFalse(match["availability"] == "missing_on_path")
 
     def test_read_only_inventory_does_not_execute_commands(self):
         self.flutter_project()
