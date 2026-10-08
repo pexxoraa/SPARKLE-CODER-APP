@@ -11,6 +11,7 @@ import json
 from pathlib import PurePosixPath
 import re
 import shutil
+import time
 
 from .python_runtime import shell_command
 
@@ -25,6 +26,7 @@ INVENTORY_COMMANDS = {
 TOOLS = {"flutter": "flutter", "android": "adb", "ios": "xcrun", "platformio": "pio"}
 DOMAIN = "mobile_apps"
 VERSION = 1
+MAX_TARGET_INVENTORY_AGE_SECONDS = 300
 
 
 def _opaque(prefix, *args):
@@ -175,7 +177,9 @@ def discover_targets(workspace, execution="local", *, docker_image="", files=Non
             fresh = (previous is not None and previous.get("fingerprint") == fingerprint and
                      previous.get("environment_revision", 0) == revision and
                      previous.get("execution") == execution and
-                     previous.get("docker_image") == docker_image)
+                     previous.get("docker_image") == docker_image and
+                     type(previous.get("observed_at")) in (int, float) and
+                     0 <= time.time() - previous["observed_at"] <= MAX_TARGET_INVENTORY_AGE_SECONDS)
             entry = {"id": identity, "kind": kind, "cwd": root, "command": cmd,
                      "description": description, "availability": availability,
                      "inventory_status": (
@@ -209,9 +213,10 @@ def discover_targets(workspace, execution="local", *, docker_image="", files=Non
                                  "description": "Run real Flutter integration_test suite on one selected connected mobile target",
                                  "requires_device": True, "requires_user_approval": True,
                                  "build_and_app_test": True})
-        if "android" in kinds and any(path.startswith(prefix + "app/src/androidTest/")
-                                       or path.startswith(prefix + "android/app/src/androidTest/")
-                                       for path in files):
+        if "android" in kinds and any(
+                (path.startswith(prefix + "app/src/androidTest/") or
+                 path.startswith(prefix + "android/app/src/androidTest/")) and
+                path.endswith((".java", ".kt")) for path in files):
             integrations.append({"id": _opaque("integration-", fingerprint, execution, docker_image,
                                                root, "android_connected"),
                                  "kind": "android_connected", "cwd": root,
@@ -254,6 +259,7 @@ def inventory_observation(probe, run, fingerprint, revision, execution, image):
         item["token"] = _opaque("device-", probe["id"], item["device_id"])
         public.append(item)
     return {"id": probe["id"], "fingerprint": fingerprint,
+            "observed_at": time.time(),
             "environment_revision": revision, "execution": execution,
             "docker_image": image, "command_ok": bool(run.get("ok")),
             "denied": bool(run.get("denied")), "parse_error": parse_error,
@@ -298,8 +304,21 @@ def resolve_integration(workspace, execution, docker_image, state, integration_i
         # Gradle connectedAndroidTest would execute on ALL connected devices,
         # including newly attached ones. Require exactly one ready device and
         # request explicit approval again for the actual test invocation.
-        if sum(1 for t in listing["targets"] if t["ready"] and t["platform"] == "android"
-               and t["cwd"] == option["cwd"]) != 1:
+        # The same physical target may be listed by Flutter and ADB. Count
+        # actual validated device identities rather than duplicate probe tokens.
+        connected_ids = set()
+        for seen in listing["targets"]:
+            if not seen["ready"] or seen["platform"] != "android" or seen["cwd"] != option["cwd"]:
+                continue
+            source = next((row for row in reversed(records[-20:])
+                           if isinstance(row, dict) and row.get("id") == seen["probe_id"]), None)
+            if source is None:
+                continue
+            device_entry = next((row for row in source.get("devices", [])
+                                 if row.get("token") == seen["id"]), None)
+            if device_entry and _valid_id(device_entry.get("device_id")):
+                connected_ids.add(device_entry["device_id"])
+        if len(connected_ids) != 1 or identity not in connected_ids:
             raise ValueError("Android instrumentation requires exactly one ready connected device.")
         command = ("./gradlew connectedAndroidTest" if
                    (workspace.root / option["cwd"] / "gradlew").is_file() else
