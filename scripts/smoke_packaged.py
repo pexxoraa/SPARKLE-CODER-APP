@@ -12,11 +12,18 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import tomllib
 import time
 import urllib.error
 import urllib.request
 from urllib.parse import parse_qs, urlsplit
 import zipfile
+
+
+def expected_app_version():
+    """Read release metadata instead of retaining a stale version constant."""
+    package = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    return tomllib.loads(package.read_text("utf-8"))["project"]["version"]
 
 
 def smoke(executable, bundled=False):
@@ -72,7 +79,11 @@ def smoke(executable, bundled=False):
             record = json.loads(instance.read_text("utf-8"))
             origin, local_token = record["origin"], record["token"]
             state, _ = request("/api/state")
-            assert state["version"] == "0.7.0", state["version"]
+            # Compare the frozen binary with this checkout's package metadata
+            # instead of freezing a historical version into the smoke test.
+            expected_version = expected_app_version()
+            assert state["version"] == expected_version, (
+                f"Packaged version {state['version']!r}; expected {expected_version!r}")
             assert (root / "PROJECTS").is_dir(), "Projects must live beside the executable"
             html, _ = request("/")
             assert b"app.js" in html
