@@ -45,7 +45,7 @@ def discover_checks(workspace, execution="local", *, files=None):
         directory = str(PurePosixPath(name).parent)
         has_parent = any(parent == "." or directory.startswith(parent + "/")
                          for parent in cmake_roots)
-        owns_project = bool(re.search(r"(?im)^\\s*project\\s*\\(", read(name)))
+        owns_project = bool(re.search(r"(?im)^\s*project\s*\(", read(name)))
         if not has_parent or owns_project:
             cmake_roots.add(directory)
             roots.add(directory)
@@ -72,7 +72,7 @@ def discover_checks(workspace, execution="local", *, files=None):
                              and name.startswith(prefix))
             # Only suggest CTest when testing is declared. --no-tests=error
             # prevents an empty test suite from being reported as successful.
-            if any(re.search(r"(?im)^\\s*(?:enable_testing|add_test)\\s*\\(|^\\s*include\\s*\\(\\s*CTest\\s*\\)",
+            if any(re.search(r"(?im)^\s*(?:enable_testing|add_test)\s*\(|^\s*include\s*\(\s*CTest\s*\)",
                              read(name)) for name in cmake_sources):
                 add("ctest --test-dir " + build_dir + " --output-on-failure --no-tests=error",
                     root, source + " CTest")
