@@ -154,7 +154,7 @@ jobs:
         with:
           files: release/*
           body: |
-            SPARKLE CODER 0.7.0. Check EDITION.txt before distribution.
+            SPARKLE CODER ${{ github.ref_name }}. Check EDITION.txt before distribution.
             Tester builds connect to the configured shared server; members do not enter API keys.
             Windows: run SPARKLE-CODER-Windows-Setup.exe. Python is bundled.
             Builds are unsigned. Operating-system security warnings may appear.

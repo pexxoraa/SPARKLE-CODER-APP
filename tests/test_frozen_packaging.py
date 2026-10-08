@@ -22,6 +22,13 @@ from sparkle_coder.python_runtime import python_argv, python_command
 from sparkle_coder.workspace import Workspace
 
 
+class PackagingVersionTests(unittest.TestCase):
+    def test_packaged_smoke_expected_version_tracks_release_metadata(self):
+        from scripts.smoke_packaged import expected_app_version
+        from sparkle_coder import __version__
+        self.assertEqual(expected_app_version(), __version__)
+
+
 class ApplicationRootTests(unittest.TestCase):
     def test_normal_run_uses_the_source_tree(self):
         with patch.object(sys, "frozen", False, create=True):
