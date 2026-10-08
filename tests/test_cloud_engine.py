@@ -13,8 +13,8 @@ from unittest.mock import patch
 import zipfile
 
 from sparkle_coder.demo import calls
-from sparkle_coder.hosted import Tenants, HostedServer
-from sparkle_coder.monitor import ACTIVE
+from sparkle_coder.hosted import Tenants, HostedServer, EngineQueue
+from sparkle_coder.monitor import ACTIVE, Run
 from sparkle_coder.provider import Completion
 from sparkle_coder.execution import CommandRunner
 
@@ -154,6 +154,64 @@ class CloudEngineTests(unittest.TestCase):
         self.assertEqual(stored.state['goal'],goal)
         self.assertEqual(stored.state['messages'][0]['content'],goal)
         self.assertEqual(self.request('/api/runs',{'project_id':pid,'goal':'x'*48001})[0],400)
+
+    def test_global_cloud_capacity_queues_second_account_instead_of_busy_error(self):
+        entered=threading.Event()
+        release=threading.Event()
+        starts=[]
+        class HoldingProvider:
+            def __init__(self, config):pass
+            def complete(self, messages, schemas):
+                starts.append(1)
+                if len(starts)==1:
+                    entered.set()
+                    if not release.wait(4):raise AssertionError('Test did not release first model call')
+                return calls(('request_input',{'question':'Next step?', 'next_step':'Continue.'}))
+        self.manager.provider_factory=HoldingProvider
+        self.manager.queue=EngineQueue(1)
+        one=self.project(ALICE).split('/')[-1]
+        two=self.project(BOB).split('/')[-1]
+        first=self.api('/api/runs',{'project_id':one,'goal':'First long project'})
+        self.assertTrue(entered.wait(2))
+        second=self.api('/api/runs',{'project_id':two,'goal':'Second project to queue'},user=BOB)
+        self.assertEqual(second['status'],'queued')
+        queued=self.api('/api/runs/'+second['id'],user=BOB)
+        self.assertIn('queue',queued['current_action'].lower())
+        self.assertEqual(len(starts),1,'No model call must occur while queued')
+        release.set()
+        self.wait_run(first['id'],lambda r:r['status'] not in ACTIVE)
+        deadline=time.monotonic()+5
+        while time.monotonic()<deadline:
+            second_status=self.api('/api/runs/'+second['id'],user=BOB)['status']
+            if second_status not in ACTIVE:break
+            time.sleep(0.015)
+        self.assertNotIn(second_status,ACTIVE)
+        self.assertEqual(len(starts),2)
+        self.assertEqual(len(self.manager.queue.running),0)
+
+    def test_queued_run_cancellation_never_starts_inference(self):
+        gate=EngineQueue(1,waiting_limit=2)
+        first=Run('one','nemotron')
+        second=Run('two','nemotron')
+        third=Run('three','nemotron')
+        gate.enqueue(first)
+        self.assertTrue(gate.wait(first))
+        gate.enqueue(second)
+        gate.enqueue(third)
+        with self.assertRaisesRegex(ValueError,'queue is full'):
+            gate.enqueue(Run('four','nemotron'))
+        finished=[]
+        waiter=threading.Thread(target=lambda:finished.append(gate.wait(second)))
+        waiter.start()
+        second.cancel()
+        waiter.join(2)
+        self.assertFalse(waiter.is_alive())
+        self.assertEqual(finished,[False])
+        gate.release(first)
+        self.assertTrue(gate.wait(third))
+        gate.release(third)
+        self.assertEqual(len(gate.running),0)
+        self.assertEqual(len(gate.waiting),0)
 
     def test_multifile_agent_edits_auto_run_history_download_report_and_undo(self):
         p=self.project();pid=p.split('/')[-1]

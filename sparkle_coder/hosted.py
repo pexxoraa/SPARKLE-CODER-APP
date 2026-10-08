@@ -6,6 +6,7 @@ in Docker, without network access or host credentials.
 """
 import argparse
 import base64
+from collections import deque
 from http.server import ThreadingHTTPServer
 import json
 import os
@@ -28,12 +29,69 @@ class GatewayAccount:
         self.cached = {**receipt, 'enabled': True, 'enrolled': True}
 
 
+class EngineQueue:
+    """Fair, bounded, credit-free admission to shared coding execution slots.
+
+    A queued run has not started model inference. Cancelling it releases its
+    reservation immediately. Only admitted runs consume the server's capacity.
+    """
+
+    def __init__(self, capacity, waiting_limit=25):
+        self.capacity = capacity
+        self.waiting_limit = waiting_limit
+        self.condition = threading.Condition()
+        self.waiting = deque()
+        self.running = set()
+
+    def enqueue(self, job):
+        with self.condition:
+            if len(self.waiting) >= self.waiting_limit:
+                raise ValueError('The coding queue is full. Your prompt was not submitted and no model call started. Try later.')
+            self.waiting.append(job)
+            with job.lock:
+                job.current_action = 'Waiting for a coding slot (queue position '+str(len(self.waiting))+') · no credits used'
+            self.condition.notify_all()
+
+    def wait(self, job):
+        with self.condition:
+            while True:
+                if job.stop.is_set():
+                    self.discard(job)
+                    return False
+                if self.waiting and self.waiting[0] is job and len(self.running) < self.capacity:
+                    self.waiting.popleft()
+                    self.running.add(job.id)
+                    with job.lock:
+                        job.current_action = 'Coding slot ready · starting saved prompt'
+                    self.condition.notify_all()
+                    return True
+                if job in self.waiting:
+                    position = self.waiting.index(job) + 1
+                    with job.lock:
+                        job.current_action = f'Queued for coding (position {position}) · no model calls or credits yet'
+                self.condition.wait(0.25)
+
+    def discard(self, job):
+        with self.condition:
+            try:
+                self.waiting.remove(job)
+            except ValueError:
+                pass
+            self.condition.notify_all()
+
+    def release(self, job):
+        with self.condition:
+            self.running.discard(job.id)
+            self.condition.notify_all()
+
+
 class HostedAppService(AppService):
     def __init__(self, directory, gateway_url, secret, receipt, manager):
         self.tenant_root = Path(directory).resolve()
         if resolve_storage(self.tenant_root) != self.tenant_root:
             raise ValueError('Hosted account storage cannot be relocated.')
         self.gateway_url, self.manager = gateway_url, manager
+        self.run_admission = manager.queue
         fresh = not (self.tenant_root/'settings.json').exists()
         self._starting = True
         super().__init__(self.tenant_root, provider_factory=manager.provider_factory)
@@ -109,10 +167,9 @@ class HostedAppService(AppService):
             raise ValueError('The scripted desktop demo is not a hosted task.')
         kwargs['review_edits'] = False
         with self.manager.lock:
-            # Count real runs, not tenants. A member may have two independent
-            # projects running; they must still respect the owner's global cap.
-            if sum(len(app.active_jobs()) for app in self.manager.apps.values()) >= self.manager.max_running:
-                raise ValueError('The coding server is busy. Retry shortly; no model call was started.')
+            # Keep already-running work alive; queue additional validated tasks
+            # instead of rejecting users during another member's long project.
+            # Each tenant retains the existing two-project concurrent limit.
             return super().start(*args,**kwargs)
 
     def file_action(self, project_id, operation, body=None):
@@ -137,6 +194,7 @@ class Tenants:
         self.root=Path(root).resolve();self.root.mkdir(parents=True,exist_ok=True,mode=0o700)
         self.gateway_url=website_origin(gateway_url)
         self.relay_secret,self.image,self.max_running=relay_secret,image,max_running
+        self.queue=EngineQueue(max_running)
         self.provider_factory=provider_factory
         if type(max_running) is not int or not 1<=max_running<=3:
             raise ValueError('Use 1–3 simultaneous runs.')

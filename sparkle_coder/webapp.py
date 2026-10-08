@@ -682,10 +682,24 @@ class AppService:
             self.jobs[job.id] = job
             self.data["selected_project"] = project_id
             self.save()
+            admission = getattr(self, "run_admission", None)
+            if admission is not None:
+                try:
+                    admission.enqueue(job)
+                except Exception:
+                    self.jobs.pop(job.id, None)
+                    raise
 
             def work():
                 session = None
+                admitted = False
                 try:
+                    if admission is not None:
+                        admitted = admission.wait(job)
+                        if not admitted:
+                            with job.lock:
+                                job.finish("interrupted", "Stopped while queued. No model call was started.")
+                            return
                     with workspace.lock():
                         if session_id:
                             session = Session.load(workspace, session_id)
@@ -746,9 +760,21 @@ class AppService:
                                 job.error += " Recovery status could not be saved; check the device folder permissions and free space."
                         job.emit(job.error)
                         job.finish("needs_input", job.error)
+                finally:
+                    if admission is not None:
+                        if admitted:
+                            admission.release(job)
+                        else:
+                            admission.discard(job)
 
             job.thread = threading.Thread(target=work, name="nemotron-task", daemon=True)
-            job.thread.start()
+            try:
+                job.thread.start()
+            except Exception:
+                if admission is not None:
+                    admission.discard(job)
+                self.jobs.pop(job.id, None)
+                raise
             for old_id in list(self.jobs):
                 if len(self.jobs) <= 30:
                     break

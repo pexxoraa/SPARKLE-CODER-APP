@@ -155,14 +155,21 @@ class ReliabilityTests(unittest.TestCase):
                 a, b = [app.add_project(label) for label in ("A", "B")]
                 first = app.start(a["id"], "Inspect A", task_mode="ask")
                 self.assertTrue(entered.wait(3))
-                with self.assertRaisesRegex(ValueError, "server is busy"):
-                    app.start(b["id"], "Inspect B", task_mode="ask")
-                manager.max_running = 2
                 second = app.start(b["id"], "Inspect B", task_mode="ask")
                 self.assertNotEqual(first["id"], second["id"])
-                manager.max_running = 2
-                with self.assertRaisesRegex(ValueError, "server is busy"):
+                self.assertEqual(second["status"], "queued")
+                self.assertEqual(len(manager.queue.running), 1)
+                self.assertEqual(len(manager.queue.waiting), 1)
+                with self.assertRaisesRegex(ValueError, "Two projects are already running"):
                     app.start(app.add_project("C")["id"], "Inspect C", task_mode="ask")
+                release.set()
+                first_job = app.job(first["id"])
+                second_job = app.job(second["id"])
+                first_job.thread.join(5)
+                second_job.thread.join(5)
+                self.assertNotIn(first_job.status, ("running", "queued"))
+                self.assertNotIn(second_job.status, ("running", "queued"))
+                self.assertFalse(manager.queue.running)
             finally:
                 release.set()
                 for service in manager.apps.values():
