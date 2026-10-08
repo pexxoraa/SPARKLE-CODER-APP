@@ -8,7 +8,7 @@ from pathlib import PurePosixPath
 import re
 import shutil
 
-from .checks import discover_checks, package_manager
+from .checks import discover_checks
 
 
 # Every domain has the same structure and acceptance standard. No web-first fallback.
@@ -85,7 +85,7 @@ def detect_domains(workspace, goal="", *, files=None):
     prompt = " ".join(str(goal or "").split())[:12000]
     detected = []
     for identity, title, expression, patterns, skills, acceptance in DOMAINS:
-        requested = bool(re.search(r"\b(?:" + expression + r")\b", prompt, re.I))
+        requested = bool(re.search(r"(?<!\w)(?:" + expression + r")(?!\w)", prompt, re.I))
         matched = [name for name in names if any(
             fnmatch(name, pattern) or fnmatch(PurePosixPath(name).name, pattern)
             for pattern in patterns)]
