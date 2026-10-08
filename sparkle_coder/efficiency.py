@@ -14,6 +14,7 @@ SIMPLE_TOOL_NAMES = frozenset({
     "inspect_engineering_environment", "probe_engineering_environment",
     "prepare_engineering_dependencies",
     "inspect_target_integrations", "probe_target_devices", "run_target_integration",
+    "inspect_change_impact", "inspect_repair_focus",
 })
 WEB_TOOL_NAMES = frozenset({"web_search", "read_web_page", "search_assets"})
 _WEB_NEEDED = re.compile(
@@ -93,6 +94,33 @@ def compact_group(group, *, recent=False):
         return [{"role": "assistant", "content":
                  "Earlier completed file changes (metadata only): " + "; ".join(edits[:12])
                  + ". Source bodies are intentionally absent from model context; use read_file for current text."}]
+    # Old inspection output can be tens of kilobytes and is often stale after
+    # subsequent edits. Preserve arguments and the full saved session, but use
+    # a compact audit trail rather than resending the same source every call.
+    if not recent and group and group[0].get('role') == 'assistant':
+        inspected = []
+        inspected_tools = {'read_file', 'search_files', 'list_files', 'inspect_setup',
+                           'discover_checks', 'inspect_repair_focus',
+                           'inspect_change_impact', 'inspect_engineering',
+                           'inspect_engineering_environment', 'inspect_target_integrations'}
+        calls = group[0].get('tool_calls', [])
+        if calls and all(call.get('id') in completed and
+                         call.get('function', {}).get('name') in inspected_tools
+                         for call in calls):
+            for call in calls[:12]:
+                fn = call.get('function', {})
+                try:
+                    args = json.loads(fn.get('arguments', '{}'))
+                except (TypeError, ValueError):
+                    args = {}
+                path = args.get('path') or args.get('pattern') or ''
+                inspected.append(fn.get('name', 'inspect') +
+                                 ((' ' + str(path)[:100]) if path else ''))
+            return [{"role": "assistant", "content":
+                     "Earlier completed read-only inspection (metadata only): " +
+                     "; ".join(inspected) +
+                     ". Results and source text are saved in history; reread current files as needed."}]
+
     result = copy.deepcopy(group)
     for message in result:
         if message.get('role') == 'tool':

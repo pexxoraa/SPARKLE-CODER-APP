@@ -18,6 +18,8 @@ from .tools import READ_ONLY_TOOLS, SCHEMAS, ToolSet
 from .skills import SKILL_VERSION, record_skill_outcome, render_skills, resolve_project_skills, select_skills
 from .engineering import detect_domains
 from .engineering_contracts import evaluate_contract, execution_plan
+from .change_intelligence import inspect_change_impact
+from .repair_focus import repair_focus
 from .workspace import atomic_write, clean_terminal
 
 
@@ -195,7 +197,9 @@ class Agent:
                 if name not in {"read_file", "search_files", "list_files", "web_search",
                                 "read_web_page", "discover_checks", "inspect_setup",
                                 "inspect_static_site", "inspect_visual_site", "search_assets",
-                                "verify", "run_command"}:
+                                "verify", "run_command", "inspect_change_impact",
+                                "inspect_repair_focus", "discover_engineering_checks",
+                                "inspect_engineering_environment", "inspect_target_integrations"}:
                     continue
                 raw = message.get("content", "")
                 try:
@@ -264,7 +268,12 @@ class Agent:
         self.session.state["task_profile"] = dict(self.task_profile)
         for field, value in self.standard_runtime.items():
             setattr(self.config, field, value)
-        self.schemas = list(SCHEMAS)
+        target_applicable = any(d["id"] in ("mobile_apps", "embedded_iot")
+                                for d in self.engineering_domains)
+        target_tools = frozenset(("inspect_target_integrations", "probe_target_devices",
+                                  "run_target_integration"))
+        self.schemas = [schema for schema in SCHEMAS
+                        if target_applicable or schema["function"]["name"] not in target_tools]
         self.session.save()
         self.observe("budget_upgrade", {"text": "Fast pass complete. Continuing automatically with Standard effort.",
                                         "reason": reason})
@@ -274,6 +283,11 @@ class Agent:
     def context(self) -> list[dict]:
         state = self.session.state
         system = SYSTEM + "\nExecution environment: " + self.config.execution
+        if isinstance(state.get("requested_change"), dict) and state.get("task_mode") != "ask":
+            system += ("\nEXISTING PROJECT REPAIR: For fix/update work, inspect_change_impact; "
+                       "modify relevant pre-existing implementation files rather than "
+                       "satisfying changes by adding unrelated files. After failures, "
+                       "inspect_repair_focus, inspect current source and run focused tests. ")
         if self.engineering_domains and state.get("task_mode") != "ask":
             system += ("\nENGINEERING ACCEPTANCE: Use plan_engineering before substantive edits. "
                        "First call inspect_engineering_environment to distinguish discovered tools "
@@ -415,6 +429,19 @@ class Agent:
                 "file_tool_changes": changed_paths[-50:],
                 "project_memory": project_memory,
             }
+        # Bounded deterministic facts replace repeated vague self-analysis.
+        if isinstance(state.get("requested_change"), dict):
+            impact = inspect_change_impact(self.workspace, state["requested_change"])
+            checkpoint["existing_project_change"] = {
+                "status": impact["status"], "enforced": impact["enforced"],
+                "changed_existing_files": impact["existing_modified"][:8],
+                "tracked_existing_files": impact.get("tracked_existing", 0),
+            }
+        if any(not record.get("ok") for record in active_checks(state)[-8:]):
+            triage = repair_focus(self.workspace, state)
+            checkpoint["repair_focus"] = [
+                {k: row.get(k) for k in ("check_id", "category", "source_files", "next_action")}
+                for row in triage["failures"][:3]]
         checkpoint["engineering_contracts"] = evaluate_contract(
             self.workspace, state, self.engineering_domains,
             task_profile=self.engineering_profile)
@@ -660,6 +687,16 @@ class Agent:
                            "has changed. Inspect the relevant original file, implement the requested "
                            "change, and verify the updated behavior. Do not report success without "
                            "an actual edit or explain a concrete blocker.")
+        if isinstance(requested_change, dict):
+            impact = inspect_change_impact(self.workspace, requested_change)
+            if impact["enforced"] and not impact["existing_modified"]:
+                return False, ("The requested fix/update has not modified any pre-existing "
+                               "implementation files. Creating unrelated new files is not "
+                               "evidence that the original behavior changed. Use "
+                               "inspect_change_impact and read_file to inspect the existing "
+                               "source, make a focused change, and rerun checks. "
+                               "If the requirement genuinely needs only a new standalone file, "
+                               "explain that scope explicitly instead of claiming an existing fix.")
         if current and latest and all(c.get("ok") and c.get("fingerprint") == current
                                      and c.get("environment_revision", 0) == self.session.state.get("environment_revision", 0)
                                      for c in latest.values()):

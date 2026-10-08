@@ -12,6 +12,8 @@ from .engineering_contracts import execution_plan, link_evidence
 from .engineering_adapters import discover_adapters, resolve_adapter
 from .engineering_environments import inspect_environment, resolve_environment_action
 from .engineering_targets import discover_targets, get_probe, inventory_observation, resolve_integration
+from .change_intelligence import inspect_change_impact
+from .repair_focus import repair_focus
 from .explanations import check_title, explain_failure
 from .execution import CommandRunner
 from .internet import (download_public_asset as fetch_public_asset, read_web_page as fetch_web_page,
@@ -37,6 +39,8 @@ SCHEMAS = [
     schema("inspect_setup", "Inspect project manifests and locate development tools without executing code. "
            "Use to investigate missing dependencies; this is not a verification pass.", {}),
     schema("discover_checks", "Find existing test, typecheck, lint and build commands. Does not execute them.", {}),
+    schema("inspect_change_impact", "Read-only: compare explicit fix/update requests against pre-existing source files; report actual changed paths instead of treating a new unrelated file as proof of repair.", {}),
+    schema("inspect_repair_focus", "Read-only: categorize fresh failing checks and locate relevant existing source files to guide the smallest useful repair. No code is executed.", {}),
     schema("inspect_engineering", "Identify relevant engineering domains, toolchains and candidate verification contracts from project evidence without executing code. Tool presence is NOT runtime proof.", {}),
     schema("plan_engineering", "Read-only phased capability plan, missing toolchains and required evidence contracts; does not execute checks.", {}),
     schema("inspect_engineering_environment", "Read-only toolchain version/target probe and locked dependency setup options derived from project manifests. Nothing is installed, downloaded, executed or deployed.", {}),
@@ -196,6 +200,12 @@ class ToolSet:
 
     def discover_checks(self):
         return discover_checks(self.workspace, self.runner.config.execution)
+
+    def inspect_change_impact(self):
+        return inspect_change_impact(self.workspace, self.session.state.get("requested_change"))
+
+    def inspect_repair_focus(self):
+        return repair_focus(self.workspace, self.session.state)
 
     def inspect_setup(self):
         report = inspect_setup(self.workspace, self.runner.config)
@@ -671,5 +681,6 @@ class ToolSet:
 READ_ONLY_TOOLS = {"list_files", "read_file", "search_files", "web_search", "read_web_page",
                    "discover_checks", "inspect_setup", "inspect_engineering", "plan_engineering",
                    "discover_engineering_checks", "inspect_engineering_environment",
-                   "inspect_target_integrations", "inspect_static_site", "inspect_visual_site", "render_page",
+                   "inspect_target_integrations", "inspect_change_impact",
+                   "inspect_repair_focus", "inspect_static_site", "inspect_visual_site", "render_page",
                    "request_input", "update_plan"}
