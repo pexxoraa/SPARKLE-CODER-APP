@@ -47,11 +47,11 @@ RECIPES = {
         Recipe("package.json", "npm", "npm run test", "test", "Electron or Tauri UI tests", "test")),
     "game_development": (
         Recipe("project.godot", "godot", "godot --headless --editor --path . --quit", "smoke",
-               "Godot resource import and editor startup (not gameplay verification)")),
+               "Godot resource import and editor startup (not gameplay verification)"),),
     "ai_ml": (
-        Recipe("pyproject.toml", "python", "python -m pytest", "test", "ML project evaluation tests")),
+        Recipe("pyproject.toml", "python", "python -m pytest", "test", "ML project evaluation tests"),),
     "data_engineering": (
-        Recipe("dbt_project.yml", "dbt", "dbt parse", "static", "dbt project and model parsing")),
+        Recipe("dbt_project.yml", "dbt", "dbt parse", "static", "dbt project and model parsing"),),
     "database_engineering": (
         Recipe("prisma/schema.prisma", "prisma", "prisma validate", "static", "Prisma database schema validation"),
         Recipe("alembic.ini", "python", "python -m pytest", "test", "Database migration and behavior tests")),
@@ -63,7 +63,7 @@ RECIPES = {
         Recipe("Cargo.toml", "cargo", "cargo test", "test", "Rust target and unit tests"),
         Recipe("CMakeLists.txt", "cmake", "cmake -S . -B build", "build", "CMake configuration and compiler detection")),
     "embedded_iot": (
-        Recipe("platformio.ini", "pio", "pio run", "build", "PlatformIO target firmware build")),
+        Recipe("platformio.ini", "pio", "pio run", "build", "PlatformIO target firmware build"),),
     "cybersecurity": (
         Recipe(".semgrep.yml", "semgrep", "semgrep scan --metrics=off --config .semgrep.yml .", "static",
                "Local Semgrep rule scan"),
