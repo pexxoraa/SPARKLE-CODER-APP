@@ -8,6 +8,7 @@ import shutil
 from urllib.parse import urlsplit
 
 from .checks import discover_checks, package_manager
+from .engineering import detect_domains, detect_toolchains
 from .config import HOSTS_REQUIRING_A_KEY
 from .python_runtime import python_argv, shell_command
 from .state import now
@@ -103,9 +104,12 @@ def inspect_setup(workspace, config, connection_tested=False):
     discovered = discover_checks(workspace, config.execution, files=files)
     entry_names = {"README.md", "START_HERE.md", "index.html", "main.py", "app.py", "manage.py", "main.go", "main.rs"}
     entry_points = [name for name in files[:10000] if PurePosixPath(name).name in entry_names][:16]
+    engineering = {"domains": detect_domains(workspace, files=files),
+                   "toolchains": detect_toolchains(files, config.execution),
+                   "note": "Read-only detection; no target build or test has been run."}
     return {"at": now(), "execution": config.execution, "os": platform.system(), "items": items,
             "attention": sum(item["status"] == "attention" for item in items),
             "overview": {"file_count": len(names), "scan_truncated": len(files) > 10000 or len(manifests) > 80,
                          "languages": dict(languages.most_common(10)), "manifests": manifests[:80],
-                         "entry_points": entry_points}, "checks": discovered["checks"],
+                         "entry_points": entry_points}, "engineering": engineering, "checks": discovered["checks"],
             "note": "This scan reads filenames and settings and locates tools. It does not run, install, or verify software."}
