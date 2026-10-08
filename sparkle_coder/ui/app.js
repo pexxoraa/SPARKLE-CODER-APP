@@ -61,6 +61,8 @@ id("app").innerHTML = `
     <nav class="navigation" aria-label="Workspace navigation">
       <button data-view="build" class="nav-item active"><span data-icon="chat"></span>Build<span class="nav-dot"></span></button>
       <button data-view="files" class="nav-item"><span data-icon="folder"></span>Project files<span class="nav-count" id="fileCount">0</span></button>
+      <button id="previewButton" class="nav-item" type="button"><span data-icon="panel"></span>Website preview</button>
+      <button id="mediaButton" class="nav-item" type="button"><span data-icon="file"></span>Images & graphics</button>
       <button data-view="monitor" class="nav-item"><span data-icon="panel"></span>Run monitor<span class="nav-count" id="monitorLive">Live</span></button>
       <button id="briefButton" class="nav-item"><span data-icon="file"></span>Project brief</button>
       <button id="skillsButton" class="nav-item"><span data-icon="bolt"></span>Skills</button>
@@ -130,7 +132,7 @@ id("app").innerHTML = `
         <div id="filesView" class="page-view files-view" hidden>
           <div class="view-heading"><div><span class="eyebrow" id="fileLocation">ON YOUR DEVICE</span><h1>Project files</h1></div><button id="openProjectFolder" class="button secondary">Open folder ↗</button></div>
           <div id="filesState" class="transfer-status" role="status" hidden><strong id="filesStateTitle"></strong><p id="filesStateMessage"></p><button id="filesStateAction" class="button secondary">Refresh workspace</button></div>
-          <div class="file-actions"><button id="newFile" class="button secondary">New file</button><button id="importFiles" class="button primary">Import files</button><button id="importFolder" class="button secondary">Import folder</button><button id="downloadProject" class="button secondary">Download ZIP</button><button id="exportFolder" class="button secondary">Copy to folder</button><button id="refreshFiles" class="text-button">Refresh</button></div>
+          <div class="file-actions"><button id="newFile" class="button secondary">New file</button><button id="importFiles" class="button primary">Import files</button><button id="importFolder" class="button secondary">Import folder</button><button id="downloadProject" class="button secondary">Download ZIP</button><button id="exportFolder" class="button secondary">Copy to folder</button><button id="refreshFiles" class="text-button">Refresh</button><button id="previewFiles" class="text-button">Preview website</button><button id="mediaFiles" class="text-button">Find images</button></div>
           <input id="uploadFiles" type="file" multiple hidden><input id="uploadFolder" type="file" webkitdirectory multiple hidden>
           <div id="dropZone" class="drop-zone" tabindex="0">Drop files here, or paste copied files. Existing files are kept; duplicates get a new name.</div>
           <div id="transferStatus" class="transfer-status" hidden role="status"><span id="transferText"></span><button id="cancelImport" class="text-button" hidden>Cancel remaining</button><pre id="transferErrors" hidden></pre></div>
@@ -180,6 +182,23 @@ id("app").innerHTML = `
     <div id="upiPaymentBlock" class="upi-payment-block"><div id="upiQr" class="upi-qr" aria-label="UPI payment QR code"></div><span class="upi-caption">Scan to pay</span><div class="upi-id-row"><span>UPI ID</span><strong id="payUpiId">—</strong><button type="button" id="copyUpi" class="button secondary">Copy</button></div><p id="payeeName"></p><p>After paying, enter the transaction reference below. Credits appear after the admin checks and accepts your purchase.</p></div>
     <form id="paymentForm" novalidate><input id="paymentPack" type="hidden" value="1"><fieldset class="token-package-fieldset"><legend>Choose a token package</legend><div id="tokenPackageGrid" class="token-package-grid"><button type="button" class="token-package active" data-millions="1"><strong>Starter</strong><span>1M tokens</span><small>₹15</small></button><button type="button" class="token-package" data-millions="2"><strong>Builder</strong><span>2M tokens</span><small>₹30</small></button><button type="button" class="token-package" data-millions="5"><strong>Pro</strong><span>5M tokens</span><small>₹75</small></button><button type="button" class="token-package" data-millions="10"><strong>Power</strong><span>10M tokens</span><small>₹150</small></button><button type="button" class="token-package" data-millions="25"><strong>Studio</strong><span>25M tokens</span><small>₹375</small></button><button type="button" class="token-package" data-millions="50"><strong>Scale</strong><span>50M tokens</span><small>₹750</small></button><button type="button" class="token-package" data-millions="100"><strong>Mega</strong><span>100M tokens</span><small>₹1,500</small></button><button type="button" class="token-package custom" data-millions="custom"><strong>Custom</strong><span>N million tokens</span><small>You choose</small></button></div></fieldset><div id="customTokenRow" hidden><label for="customTokenMillions">Custom amount <span>Millions of tokens</span></label><input id="customTokenMillions" type="number" min="1" max="100" step="1" value="1" inputmode="numeric"><p class="settings-note">Enter any whole number from 1 to 100. The price is calculated automatically at ₹15 per million.</p></div><label for="paymentCoupon">Coupon code <span>Optional</span></label><div class="folder-input"><input id="paymentCoupon" maxlength="32" autocomplete="off" placeholder="Enter coupon"><button type="button" id="applyCoupon" class="button secondary">Apply</button></div><p id="couponStatus" class="settings-note"></p><div id="paymentReferenceRow"><label for="paymentReference">UPI transaction reference / UTR</label><input id="paymentReference" minlength="8" maxlength="40" autocomplete="off"></div><div class="dialog-actions"><button id="submitPayment" class="button primary">Submit purchase for review</button></div></form></section>
   <div id="accountPayments"></div><p class="settings-note">Input and output tokens both count. A temporary reservation is released when a request finishes. Your connection is remembered on this computer.</p><p id="accountSupport" class="settings-note"></p><div class="dialog-actions"><button id="reconnectAccount" class="text-button">Sign out / switch account</button><button id="refreshAccount" class="button secondary">Refresh account</button></div>
+</dialog>
+<dialog id="previewDialog" class="preview-dialog" aria-label="Static website preview">
+  <div class="dialog-header"><div><h2>Website preview</h2><p class="settings-note">Live static HTML & CSS snapshot · safely isolated from your account</p></div><button class="icon-button" data-close="previewDialog" aria-label="Close preview"><span data-icon="close"></span></button></div>
+  <div class="preview-actions"><label for="previewEntry">Page</label><select id="previewEntry" aria-label="HTML page"></select><button id="refreshPreview" class="button secondary" type="button">Refresh</button><button id="openPreviewTab" class="button secondary" type="button" disabled>Open in new tab ↗</button></div>
+  <p id="previewStatus" class="settings-note" role="status">Choose a project with an HTML page.</p>
+  <iframe id="sitePreviewFrame" title="Sandboxed static preview of your website" sandbox="" referrerpolicy="no-referrer"></iframe>
+  <details class="technical-details"><summary>Preview limitations and assets</summary><p id="previewWarnings" class="settings-note"></p></details>
+</dialog>
+<dialog id="mediaDialog" class="media-dialog" aria-label="Project images and graphics">
+  <div class="dialog-header"><div><h2>Images & graphics</h2><p class="settings-note">Choose reusable photos or create a simple original SVG illustration.</p></div><button class="icon-button" data-close="mediaDialog" aria-label="Close images"><span data-icon="close"></span></button></div>
+  <form id="imageSearchForm"><label for="imageQuery">Find a public image</label><div class="folder-input"><input id="imageQuery" maxlength="300" required placeholder="e.g. mountain landscape"><button id="imageSearchButton" class="button secondary" type="submit">Search Wikimedia</button></div></form>
+  <p id="imageSearchStatus" class="settings-note" role="status">Only your search words are sent to Wikimedia Commons. Check license and attribution before using an image.</p>
+  <div id="imageResults" class="image-results"></div>
+  <details class="advanced" id="makeGraphicDetails"><summary>Create original graphic <span>Abstract vector art, not AI photography</span></summary>
+    <form id="graphicForm"><label for="graphicTitle">Graphic name</label><input id="graphicTitle" required maxlength="80" placeholder="My background art"><label for="graphicStyle">Style</label><select id="graphicStyle"><option value="soft">Soft</option><option value="bold">Bold</option><option value="night">Night</option></select><div class="settings-row"><div><label for="graphicPrimary">Primary color</label><input id="graphicPrimary" type="color" value="#376f58"></div><div><label for="graphicSecondary">Secondary color</label><input id="graphicSecondary" type="color" value="#e6eedc"></div></div><div class="dialog-actions"><button id="createGraphic" class="button primary" type="submit">Create SVG graphic</button></div></form>
+  </details>
+  <p id="mediaResult" role="status" class="settings-note"></p>
 </dialog>
 <dialog id="searchDialog" class="search-dialog" aria-label="Search this project">
   <div class="dialog-header"><h2>Find in project</h2><button class="icon-button" data-close="searchDialog" aria-label="Close search"><span data-icon="close"></span></button></div>
@@ -479,6 +498,152 @@ function closeSidebar(){
 function setSidebarOpen(open){
   document.body.classList.toggle("sidebar-open",open);
   id("menuButton").setAttribute("aria-expanded",String(open));
+}
+let previewProjectId="",previewData=null,previewSerial=0,previewLoading=false;
+async function refreshSitePreview(){
+  if(!projectId||previewProjectId!==projectId||!id("previewDialog").open)return;
+  const serial=++previewSerial,requestedProject=projectId,entry=id("previewEntry").value;
+  if(!entry)return;
+  previewLoading=true;
+  id("previewStatus").textContent="Updating preview…";
+  try{
+    const next=await api("/projects/"+requestedProject+"/site-preview?entry="+encodeURIComponent(entry));
+    if(serial!==previewSerial||requestedProject!==projectId||!id("previewDialog").open)return;
+    const changed=!previewData||previewData.entry!==next.entry||previewData.html!==next.html;
+    previewData=next;
+    if(changed)id("sitePreviewFrame").srcdoc=next.html;
+    id("previewWarnings").textContent=(next.warnings||[]).join("\n")+
+      "\nIncluded local assets: "+(next.assets??0)+".";
+    id("previewStatus").textContent=(changed?"Preview updated":"No file changes")+
+      " · "+new Date().toLocaleTimeString();
+    id("openPreviewTab").disabled=false;
+  }catch(error){
+    if(serial!==previewSerial||requestedProject!==projectId)return;
+    id("previewStatus").textContent="Preview unavailable: "+error.message;
+    id("openPreviewTab").disabled=!previewData;
+  }finally{
+    if(serial===previewSerial)previewLoading=false;
+  }
+}
+async function openSitePreview(){
+  if(!projectId)throw Error("Select or create a project first.");
+  const selected=projectId,serial=++previewSerial;
+  previewProjectId=selected;previewData=null;
+  id("sitePreviewFrame").removeAttribute("srcdoc");
+  id("openPreviewTab").disabled=true;id("previewEntry").replaceChildren();
+  id("previewStatus").textContent="Finding HTML pages…";
+  id("previewDialog").showModal();
+  try{
+    const response=await api("/projects/"+selected+"/files");
+    if(selected!==projectId||serial!==previewSerial||!id("previewDialog").open)return;
+    const entries=response.files.filter(path=>/\.html?$/i.test(path));
+    entries.sort((a,b)=>((a==="index.html")?0:(a==="dist/index.html"||a==="build/index.html")?1:2)-
+      ((b==="index.html")?0:(b==="dist/index.html"||b==="build/index.html")?1:2)||a.localeCompare(b));
+    for(const path of entries){
+      const option=node("option","",path);option.value=path;id("previewEntry").append(option);
+    }
+    id("previewEntry").disabled=!entries.length;
+    id("refreshPreview").disabled=!entries.length;
+    if(!entries.length){
+      id("previewStatus").textContent="No HTML page found. Build a static index.html (or dist/index.html) first. A framework app needs a compiled static output.";
+      return;
+    }
+    await refreshSitePreview();
+  }catch(error){
+    if(selected===projectId&&serial===previewSerial)id("previewStatus").textContent="Could not open preview: "+error.message;
+  }
+}
+function previewNewTab(){
+  if(!previewData||previewProjectId!==projectId)return;
+  // The new tab holds only a sandboxed iframe. Embedded site HTML is an inert
+  // attribute, not trusted document markup, and cannot access app credentials.
+  const safe=String(previewData.html).replaceAll("&","&amp;").replaceAll('"',"&quot;")
+    .replaceAll("<","&lt;").replaceAll(">","&gt;");
+  const style="html,body{margin:0;height:100%;background:#fff}iframe{display:block;width:100%;height:100%;border:0}";
+  const encoded=btoa(style);
+  const page='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'+
+    '<link rel="stylesheet" href="data:text/css;base64,'+encoded+'"></head><body>'+
+    '<iframe title="Sandboxed static site preview" sandbox="" referrerpolicy="no-referrer" srcdoc="'+safe+'"></iframe>'+
+    '</body></html>';
+  const url=URL.createObjectURL(new Blob([page],{type:"text/html"}));
+  window.open(url,"_blank","noopener,noreferrer");
+  setTimeout(()=>URL.revokeObjectURL(url),90000);
+}
+setInterval(()=>{
+  if(!document.hidden&&id("previewDialog").open&&previewProjectId===projectId&&!previewLoading)
+    refreshSitePreview().catch(()=>{});
+},15000);
+
+let imageProjectId="",imageChoices=[],imageSearchSerial=0;
+async function openMediaLibrary(){
+  if(!projectId)throw Error("Select or create a project first.");
+  imageProjectId=projectId;imageChoices=[];imageSearchSerial++;
+  id("imageResults").replaceChildren();id("imageSearchStatus").textContent=
+    "Search Wikimedia Commons. Verify each image's source and license before publishing.";
+  id("mediaResult").textContent="";
+  id("mediaDialog").showModal();
+}
+async function searchProjectImages(event){
+  event.preventDefault();
+  const project=imageProjectId,serial=++imageSearchSerial,query=id("imageQuery").value.trim();
+  if(!project||project!==projectId)throw Error("Select a project and reopen Images.");
+  if(!query)throw Error("Enter an image search.");
+  id("imageSearchButton").disabled=true;id("imageSearchStatus").textContent="Searching Wikimedia Commons…";
+  id("imageResults").replaceChildren();imageChoices=[];
+  try{
+    const found=await api("/projects/"+project+"/image-search?query="+encodeURIComponent(query));
+    if(project!==projectId||serial!==imageSearchSerial||!id("mediaDialog").open)return;
+    imageChoices=found.results||[];
+    for(const item of imageChoices){
+      const card=node("div","image-card"),preview=node("div","image-thumb");
+      const sourceUrl=new URL(item.url);
+      if(sourceUrl.protocol==="https:"&&["upload.wikimedia.org","thumb.wikimedia.org"].includes(sourceUrl.hostname)){
+        const img=node("img");img.src=item.url;img.alt=item.description||item.title;
+        img.loading="lazy";img.referrerPolicy="no-referrer";preview.append(img);
+      }else preview.textContent="Preview unavailable";
+      const info=node("div","image-card-copy"),title=node("strong","",item.title),
+        meta=node("p","",item.license+" · "+(item.creator||"Creator information on source page"));
+      const open=node("a","text-button","Source & license ↗");
+      open.href=item.source_page;open.target="_blank";open.rel="noopener noreferrer";
+      const use=node("button","button secondary","Use image");
+      use.type="button";use.disabled=busy()||item.license==="Check source page";
+      use.onclick=()=>action(()=>importProjectImage(item,use,query));
+      info.append(title,meta,open,use);card.append(preview,info);
+      id("imageResults").append(card);
+    }
+    id("imageSearchStatus").textContent=imageChoices.length+
+      " public candidates. Review source and license before selecting an image.";
+  }catch(error){
+    if(project===projectId&&serial===imageSearchSerial)id("imageSearchStatus").textContent=error.message;
+  }finally{if(serial===imageSearchSerial)id("imageSearchButton").disabled=false;}
+}
+async function importProjectImage(item,button,query){
+  if(!imageProjectId||imageProjectId!==projectId)throw Error("Project changed. Reopen Images.");
+  if(busy()||transferBusy)throw Error("Finish this project's active task before adding images.");
+  button.disabled=true;id("mediaResult").textContent="Saving the selected image and source credit…";
+  try{
+    const saved=await api("/projects/"+imageProjectId+"/image/import",{query,url:item.url});
+    id("mediaResult").textContent="Saved "+saved.path+". Attribution note: "+saved.source_note+
+      ". Verify the original source page's requirements before publishing.";
+    await loadFiles();
+  }catch(error){
+    id("mediaResult").textContent="Could not save image: "+error.message;
+  }finally{button.disabled=false;}
+}
+async function createProjectGraphic(event){
+  event.preventDefault();
+  if(!imageProjectId||imageProjectId!==projectId)throw Error("Project changed. Reopen Images.");
+  if(busy()||transferBusy)throw Error("Finish this project's active task before creating graphics.");
+  id("createGraphic").disabled=true;id("mediaResult").textContent="Creating original SVG…";
+  try{
+    const saved=await api("/projects/"+imageProjectId+"/image/create",{
+      title:id("graphicTitle").value,style:id("graphicStyle").value,
+      primary:id("graphicPrimary").value,secondary:id("graphicSecondary").value
+    });
+    id("mediaResult").textContent=saved.message+" Saved at "+saved.path+".";
+    await loadFiles();
+  }catch(error){id("mediaResult").textContent=error.message;}
+  finally{id("createGraphic").disabled=false;}
 }
 function renderProjects() {
   id("projectSelect").replaceChildren();
@@ -945,6 +1110,8 @@ async function selectProject(next) {
   if(project?.available===false){renderProjects();openReconnect(next);return;}
   // An active task stays running in its own project; changing views never stops it.
   saveDraftNow();
+  if(id("previewDialog").open)id("previewDialog").close();
+  if(id("mediaDialog").open)id("mediaDialog").close();
   await api("/select-project",{project_id:next});
   projectId=next;currentRun=null;currentSession=null;runEvents=[];lastMessageKey="";lastConsoleKey="";monitorEventsTruncated=false;
   selectedFile="";fileData=null;id("fileSearch").value="";
@@ -1415,6 +1582,16 @@ id("downloadLog").onclick=()=>action(()=>saveDownload("/projects/"+projectId+"/s
 id("openProjectFolder").onclick=()=>action(openProjectFiles);
 id("filesStateAction").onclick=()=>action(async()=>{if(isCloud&&!appState?.account?.ready)return openAccount();if(fileLoadError||(isCloud&&!appState?.engine?.available))return openWorkspace();id("addProject").click();});
 id("fileSearch").oninput=renderFileList;
+for(const name of ["previewButton","previewFiles"])id(name).onclick=()=>action(openSitePreview);
+for(const name of ["mediaButton","mediaFiles"])id(name).onclick=()=>action(openMediaLibrary);
+id("previewEntry").onchange=()=>{previewData=null;id("sitePreviewFrame").removeAttribute("srcdoc");action(refreshSitePreview);};
+id("refreshPreview").onclick=()=>action(refreshSitePreview);
+id("openPreviewTab").onclick=previewNewTab;
+id("previewDialog").addEventListener("close",()=>{previewSerial++;previewData=null;previewLoading=false;});
+id("imageSearchForm").onsubmit=e=>{e.preventDefault();action(()=>searchProjectImages(e));};
+id("graphicForm").onsubmit=e=>{e.preventDefault();action(()=>createProjectGraphic(e));};
+id("mediaDialog").addEventListener("close",()=>{imageSearchSerial++;imageChoices=[];});
+
 id("openSearch").onclick=()=>action(openGlobalSearch);
 id("globalSearch").oninput=renderGlobalSearch;
 id("globalSearch").onkeydown=event=>{

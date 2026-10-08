@@ -23,6 +23,9 @@ from .provider import NemotronClient
 from .cloud import CloudAccount, distribution
 from .monitor import Run, ACTIVE, session_events
 from .files import UserFiles
+from .site_preview import preview_site
+from .media_library import import_commons_image, create_svg_graphic
+from .internet import search_public_assets
 from .storage import resolve_storage, relocate, migrate_legacy, retry_migration, reconnect_portable_projects
 from .state import Session, now
 from .explanations import check_title, explain_failure, simple_recovery
@@ -745,6 +748,29 @@ class AppService:
             if run_id not in self.jobs:
                 raise ValueError("Run not found. Its saved session is still available in history.")
             return self.jobs[run_id]
+
+    def site_preview(self, project_id, entry="index.html"):
+        _, workspace = self.project(project_id)
+        return preview_site(UserFiles(workspace.root), entry)
+
+    def image_search(self, project_id, query):
+        self.project(project_id)
+        return search_public_assets(query, limit=6)
+
+    def image_action(self, project_id, operation, payload):
+        payload=payload or {}
+        with self.lock:
+            if self.active(project_id):
+                raise ValueError("Stop this project's running task before importing or creating media.")
+            _, workspace=self.project(project_id)
+            with workspace.lock():
+                if operation=="import":
+                    return import_commons_image(workspace,payload.get("query",""),payload.get("url",""))
+                if operation=="create":
+                    return create_svg_graphic(workspace,payload.get("title",""),
+                                              payload.get("style","soft"),payload.get("primary","#376f58"),
+                                              payload.get("secondary","#e6eedc"))
+                raise ValueError("Unknown media action.")
 
     def file_action(self, project_id, operation, body=None):
         body = body or {}

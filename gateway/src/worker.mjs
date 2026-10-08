@@ -50,7 +50,7 @@ function security(response,request) {
   const result = new Response(response.body, response);
   Object.entries({'Cache-Control':'no-store','Referrer-Policy':'no-referrer',
     'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY',
-    'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"})
+    'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' data:; img-src 'self' data: https://upload.wikimedia.org https://thumb.wikimedia.org; font-src 'self' data:; connect-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"})
     .forEach(([key,value]) => result.headers.set(key,value));
   return result;
 }

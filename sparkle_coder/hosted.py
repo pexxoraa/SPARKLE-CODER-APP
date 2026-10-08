@@ -72,12 +72,12 @@ class HostedAppService(AppService):
         result.update({'key_configured':True,'key_source':'managed','cloud_gateway_url':self.gateway_url+'/v1'})
         return result
 
-    def add_project(self, name='', path=''):
+    def add_project(self, name='', path='', purpose=''):
         if not self._starting and path:
             raise ValueError('Create a cloud project, then use Import files or Import folder.')
         if hasattr(self,'data') and len(self.data['projects']) >= 30:
             raise ValueError('This account has reached its 30-project limit.')
-        return super().add_project(name,path)
+        return super().add_project(name,path,purpose)
 
     def project(self, project_id):
         project = next((p for p in self.data['projects'] if p['id']==project_id),None)

@@ -226,6 +226,42 @@ class WebTests(unittest.TestCase):
         self.assertTrue(decisions[0]["remember"])
         self.assertEqual(self.request(target, request)[0], 400)
 
+    def test_preview_and_media_routes_are_authenticated_and_sandbox_ready(self):
+        project=self.api("/api/projects",{"name":"Website for Preview","purpose":"Show a safe portfolio"})
+        pid=project["id"]
+        root=Path(project["path"])
+        (root/"index.html").write_text('<!doctype html><html><head><style>h1{color:red}</style></head>'
+                                       '<body><h1>Hello</h1><script>alert(123)</script></body></html>')
+        prefix="/api/projects/"+pid
+        self.assertEqual(self.request(prefix+"/site-preview",auth=False)[0],401)
+        preview=self.api(prefix+"/site-preview?entry=index.html")
+        self.assertEqual(preview["entry"],"index.html")
+        self.assertIn('data:text/css;base64,',preview["html"])
+        self.assertNotIn('<script>',preview["html"])
+        self.assertIn("script-src &#x27;none&#x27;",preview["html"])
+        self.assertIn('Static snapshot:',preview["warnings"][-1])
+        with self.assertRaises(AssertionError):
+            self.api(prefix+"/site-preview?entry=package.json")
+        result=self.api(prefix+"/image/create",{"title":"Cover art","style":"soft"})
+        self.assertTrue((root/result["path"]).is_file())
+        self.assertEqual(self.request(prefix+"/image/create",{"title":"Invalid style","style":"x"})[0],400)
+        self.assertEqual(self.request(prefix+"/image/create",{"title":"Bad"},auth=False)[0],401)
+        fake={"query":"mountains","results":[{
+            "title":"Mountain.jpg","url":"https://upload.wikimedia.org/wikipedia/commons/mountain.jpg",
+            "source_page":"https://commons.wikimedia.org/wiki/File:Mountain.jpg",
+            "license":"CC BY 4.0","creator":"Example Creator"}]}
+        with patch("sparkle_coder.webapp.search_public_assets",return_value=fake) as search:
+            seen=self.api(prefix+"/image-search?query=mountains")
+            self.assertEqual(seen["results"][0]["license"],"CC BY 4.0")
+            search.assert_called_once_with("mountains",limit=6)
+        with patch("sparkle_coder.media_library.search_public_assets",return_value=fake),\
+             patch("sparkle_coder.media_library.download_public_asset",return_value={
+                "data":b"\xff\xd8\xffabc","content_type":"image/jpeg","url":fake["results"][0]["url"],"bytes":6}):
+            chosen=self.api(prefix+"/image/import",{"query":"mountains","url":fake["results"][0]["url"]})
+            self.assertTrue((root/chosen["path"]).is_file())
+            self.assertIn("CC BY 4.0",(root/chosen["source_note"]).read_text())
+        self.assertEqual(self.request(prefix+"/image/import",{"query":"mountains","url":"https://other.example/"})[0],400)
+
     def test_project_creation_brief_and_deletion_routes_require_confirmation(self):
         project = self.api("/api/projects", {"name": "API project",
                                                 "purpose": "Make a well-tested web app"})

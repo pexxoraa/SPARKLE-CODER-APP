@@ -47,7 +47,7 @@ const api=async url=>{
  if(url.endsWith("/sessions")){if(rejectTasks)throw Error("History service offline");return {sessions:sourceData.sessions};}
  throw Error("Unexpected request: "+url);
 };
-const funcs=between("function rankSearchItems(", "function renderProjects(");
+const funcs=between("function rankSearchItems(", "let previewProjectId=");
 const harness=[
  'let projectId="p1",searchProjectId="",searchFiles=[],searchTasks=[],searchGeneration=0;',
  rankingCode.substring(rankingCode.indexOf("function searchTerms("),rankingCode.indexOf("function rankSearchItems(")),
