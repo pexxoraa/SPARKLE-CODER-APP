@@ -15,7 +15,7 @@ from .checks import discover_checks
 # Signature globs are deliberately specific: package.json and *.py alone do not
 # imply a frontend or AI product.
 DOMAINS = (
-    ("web_frontend", "Web frontend", r"front[- ]end|web\s?site|web\s?page|landing\s?page|browser\s+ui|react(?!\s+native)|svelte|vue\b|html\s*(?:and|/)\s*css",
+    ("web_frontend", "Web frontend", r"front[- ]?end|web\s?site|web\s?page|landing\s?page|browser\s+ui|react(?!\s+native)|svelte|vue\b|html\s*(?:and|/)\s*css",
      ("index.html", "*.jsx", "*.tsx", "vite.config.*", "next.config.*"),
      ("frontend_architecture", "accessibility_mastery"),
      "Test interactions, keyboard access, responsive layouts and production build."),
@@ -43,7 +43,7 @@ DOMAINS = (
      ("dbt_project.yml", "dags/*.py", "airflow.cfg", "spark-submit.sh"),
      ("data_engineering", "testing_mastery"),
      "Test schema contracts, idempotency, late data and reconciliation."),
-    ("database_engineering", "Database engineering", r"database\s+(?:engineering|schema|migration)|sql\s+(?:query|database)|postgres|sqlite|mysql|index\s+optimization|migration",
+    ("database_engineering", "Database engineering", r"database\s+(?:engineering|schema|migration)|sql\s+(?:query|database)|postgres(?:ql)?|sqlite|mysql|index\s+optimization|migration",
      ("migrations/*.sql", "prisma/schema.prisma", "schema.sql", "alembic.ini"),
      ("database_mastery", "testing_mastery"),
      "Test migrations, rollback strategy, integrity and representative query plans."),
