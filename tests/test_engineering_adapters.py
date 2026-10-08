@@ -135,6 +135,14 @@ class EngineeringAdapterTests(unittest.TestCase):
                 resolve_adapter(self.workspace, "Build Rust systems library",
                                 "local", first["id"])
 
+    def test_efficient_static_web_tasks_can_use_native_adapters(self):
+        self.put("package.json", json.dumps({"scripts": {"test": "node -e 'process.exit(0)'"}}))
+        agent = self.agent("Build a simple static website")
+        self.assertEqual(agent.task_profile["name"], "simple_web")
+        advertised = {schema["function"]["name"] for schema in agent.schemas}
+        self.assertIn("discover_engineering_checks", advertised)
+        self.assertIn("run_engineering_check", advertised)
+
     def test_ask_mode_can_discover_but_cannot_run_commands(self):
         self.put("package.json", json.dumps({"scripts": {"test": "node -e 'process.exit(0)'"}}))
         agent = self.agent("Build web frontend", ask=True)
