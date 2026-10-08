@@ -16,6 +16,7 @@ from .verification import active_checks, proof_summary
 from .state import now
 from .tools import READ_ONLY_TOOLS, SCHEMAS, ToolSet
 from .skills import SKILL_VERSION, record_skill_outcome, render_skills, resolve_project_skills, select_skills
+from .engineering import detect_domains
 from .workspace import atomic_write, clean_terminal
 
 
@@ -121,7 +122,9 @@ class Agent:
             session.save()
         self.task_profile = profile
         goal_text = " ".join(session.state.get("user_requests", [session.state.get("goal", "")])[-2:])
-        routed = select_skills(goal_text, task_profile=profile.get("name", "standard"))
+        self.engineering_domains = detect_domains(workspace, goal_text)
+        routed = select_skills(goal_text, task_profile=profile.get("name", "standard"),
+                               domains=[d["id"] for d in self.engineering_domains])
         routed = resolve_project_skills(workspace, goal_text, routed)
         if session.state.get("skill_version") != SKILL_VERSION or session.state.get("skills") != routed:
             session.state["skill_version"] = SKILL_VERSION
@@ -263,6 +266,14 @@ class Agent:
     def context(self) -> list[dict]:
         state = self.session.state
         system = SYSTEM + "\nExecution environment: " + self.config.execution
+        if self.engineering_domains and state.get("task_mode") != "ask":
+            system += ("\nENGINEERING DOMAIN CONTRACT: Respect the detected software domain; "
+                       "do not default to a website or claim unsupported platform integration. "
+                       "Inspect relevant source, implement the requested change, and collect "
+                       "fresh build, behavioral, and target-specific test evidence with verify. "
+                       "Toolchain detection and selected skills are guidance, never proof of completion. "
+                       "Report missing hardware, toolchains, or untested targets honestly. "
+                       "Never downgrade existing required acceptance checks.")
         if state.get("task_mode") == "ask":
             system += ("\nASK MODE: inspect relevant files and answer the user's actual question. Do not change files or run commands. "
                        "A factual, evidence-based answer completes this task; build verification is not required. "
@@ -364,6 +375,10 @@ class Agent:
                 "file_tool_changes": changed_paths[-50:],
                 "project_memory": project_memory,
             }
+        checkpoint["engineering_domains"] = [
+            {"id": domain["id"], "source": domain["source"],
+             "signals": domain["signals"], "acceptance": domain["acceptance"]}
+            for domain in self.engineering_domains]
         # Explicit state survives trimming; only complete assistant/tool exchanges are removed.
         prefix = [{"role": "system", "content": self.tools.redactor.text(system)},
                   state["messages"][0],

@@ -7,6 +7,7 @@ import uuid
 
 from .checks import discover_checks
 from .diagnostics import inspect_setup
+from .engineering import inspect_engineering as engineering_report
 from .explanations import check_title, explain_failure
 from .execution import CommandRunner
 from .internet import (download_public_asset as fetch_public_asset, read_web_page as fetch_web_page,
@@ -32,6 +33,7 @@ SCHEMAS = [
     schema("inspect_setup", "Inspect project manifests and locate development tools without executing code. "
            "Use to investigate missing dependencies; this is not a verification pass.", {}),
     schema("discover_checks", "Find existing test, typecheck, lint and build commands. Does not execute them.", {}),
+    schema("inspect_engineering", "Identify relevant engineering domains, toolchains and candidate verification contracts from project evidence without executing code. Tool presence is NOT runtime proof.", {}),
     schema("request_input", "Ask the user for a specific missing decision, credential setup, or unavailable dependency "
            "only after useful work is exhausted. Include the exact next step; work will be saved.",
            {"question": S, "next_step": S}, ["question", "next_step"]),
@@ -183,6 +185,12 @@ class ToolSet:
         report = inspect_setup(self.workspace, self.runner.config)
         self.session.state["setup"] = self.redactor.value(report)
         return report
+
+    def inspect_engineering(self):
+        goal = " ".join(self.session.state.get("user_requests",
+                         [self.session.state.get("goal", "")])[-2:])
+        return engineering_report(self.workspace, goal, self.runner.config.execution,
+                                  state=self.session.state)
 
     def request_input(self, question, next_step):
         if not question.strip() or not next_step.strip():
@@ -512,5 +520,5 @@ class ToolSet:
 
 
 READ_ONLY_TOOLS = {"list_files", "read_file", "search_files", "web_search", "read_web_page",
-                   "discover_checks", "inspect_setup", "inspect_static_site", "inspect_visual_site", "render_page",
+                   "discover_checks", "inspect_setup", "inspect_engineering", "inspect_static_site", "inspect_visual_site", "render_page",
                    "request_input", "update_plan"}
