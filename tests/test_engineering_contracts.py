@@ -98,7 +98,7 @@ class ContractTests(unittest.TestCase):
         a = self.check("assert 2 + 2 == 4")
         self.agent.tools.record_engineering_evidence(
             "systems_programming", "behavior", a, "Check validates one real observed behavior of the change.")
-        self.session.state["environment_revision"] += 1
+        self.session.state["environment_revision"] = self.session.state.get("environment_revision", 0) + 1
         report = evaluate_contract(self.workspace, self.session.state, self.domains)
         self.assertEqual(report["blocking"][0]["missing"], ["behavior", "target"])
 
