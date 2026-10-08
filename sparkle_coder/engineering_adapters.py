@@ -35,6 +35,7 @@ RECIPES = {
         Recipe("package.json", "npm", "npm run build", "build", "Frontend production compilation", "build")),
     "backend_apis": (
         Recipe("go.mod", "go", "go test ./...", "test", "Go API tests"),
+        Recipe("go.mod", "go", "go vet ./...", "static", "Go API static analysis"),
         Recipe("package.json", "npm", "npm run test", "test", "API package tests", "test"),
         Recipe("pyproject.toml", "python", "python -m pytest", "test", "Python API tests")),
     "mobile_apps": (
@@ -57,10 +58,12 @@ RECIPES = {
         Recipe("alembic.ini", "python", "python -m pytest", "test", "Database migration and behavior tests")),
     "cloud_devops": (
         Recipe("main.tf", "terraform", "terraform validate -no-color", "static", "Terraform configuration validation"),
+        Recipe("main.tf", "terraform", "terraform fmt -check -recursive", "static", "Terraform formatting without writes"),
         Recipe("compose.yaml", "docker", "docker compose config -q", "static", "Compose configuration validation"),
         Recipe("docker-compose.yml", "docker", "docker compose config -q", "static", "Compose configuration validation")),
     "systems_programming": (
         Recipe("Cargo.toml", "cargo", "cargo test", "test", "Rust target and unit tests"),
+        Recipe("Cargo.toml", "cargo", "cargo fmt --all -- --check", "static", "Rust formatting verification (requires rustfmt)"),
         Recipe("CMakeLists.txt", "cmake", "cmake -S . -B build", "build", "CMake configuration and compiler detection")),
     "embedded_iot": (
         Recipe("platformio.ini", "pio", "pio run", "build", "PlatformIO target firmware build"),),
@@ -70,6 +73,7 @@ RECIPES = {
         Recipe("bandit.yaml", "bandit", "bandit -r . -c bandit.yaml", "static", "Bandit Python security scan")),
     "distributed_systems": (
         Recipe("go.mod", "go", "go test ./...", "test", "Distributed Go component tests"),
+        Recipe("go.mod", "go", "go vet ./...", "static", "Distributed Go static analysis"),
         Recipe("Cargo.toml", "cargo", "cargo test", "test", "Distributed Rust component tests")),
     "automation_tools": (
         Recipe("package.json", "npm", "npm run test", "test", "Automation or CLI package tests", "test"),
