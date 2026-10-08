@@ -9,6 +9,7 @@ from .checks import discover_checks
 from .diagnostics import inspect_setup
 from .engineering import inspect_engineering as engineering_report
 from .engineering_contracts import execution_plan, link_evidence
+from .engineering_adapters import discover_adapters, resolve_adapter
 from .explanations import check_title, explain_failure
 from .execution import CommandRunner
 from .internet import (download_public_asset as fetch_public_asset, read_web_page as fetch_web_page,
@@ -36,6 +37,8 @@ SCHEMAS = [
     schema("discover_checks", "Find existing test, typecheck, lint and build commands. Does not execute them.", {}),
     schema("inspect_engineering", "Identify relevant engineering domains, toolchains and candidate verification contracts from project evidence without executing code. Tool presence is NOT runtime proof.", {}),
     schema("plan_engineering", "Read-only phased capability plan, missing toolchains and required evidence contracts; does not execute checks.", {}),
+    schema("discover_engineering_checks", "Read-only discovery of finite real project-aware build, test and static-analysis adapters across engineering domains. Does not execute project code or install toolchains.", {}),
+    schema("run_engineering_check", "Execute one previously discovered engineering check through the normal permission-controlled verify runner; records its real pass/fail and check ID. Never deploys or provisions hardware.", {"adapter_id": S}, ["adapter_id"]),
     schema("record_engineering_evidence", "Link a distinct, already executed and passing check ID to a domain's behavior or target acceptance facet. Does NOT imply independently audited semantic coverage.", {
         "domain": S, "facet": {"type": "string", "enum": ["behavior", "target"]},
         "check_id": S, "reason": S}, ["domain", "facet", "check_id", "reason"]),
@@ -203,6 +206,20 @@ class ToolSet:
         profile = self.session.state.get("task_profile", {}).get("name", "standard")
         return execution_plan(self.workspace, goal, self.runner.config.execution,
                               state=self.session.state, task_profile=profile)
+
+    def discover_engineering_checks(self):
+        goal = " ".join(self.session.state.get("user_requests",
+                         [self.session.state.get("goal", "")])[-2:])
+        return discover_adapters(self.workspace, goal, self.runner.config.execution)
+
+    def run_engineering_check(self, adapter_id):
+        goal = " ".join(self.session.state.get("user_requests",
+                         [self.session.state.get("goal", "")])[-2:])
+        adapter = resolve_adapter(self.workspace, goal, self.runner.config.execution, adapter_id)
+        result = self.verify(adapter["command"], cwd=adapter["cwd"],
+                             label=adapter["description"], source="engineering-adapter")
+        return {"adapter_id": adapter_id, "domain": adapter["domain"],
+                "category": adapter["category"], **result}
 
     def record_engineering_evidence(self, domain, facet, check_id, reason):
         profile = self.session.state.get("task_profile", {}).get("name", "standard")
@@ -537,5 +554,6 @@ class ToolSet:
 
 
 READ_ONLY_TOOLS = {"list_files", "read_file", "search_files", "web_search", "read_web_page",
-                   "discover_checks", "inspect_setup", "inspect_engineering", "plan_engineering", "inspect_static_site", "inspect_visual_site", "render_page",
+                   "discover_checks", "inspect_setup", "inspect_engineering", "plan_engineering",
+                   "discover_engineering_checks", "inspect_static_site", "inspect_visual_site", "render_page",
                    "request_input", "update_plan"}

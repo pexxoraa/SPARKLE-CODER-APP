@@ -270,6 +270,11 @@ class Agent:
         system = SYSTEM + "\nExecution environment: " + self.config.execution
         if self.engineering_domains and state.get("task_mode") != "ask":
             system += ("\nENGINEERING ACCEPTANCE: Use plan_engineering before substantive edits. "
+                       "Use discover_engineering_checks to find native toolchain commands from the "
+                       "actual project. If one fits the task, run it with run_engineering_check "
+                       "and examine the real recorded result; discovery is read-only. "
+                       "Do not substitute a missing adapter, game engine, device or compiler "
+                       "with a generic no-op check. "
                        "For each explicitly requested domain, verify separate real behavior and "
                        "target/integration checks. After successful verify calls, use "
                        "record_engineering_evidence(domain, facet, check_id, reason), choosing "
