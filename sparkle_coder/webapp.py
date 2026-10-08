@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 from . import __version__
 from .agent import Agent
+from .change_intelligence import capture_source_baseline
 from .answers import display_reply
 from .change_intent import requests_code_change
 from .config import Config, load_config, SPARKLE_GATEWAY_URL
@@ -728,6 +729,7 @@ class AppService:
                             session.state["requested_change"] = {
                                 "goal": goal,
                                 "baseline": workspace.fingerprint(),
+                                "source_baseline": capture_source_baseline(workspace, goal),
                                 "journal_start": len(session.state["journal"]),
                             }
                         elif goal.strip():
