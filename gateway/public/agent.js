@@ -982,7 +982,7 @@ function renderRecovery(session) {
     const details=node("details","technical-details");details.append(node("summary","","Technical details (optional)"),node("pre","",recovery?.technical_details||session.summary||"See the recorded checks for details."));banner.append(details);
   } else {
     const budgetPause=session.status==="paused"&&/^(Model-call|Run time|Run token) limit reached\./.test(session.summary||"");
-    banner.append(node("p","",session.status==="checked"?"The recorded checks passed. See what they cover below.":session.status==="answered"?"Switch to Build when you want changes.":budgetPause?"This run reached the full automatic work limit. Your work is saved; Resume task continues from the same point.":"Your work is saved. Continue when you are ready."));
+    banner.append(node("p","",session.status==="checked"?"The recorded checks passed. See what they cover below.":session.status==="answered"?"Switch to Build when you want changes.":budgetPause?"This task reached a run limit you selected. Your work is saved; Resume task continues from the same point.":"Your work is saved. Continue when you are ready."));
   }
   if(session.status==="undone")return;
   const actions=node("div","recovery-actions");

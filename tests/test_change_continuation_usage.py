@@ -106,6 +106,38 @@ class ChangesAndUsageTests(unittest.TestCase):
         self.assertTrue(any(kind=='budget_upgrade' for kind,_ in events))
         self.assertEqual(session.state['usage']['prompt_tokens'],20)
 
+    def test_many_productive_segments_finish_without_arbitrary_pause(self):
+        calls=[Completion('step', [{'id':f'call{i}', 'type':'function',
+            'function':{'name':'list_files','arguments':'{}'}}],
+            {'prompt_tokens':3,'completion_tokens':2}) for i in range(7)]
+        calls.append(Completion('Completed',[],{'prompt_tokens':3,'completion_tokens':2}))
+        provider=Provider(calls)
+        agent,session=self.make_agent('Build a long project',provider,max_steps=1,
+                                      runtime_cloud=True,task_mode='build')
+        original_complete=provider.complete
+        def advancing(messages,schemas):
+            result=original_complete(messages,schemas)
+            session.state['plan'].append({'step':f'Work item {provider.calls}',
+                                          'status':'completed'})
+            return result
+        provider.complete=advancing
+        agent.verify_completion=lambda:(True,'verified')
+        self.assertEqual(agent.run(),'checked')
+        self.assertEqual(provider.calls,8)
+        self.assertEqual(agent.auto_continuations,7)
+        self.assertEqual(session.state['usage']['prompt_tokens'],24)
+
+    def test_stalled_cloud_run_stops_without_endless_credit_spend(self):
+        provider=Provider([Completion('Repeated listing', [{'id':f'call{i}',
+                'type':'function','function':{'name':'list_files','arguments':'{}'}}],
+                {'prompt_tokens':3,'completion_tokens':2}) for i in range(10)])
+        agent,session=self.make_agent('Build a project',provider,max_steps=1,
+                                      runtime_cloud=True,task_mode='build')
+        self.assertEqual(agent.run(),'needs_input')
+        self.assertEqual(provider.calls,5)
+        self.assertTrue(agent._auto_continuation_stalled)
+        self.assertIn('no new project changes',session.state['technical_summary'])
+
     def test_user_run_limit_is_never_automatically_extended(self):
         provider=Provider([Completion('tool step',[{'id':'call1','type':'function',
           'function':{'name':'list_files','arguments':'{}'}}],{'prompt_tokens':3,'completion_tokens':2})])

@@ -152,6 +152,9 @@ class Agent:
         self.environment_changed = False
         self.repair_reviews = set()
         self.auto_continuations = 0
+        self._budget_progress = None
+        self._stalled_segments = 0
+        self._auto_continuation_stalled = False
 
     def usage_budget_total(self):
         usage=self.session.state["usage"]
@@ -159,21 +162,49 @@ class Agent:
                 usage.get("estimated_prompt_tokens",0)+usage.get("estimated_completion_tokens",0))
 
     def continue_hosted_budget(self, reason):
-        """Continue through a bounded work segment on managed Cloud, not forever.
+        """Automatically extend managed work while real project progress continues.
 
-        Up to three segments; explicit smaller user-selected caps remain binding.
-        Provider credits and policy limits are independent and never bypassed.
+        No arbitrary segment-count pause. The gateway still meters model calls
+        against the account's balance; explicit user-selected limits are never
+        extended. A no-progress watchdog prevents unattended credit-draining
+        loops without stopping long but productive projects.
         """
         if (not getattr(self.config, "_auto_continue_cloud", False)
-                or self.session.state.get("task_mode")=="ask"
-                or self.auto_continuations>=2):
+                or self.session.state.get("task_mode") == "ask"):
             return False
-        self.auto_continuations+=1
+        state = self.session.state
+        # Only substantive project progress resets the watchdog. Repeated reads,
+        # unsuccessful retries, narration, and identical file writes do not.
+        journal = state.get("journal", [])
+        checks = active_checks(state)
+        marker = (tuple((item.get("path"), item.get("after")) for item in journal),
+                  tuple((item.get("key"), item.get("ok"), item.get("output", "")[-100:])
+                        for item in checks),
+                  tuple((item.get("step"), item.get("status")) for item in state.get("plan", [])))
+        if marker == self._budget_progress:
+            self._stalled_segments += 1
+        else:
+            self._budget_progress = marker
+            self._stalled_segments = 0
+        if self._stalled_segments >= 4:
+            self._auto_continuation_stalled = True
+            return False
+        self.auto_continuations += 1
         self.observe("budget_upgrade", {
-            "text":"The task is not finished. Continuing automatically with another work segment.",
-            "reason":reason,"segment":self.auto_continuations+1})
+            "text": "The task is not finished. Continuing automatically with another work segment.",
+            "reason": reason, "segment": self.auto_continuations + 1})
+        if self._stalled_segments == 2:
+            self.feedback("Progress check: Several work segments have passed without new file changes, "
+                          "new checks, or completed plan steps. Investigate why, take a different action, "
+                          "and stop proposing repeated work. If an external blocker exists, report it clearly.")
         self.say("Continuing the saved project automatically. No manual resume needed.")
         return True
+
+    def finish_stalled_continuation(self):
+        message = ("Automatic work stopped because four consecutive work segments made no "
+                   "new project changes, test progress, or plan progress. Your work is saved. "
+                   "Review the task's activity and checks before continuing; this protects your credits.")
+        return self.finish("needs_input", message, {"action": "retry", "message": message})
 
     def say(self, text):
         self.emit(clean_terminal(self.tools.redactor.text(text)))
@@ -617,6 +648,8 @@ class Agent:
                     if self.continue_hosted_budget("model calls"):
                         step=0;started=time.monotonic();starting_tokens=self.usage_budget_total()
                         continue
+                    if self._auto_continuation_stalled:
+                        return self.finish_stalled_continuation()
                     return self.finish("paused", "Model-call limit reached. Work is saved; resume to continue.")
                 used = self.usage_budget_total() - starting_tokens
                 if self.config.max_seconds is not None and time.monotonic() - started >= self.config.max_seconds:
@@ -628,6 +661,8 @@ class Agent:
                     if self.continue_hosted_budget("elapsed time"):
                         step=0;started=time.monotonic();starting_tokens=self.usage_budget_total()
                         continue
+                    if self._auto_continuation_stalled:
+                        return self.finish_stalled_continuation()
                     return self.finish("paused", "Run time budget reached. Resume to continue.")
                 if self.config.max_total_tokens is not None and used >= self.config.max_total_tokens:
                     if self.promote_effort("token budget"):
@@ -638,6 +673,8 @@ class Agent:
                     if self.continue_hosted_budget("total tokens"):
                         step=0;started=time.monotonic();starting_tokens=self.usage_budget_total()
                         continue
+                    if self._auto_continuation_stalled:
+                        return self.finish_stalled_continuation()
                     return self.finish("paused", "Run token budget reached. Resume to continue.")
                 progress = str(step) if self.config.max_steps is None else f"{step}/{self.config.max_steps}"
                 self.say(f"[{progress}] Asking SPARKLE AI...")
