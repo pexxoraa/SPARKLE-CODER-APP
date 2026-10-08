@@ -3,6 +3,7 @@
 Check executions are facts. An agent's claim that a check covers a domain
 remains a claim, not proof that the check tests the right behavior.
 """
+import re
 from .engineering import DOMAIN_IDS, detect_domains, detect_toolchains
 from .verification import active_checks
 
@@ -25,6 +26,33 @@ OBLIGATIONS = {
     "automation_tools": ("Test CLI inputs and exit codes", "Test integration and repeatable execution"),
 }
 assert tuple(OBLIGATIONS) == DOMAIN_IDS
+
+# A target-specific claim must at least involve a relevant build/test tool.
+# Custom project commands are possible through user-required checks. These
+# patterns reject generic no-op/assertions but do not claim semantic proof.
+TARGET_MARKERS = {
+    "web_frontend": r"\b(playwright|puppeteer|chromium|vite|next|npm|pnpm|yarn|bun)\b|builtin:visual-site",
+    "backend_apis": r"\b(pytest|unittest|cargo|go|gradle|mvn|dotnet|npm|pnpm|integration)\b",
+    "mobile_apps": r"\b(flutter|gradle|xcodebuild|adb|xcrun|react-native)\b",
+    "desktop_apps": r"\b(pyinstaller|tauri|electron|cargo|xcodebuild|dotnet|installer)\b",
+    "game_development": r"\b(godot|unity|unreal|ue4|ue5|gametest)\b",
+    "ai_ml": r"\b(pytest|unittest|evaluate|mlflow|torch|tensorflow|onnx)\b",
+    "data_engineering": r"\b(dbt|airflow|spark|pytest|unittest|dagster)\b",
+    "database_engineering": r"\b(alembic|prisma|migrate|sqlite|psql|pytest|unittest)\b",
+    "cloud_devops": r"\b(terraform|tofu|kubectl|helm|wrangler|docker|checkov|cfn-lint)\b",
+    "systems_programming": r"\b(cargo|rustc|ctest|cmake|gcc|clang|make|valgrind|asan)\b",
+    "embedded_iot": r"\b(pio|idf\.py|arduino-cli|west|platformio|qemu)\b",
+    "cybersecurity": r"\b(semgrep|bandit|zap|nuclei|trivy|pytest|unittest|audit)\b",
+    "distributed_systems": r"\b(docker|pytest|unittest|toxiproxy|kafka|kind|go|cargo)\b",
+    "automation_tools": r"\b(pytest|unittest|npm|pnpm|yarn|bun|shellcheck|bats|go|cargo)\b",
+}
+assert tuple(TARGET_MARKERS) == DOMAIN_IDS
+
+def _target_relevant(domain, check):
+    if check.get("required") or check.get("source") == "user":
+        return True
+    return bool(re.search(TARGET_MARKERS[domain], check.get("command", ""), re.I))
+
 
 
 def required_domains(domains, task_profile="standard", task_mode="build"):
@@ -62,7 +90,9 @@ def evaluate_contract(workspace, state, domains, *, task_profile="standard"):
         for facet, requirement in zip(FACETS, OBLIGATIONS[identity]):
             entry = declared.get(facet, {}) if isinstance(declared, dict) else {}
             check_id = entry.get("check_id") if isinstance(entry, dict) else None
-            valid = bool(_fresh(state, check_id, fingerprint) and check_id not in seen)
+            recorded = _fresh(state, check_id, fingerprint)
+            valid = bool(recorded and check_id not in seen and
+                         (facet != "target" or _target_relevant(identity, recorded)))
             if valid:
                 seen.add(check_id)
             facets.append({"id": facet, "requirement": requirement, "check_id": check_id,
@@ -93,6 +123,8 @@ def link_evidence(workspace, state, domain, facet, check_id, reason, *, task_pro
         raise ValueError("Check is missing, failed, stale, denied, or not executed in this session.")
     if check.get("command", "").strip() in ("true", "echo ok", "echo pass"):
         raise ValueError("An inert command is not valid acceptance evidence.")
+    if facet == "target" and not _target_relevant(domain, check):
+        raise ValueError("Target evidence must execute a relevant domain build/test tool or a user-required check; generic assertions are not platform verification.")
     previous = state.get("engineering_evidence", {}).get(domain, {})
     if any(f != facet and v.get("check_id") == check_id for f, v in previous.items()
            if isinstance(v, dict)):
