@@ -311,6 +311,17 @@ class TargetIntegrationTests(unittest.TestCase):
         self.assertEqual(command["command"], "gradle connectedAndroidTest")
         self.write("android/gradlew", "#!/bin/sh")
         self.write("android/gradlew.bat", "@echo off")
+        # Adding wrappers changes the project fingerprint. Enumerate devices
+        # again rather than reusing acceptance from the previous source state.
+        with patch("sparkle_coder.engineering_targets.shutil.which", return_value="/bin/adb"), \
+             patch.object(agent.tools.runner, "run", return_value={
+                 "ok": True, "exit_code": 0, "output": ADB_TEXT}):
+            newest = next(p for p in agent.tools.inspect_target_integrations()["probes"]
+                          if p["kind"] == "android")
+            self.assertTrue(agent.tools.execute("probe_target_devices",
+                                                 {"probe_id": newest["id"]})["ok"])
+        listing = agent.tools.inspect_target_integrations()
+        target = next(t for t in listing["targets"] if t["ready"])
         with patch("sparkle_coder.engineering_targets.HOST_OS", "nt"):
             windows = resolve_integration(self.workspace, "local",
                                           agent.tools.runner.config.docker_image,
