@@ -33,7 +33,8 @@ assert tuple(OBLIGATIONS) == DOMAIN_IDS
 TARGET_MARKERS = {
     "web_frontend": r"\b(playwright|puppeteer|chromium|vite|next|npm|pnpm|yarn|bun)\b|builtin:visual-site",
     "backend_apis": r"\b(pytest|unittest|cargo|go|gradle|mvn|dotnet|npm|pnpm|integration)\b",
-    "mobile_apps": r"\b(flutter|gradle|xcodebuild|adb|xcrun|react-native)\b",
+    # Device enumeration and compiler version checks are NOT mobile target evidence.
+    "mobile_apps": r"\bflutter\s+test\s+integration_test(?:\b|/)|\b(?:gradle|gradlew)\s+connectedAndroidTest\b|\bxcodebuild\s+test\b",
     "desktop_apps": r"\b(pyinstaller|tauri|electron|cargo|xcodebuild|dotnet|installer)\b",
     "game_development": r"\b(godot|unity|unreal|ue4|ue5|gametest)\b",
     "ai_ml": r"\b(pytest|unittest|evaluate|mlflow|torch|tensorflow|onnx)\b",
