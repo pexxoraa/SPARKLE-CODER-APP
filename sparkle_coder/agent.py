@@ -568,6 +568,7 @@ class Agent:
         state.pop("input_request", None)
         state["recovery"] = None
         malformed = 0
+        unusable = 0
         self.say(f"Session {self.session.id} | {self.config.model} | {self.config.execution}")
         try:
             if state.get("task_mode") != "ask":
@@ -613,10 +614,16 @@ class Agent:
                     if self.should_stop():
                         return self.finish("interrupted", "Stopped by the user. Work is saved.")
                     # A formatting error is recoverable; transport/authentication needs attention.
-                    if str(exc).startswith("Invalid model response") and malformed < 2:
-                        malformed += 1
-                        self.feedback("Your response could not be parsed. Use the documented tool format. " + str(exc))
-                        continue
+                    if str(exc).startswith("Invalid model response"):
+                        if malformed < 2:
+                            malformed += 1
+                            self.observe("model_retry", {"attempt": malformed + 1, "delay": 0,
+                                                         "reason": "Invalid model format; requesting correction"})
+                            self.feedback("Your response could not be parsed. Use the documented tool format. " + str(exc))
+                            continue
+                        return self.finish("needs_input", "The model sent invalid responses three times. "
+                                           "Your project is saved. Check the model format or connection before resuming. "
+                                           + str(exc), {"action": "connection", "message": str(exc)})
                     return self.finish("needs_input", str(exc), {"action": exc.action, "message": str(exc)})
                 self.observe("model_end", {"tool_calls": len(response.calls), "seconds": round(time.monotonic()-request_started, 2)})
                 state["usage"]["model_seconds"] = round(state["usage"].get("model_seconds", 0) + time.monotonic()-request_started, 2)
@@ -634,6 +641,13 @@ class Agent:
                 if self.should_stop():
                     return self.finish("interrupted", "Stopped by the user before executing further actions.")
                 if response.finish_reason == "length":
+                    unusable += 1
+                    if unusable >= 3:
+                        return self.finish("needs_input", "The model returned incomplete answers three times. Work is saved. "
+                                           "Resume after increasing the model output limit or checking the provider.",
+                                           {"action": "connection", "message": "Model output was truncated repeatedly."})
+                    self.observe("model_retry", {"attempt": unusable + 1, "delay": 0,
+                                                 "reason": "Incomplete model response; asking for smaller steps"})
                     self.feedback("The last response hit the output limit and was not executed. "
                                   "Use smaller tool calls. If reasoning consumes the output budget, "
                                   "report that max_tokens must be increased.")
@@ -652,6 +666,7 @@ class Agent:
                 state["messages"].append(assistant)
                 self.session.save()  # Save intent before side effects; interrupted actions are never replayed.
                 if response.calls:
+                    unusable = 0
                     if response.content and self.task_profile.get("name") == "standard":
                         self.say(response.content[:1500])
                     for call in response.calls:
@@ -703,8 +718,16 @@ class Agent:
                         self.inspect_failure_sources()
                     continue
                 if not response.content.strip():
+                    unusable += 1
+                    if unusable >= 3:
+                        return self.finish("needs_input", "The model sent empty answers three times. Work is saved. "
+                                           "Check the model connection or resume with a different output setting.",
+                                           {"action": "connection", "message": "Repeated empty model replies."})
+                    self.observe("model_retry", {"attempt": unusable + 1, "delay": 0,
+                                                 "reason": "Empty model reply; requesting a real answer"})
                     self.feedback("Your response was empty. Use a tool or provide a concise completion/blocker report.")
                     continue
+                unusable = 0
                 if state.get("task_mode") == "ask":
                     return self.finish("answered", plain_discussion_text(response.content))
                 passed, evidence = self.verify_completion()

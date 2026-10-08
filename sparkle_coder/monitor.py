@@ -27,6 +27,7 @@ class Run:
         self.approval = None
         self.action_context = {}
         self.approved = False
+        self.remembered_commands = set()
         self.thread = None
         self.error = None
         self.started = time.monotonic()
@@ -119,6 +120,8 @@ class Run:
         with self.lock:
             if self.status not in ACTIVE or self.stop.is_set():
                 raise ValueError("Only an active task can be paused.")
+            if self.pause_requested.is_set():
+                return
             self.pause_requested.set()
             if self.status != "approval":
                 self.status = "pausing"
@@ -128,9 +131,12 @@ class Run:
         with self.lock:
             if not self.pause_requested.is_set() or self.stop.is_set():
                 raise ValueError("This task is not waiting to resume.")
+            was_waiting = self.status == "paused_by_user"
             self.pause_requested.clear()
             if self.status != "approval":
                 self.status = "running"
+            if not was_waiting:
+                self.record("resumed", {"text": "Pause request cancelled; work is continuing."})
 
     def request_approval(self, request):
         self.checkpoint()
@@ -155,20 +161,29 @@ class Run:
         return accepted and not self.stop.is_set()
 
     def approve(self, command):
+        if command in self.remembered_commands:
+            self.record("approval_reused", {"text": "Reused your approval for this exact command."})
+            return True
         purpose = self.action_context.get("purpose", "") if self.action_context.get("command") == command else ""
         return self.request_approval({"kind": "command", "command": clean_terminal(command), "purpose": purpose})
 
     def approve_edit(self, request):
         return self.request_approval({"kind": "file edit", **request})
 
-    def answer(self, approval_id, allowed):
+    def answer(self, approval_id, allowed, remember=False):
         with self.lock:
             if not self.approval or self.approval["id"] != approval_id or self.decision.is_set():
                 raise ValueError("This approval is no longer pending.")
-            if type(allowed) is not bool:
-                raise ValueError("Approval must be true or false.")
+            if type(allowed) is not bool or type(remember) is not bool:
+                raise ValueError("Approval choices must be true or false.")
+            if remember and (not allowed or self.approval.get("kind") != "command"):
+                raise ValueError("Only an approved command can be remembered for this run.")
             self.approved = allowed
-            self.record("approval_decision", {"text": "Allowed by you." if allowed else "Denied by you.", "allowed": allowed})
+            if remember:
+                self.remembered_commands.add(self.approval["command"])
+            self.record("approval_decision", {"text": "Allowed for this run." if remember else
+                                               "Allowed by you." if allowed else "Denied by you.",
+                                               "allowed": allowed, "remember": remember})
             self.decision.set()
 
     def cancel(self):

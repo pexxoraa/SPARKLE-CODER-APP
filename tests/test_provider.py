@@ -130,6 +130,16 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaises(ModelError):
             parse_completion(data, "native")
 
+    def test_text_part_content_is_supported_without_exposing_reasoning(self):
+        data = {"choices": [{"message": {"content": [{"type": "text", "text": "First line"},
+                                                  {"type": "text", "text": "Second line"}],
+                                          "reasoning_content": "Do not surface this."},
+                             "finish_reason": "stop"}]}
+        self.assertEqual(parse_completion(data, "native").content, "First line\nSecond line")
+        data["choices"][0]["message"]["content"] = [{"type": "reasoning", "text": "private"}]
+        with self.assertRaisesRegex(ModelError, "Expected text content"):
+            parse_completion(data, "native")
+
     def test_reasoning_is_not_mistaken_for_final_content(self):
         data = {"choices": [{"message": {"reasoning_content": "internal reasoning",
                                         "content": "Final answer"}, "finish_reason": "stop"}]}

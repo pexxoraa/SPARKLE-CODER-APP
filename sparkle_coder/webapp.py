@@ -325,18 +325,21 @@ class AppService:
                     raise
             return {**project, "available": True}
 
-    def active(self):
+    def active(self, project_id=None):
         with self.lock:
             return next((job for job in self.jobs.values()
-                         if job.status in ACTIVE), None)
+                         if job.status in ACTIVE and
+                         (project_id is None or job.project_id == project_id)), None)
+
+    def active_jobs(self):
+        with self.lock:
+            return [job for job in self.jobs.values() if job.status in ACTIVE]
 
     def _repair_orphaned_session(self, session):
         if session.state.get("status") != "running":
             return session
-        active = self.active()
-        # A freshly queued run has not bound its session yet. Do not rewrite any
-        # saved session while that handoff is in progress.
-        if active and (active.session_id is None or active.session_id == session.id):
+        # Another project's active run must not mask an orphaned session.
+        if any(job.session_id == session.id for job in self.active_jobs()):
             return session
         session.state["status"] = "interrupted"
         session.state["summary"] = "The coding engine restarted while this task was active. Work is saved; resume to continue."
@@ -346,12 +349,16 @@ class AppService:
 
     def state(self):
         with self.lock:
-            job = self.active()
+            selected = self.data["selected_project"]
+            jobs = self.active_jobs()
+            job = next((entry for entry in jobs if entry.project_id == selected), None)
             return {"version": __version__, "projects": [
                         {**p, "available": Path(p["path"]).is_dir() and not p.get("migration_pending", False)} for p in self.data["projects"]],
                     "experience": self.data["experience"],
                     "selected_project": self.data["selected_project"],
                     "settings": self.public_settings(), "active_run": job.public() if job else None,
+                    "active_runs": [{"id": entry.id, "project_id": entry.project_id, "status": entry.status}
+                                    for entry in jobs],
                     "account": dict(self.account.cached),
                     "storage": {"path": str(self.directory), "projects_path": str(self.projects_directory),
                                 "migration": self.data.get("storage_migration")}}
@@ -372,8 +379,8 @@ class AppService:
                 return redactor.value(read_brief(workspace))
             if not isinstance(payload, dict) or set(payload) != {"brief", "revision"}:
                 raise ValueError("Provide the brief and its current revision.")
-            if self.active():
-                raise ValueError("Wait for the running task or stop it before changing the project brief.")
+            if self.active(project_id):
+                raise ValueError("Finish or stop this project's running task before changing its brief.")
             with workspace.lock():
                 return save_brief(workspace, redactor.value(payload["brief"]), payload["revision"])
 
@@ -393,8 +400,8 @@ class AppService:
     def configure_project_skills(self, project_id, payload):
         if not isinstance(payload, dict):
             raise ValueError("Expected skill settings object.")
-        if self.active():
-            raise ValueError("Finish or stop the active task before changing project skills.")
+        if self.active(project_id):
+            raise ValueError("Finish or stop this project's running task before changing its skills.")
         _, workspace = self.project(project_id)
         action = payload.get("action")
         if action == "save_custom":
@@ -507,8 +514,10 @@ class AppService:
             config.require_credentials()
         goal = Redactor((config.api_key,)).text(goal)
         with self.lock:
-            if self.active():
-                raise ValueError("A task is already running. Stop it or wait before starting another.")
+            if self.active(project_id):
+                raise ValueError("A task is already running in this project. Switch to another project or wait.")
+            if len(self.active_jobs()) >= 2:
+                raise ValueError("Two projects are already running. Wait for one to finish before starting another.")
             job = Run(project_id, "demo" if demo else "nemotron", config.api_key)
             self.jobs[job.id] = job
             self.data["selected_project"] = project_id
@@ -588,8 +597,8 @@ class AppService:
     def file_action(self, project_id, operation, body=None):
         body = body or {}
         with self.lock:
-            if self.active():
-                raise ValueError("Finish or stop the active task before importing, copying or exporting a project.")
+            if self.active(project_id):
+                raise ValueError("Finish or stop this project's running task before editing, importing or exporting it.")
             project, workspace = self.project(project_id)
             files = UserFiles(workspace.root)
             with workspace.lock():

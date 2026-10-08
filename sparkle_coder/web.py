@@ -313,7 +313,7 @@ class Handler(BaseHTTPRequestHandler):
             elif len(parts) == 4 and parts[:2] == ["api", "runs"]:
                 job = app.job(parts[2])
                 if parts[3] == "approval":
-                    job.answer(body["approval_id"], body["allow"])
+                    job.answer(body["approval_id"], body["allow"], body.get("remember", False))
                 elif parts[3] == "stop":
                     job.cancel()
                 elif parts[3] == "pause":

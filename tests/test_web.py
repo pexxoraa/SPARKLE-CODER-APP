@@ -215,6 +215,17 @@ class WebTests(unittest.TestCase):
         self.assertEqual(again["status"], "interrupted")
         self.assertIsNone(self.app.active())
 
+    def test_explicit_per_run_command_approval_is_forwarded(self):
+        data, waiting = self.start_demo()
+        target = "/api/runs/" + waiting["id"] + "/approval"
+        request = {"approval_id": waiting["approval"]["id"], "allow": True, "remember": True}
+        self.api(target, request)
+        result = self.await_run(waiting["id"], {"checked"})
+        decisions = [event for event in result["events"] if event["kind"] == "approval_decision"]
+        self.assertEqual(len(decisions), 1)
+        self.assertTrue(decisions[0]["remember"])
+        self.assertEqual(self.request(target, request)[0], 400)
+
     def test_denied_command_does_not_run_and_approval_cannot_be_replayed(self):
         data, waiting = self.start_demo()
         body = {"approval_id": waiting["approval"]["id"], "allow": False}

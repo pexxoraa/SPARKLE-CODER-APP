@@ -83,7 +83,7 @@ id("app").innerHTML = `
       <select id="projectSelect" aria-label="Selected project"></select>
       <button class="icon-button" id="addProject" title="Add project" aria-label="Add project"><span data-icon="plus"></span></button>
       <span class="topbar-divider"></span><span class="project-path" id="projectPath"></span>
-      <div class="topbar-actions"><div id="workspaceModeSwitch" class="workspace-mode-switch" hidden><span class="workspace-mode-label">Cloud</span></div><button id="topAccountButton" class="text-button" type="button" hidden>Account</button><button id="trackTask" class="text-button" title="Open live run monitor">Monitor <span id="headerRunStatus">Ready</span></button><button class="icon-button details-toggle" id="detailsButton" aria-label="Show activity panel"><span data-icon="panel"></span></button></div>
+      <div class="topbar-actions"><button type="button" id="workspaceModeSwitch" class="workspace-mode-switch" hidden aria-label="Check cloud workspace connection" title="Check cloud connection"><span class="workspace-mode-label">Cloud</span></button><button id="topAccountButton" class="text-button" type="button" hidden>Account</button><button id="trackTask" class="text-button" title="Open live run monitor">Monitor <span id="headerRunStatus">Ready</span></button><button class="icon-button details-toggle" id="detailsButton" aria-label="Show activity panel"><span data-icon="panel"></span></button></div>
     </header>
     <div id="missingProjectsNotice" class="missing-projects-notice" role="status" hidden><span id="missingProjectsText"></span><button id="findProjectFolder" class="button secondary">Find folder</button></div>
     <div id="pendingMigrationNotice" class="missing-projects-notice" role="status" hidden><span>Some projects are waiting to move. You can keep working in another project.</span><button id="showProjectMigration" class="button secondary">Review project move</button></div>
@@ -114,7 +114,7 @@ id("app").innerHTML = `
             <p id="approvalDescription">SPARKLE wants to do one protected action for this task. Nothing will happen until you choose.</p>
             <p id="approvalPurpose" class="approval-purpose" hidden></p><details id="approvalDetails"><summary>Technical details</summary><pre id="approvalCommand"></pre></details>
             <div class="approval-help"><span class="approval-safety"><strong>Why am I seeing this?</strong> This is SPARKLE’s safety check before a protected project action — not a browser or terminal permission.</span><span><strong>Allow this time</strong> lets SPARKLE do only this action.</span><span><strong>Don’t allow</strong> skips it and keeps your project unchanged by this action.</span></div>
-            <div class="approval-actions"><button id="denyCommand" class="button secondary">Don’t allow</button><button id="allowCommand" class="button primary">Allow this time</button></div>
+            <div class="approval-actions"><button id="denyCommand" class="button secondary">Don’t allow</button><button id="allowCommand" class="button primary">Allow this time</button><button id="allowRepeatCommand" class="button secondary">Allow this command for this run</button></div>
           </div>
           <form id="taskForm" class="composer">
             <div class="task-mode-row"><label for="taskMode">Mode</label><select id="taskMode"><option value="build">Build</option><option value="ask">Ask</option></select><label for="efficiencyMode">Effort</label><select id="efficiencyMode"><option value="efficient">Auto</option><option value="thorough">Thorough</option></select><span id="runBudgetLabel">Unlimited run</span></div>
@@ -280,6 +280,7 @@ let accountTimer = null, accountCouponQuote=null, startingRun=false;
 let files = [], historyItems = [], changes = [], runEvents = [], view = "build", tab = "activity";
 let fileData=null, transferBusy=false, cancelTransfer=false, lastConsoleKey="", fileLoadError="";
 let pollTimer = null, cloudReconnectTimer = null, lastMessageKey = "", lastChangeKey = "", selectedFile = "", toastTimer = null;
+let pollInFlight = false, lastPollError = "", monitorEventsTruncated = false;
 let briefRevision = null, briefProjectId = null, setupProjectId = null;
 const DRAFT_PREFIX="sparkleDraft:v1:";
 let draftTimer=null;
@@ -367,7 +368,11 @@ function setTab(name) { tab = name; ["activity","changes","checks"].forEach(t =>
 function renderProjects() {
   id("projectSelect").replaceChildren();
   if(!appState.projects.length){const accountReady=Boolean(appState?.account?.ready),cloudReady=Boolean(accountReady&&appState?.engine?.available);const label=isCloud?(cloudReady?"No cloud projects yet":accountReady?"Reconnecting cloud projects…":"Cloud projects unavailable"):"No project selected";const option=node("option","",label);option.value="";id("projectSelect").append(option);}
-  appState.projects.forEach(p => { const option = node("option","",p.name+(p.migration_pending?" (waiting to move)":p.available===false?" (folder not found)":"")); option.value=p.id; option.selected=p.id===projectId; id("projectSelect").append(option); });
+  appState.projects.forEach(p => {
+    const active=(appState.active_runs||[]).some(job=>job.project_id===p.id);
+    const option=node("option","",p.name+(active?" (running)":p.migration_pending?" (waiting to move)":p.available===false?" (folder not found)":""));
+    option.value=p.id;option.selected=p.id===projectId;id("projectSelect").append(option);
+  });
   const project = appState.projects.find(p=>p.id===projectId);
   id("projectPath").textContent = project ? project.path : "";
   id("projectPath").title = project ? project.path : "";
@@ -495,7 +500,10 @@ function renderControls() {
   id("investigateSetup").disabled=!!working;
   id("supervisionChoice").hidden=isCloud; id("reviewEdits").disabled=isCloud||!!working||id("taskMode").value==="ask";
   id("stopButton").hidden=!working; id("stopButton").disabled=currentRun?.status==="stopping";
-  id("projectSelect").disabled=startingRun || !!working || transferBusy; id("addProject").disabled=startingRun||!!working||transferBusy||(isCloud&&!(appState.account?.ready&&appState.engine?.available)); id("newTask").disabled=startingRun||!!working||transferBusy;
+  // Other projects remain available while this project's agent runs.
+  id("projectSelect").disabled=startingRun||transferBusy;
+  id("addProject").disabled=startingRun||transferBusy||(isCloud&&!(appState.account?.ready&&appState.engine?.available));
+  id("newTask").disabled=startingRun||!!working||transferBusy;
   id("findProjectFolder").disabled=!!working||transferBusy;
   id("showProjectMigration").disabled=!!working||transferBusy;
   const status=working ? currentRun.status : currentSession?.status;
@@ -510,6 +518,7 @@ function renderControls() {
     id("approvalPurpose").hidden=!a.purpose;id("approvalPurpose").textContent=a.purpose?"Why SPARKLE wants this: "+a.purpose:"";
     if(id("approvalDetails").dataset.approval!==a.id){id("approvalDetails").dataset.approval=a.id;id("approvalDetails").open=editing;}
     id("approvalTitle").textContent=editing?"Review this file change":"SPARKLE needs your permission";
+    id("allowRepeatCommand").hidden=editing;
     id("approvalDescription").textContent=editing
       ?(a.truncated?"This preview is too large to show completely. Don’t allow it unless you are comfortable with the partial preview.":"SPARKLE wants to change "+a.path+". Review the preview below before deciding.")
       :"SPARKLE wants to run one project command. It may read files, test your project, or make changes depending on the command. Nothing will run until you allow it.";
@@ -723,16 +732,62 @@ async function loadHistory() {
 }
 async function loadSession(sessionId) { if(startingRun||busy()) { toast("Finish or stop the current task first."); return; } currentRun=null; runEvents=[]; const data=await api("/projects/"+projectId+"/sessions/"+sessionId); runEvents=data.events||[]; id("taskMode").value=data.task_mode||"build"; renderSession(data); id("verifyCommands").value=(data.required_checks||[]).join("\n"); changeView("build"); if(tab==="changes")await loadChanges(); }
 async function newTask(clearSaved=false) { if(startingRun||busy()||transferBusy)return; if(clearSaved)clearDraft(); currentRun=null; runEvents=[]; id("taskError").hidden=true; id("taskMode").value="build"; renderSession(null); id("goal").value=""; id("verifyCommands").value=""; id("verificationFields").hidden=true; if(!clearSaved)restoreDraft(); changeView("build"); setTab("activity"); id("goal").focus(); }
-async function selectProject(next) { if(startingRun||busy()||transferBusy)return; saveDraftNow(); const project=appState.projects.find(p=>p.id===next); if(project?.migration_pending){renderProjects();openMigration();return;} if(project?.available===false){renderProjects();openReconnect(next);return;} await api("/select-project",{project_id:next}); projectId=next; selectedFile=""; fileData=null; id("fileSearch").value=""; id("fileName").textContent="Select a file"; id("filePreview").textContent="Select a file to inspect its contents."; renderProjects(); await newTask(false); await Promise.all([loadFiles(),loadHistory()]); }
-async function refreshState() { appState=await api("/state"); projectId=appState.projects.some(p=>p.id===projectId)?projectId:appState.selected_project; renderProjects(); renderProvider(); renderExperience();renderCloudState(); if(appState.active_run&&(!currentRun||currentRun.id!==appState.active_run.id)) { currentRun=appState.active_run; projectId=currentRun.project_id; renderProjects(); schedulePoll(50); } else if(!appState.active_run&&busy()) { currentRun=null; renderControls(); } }
+async function selectProject(next) {
+  if(startingRun||transferBusy||!next||next===projectId)return;
+  const project=appState.projects.find(p=>p.id===next);
+  if(project?.migration_pending){renderProjects();openMigration();return;}
+  if(project?.available===false){renderProjects();openReconnect(next);return;}
+  // An active task stays running in its own project; changing views never stops it.
+  saveDraftNow();
+  await api("/select-project",{project_id:next});
+  projectId=next;currentRun=null;currentSession=null;runEvents=[];lastMessageKey="";lastConsoleKey="";monitorEventsTruncated=false;
+  selectedFile="";fileData=null;id("fileSearch").value="";
+  id("fileName").textContent="Select a file";id("filePreview").textContent="Select a file to inspect its contents.";
+  id("goal").value="";id("verifyCommands").value="";
+  id("taskError").hidden=true;
+  await refreshState();
+  renderSession(null);
+  if(currentRun){
+    changeView("monitor");schedulePoll(20);
+  }else{
+    await newTask(false);
+  }
+  await Promise.all([loadFiles(),loadHistory()]);
+}
+async function refreshState() {
+  appState=await api("/state");
+  projectId=appState.projects.some(p=>p.id===projectId)?projectId:appState.selected_project;
+  renderProjects();renderProvider();renderExperience();renderCloudState();
+  // Reconnect only the selected project's run, not a background project.
+  const selectedRun=appState.active_run?.project_id===projectId?appState.active_run:null;
+  if(selectedRun&&(!currentRun||currentRun.id!==selectedRun.id)){
+    currentRun=selectedRun;runEvents=[];lastConsoleKey="";monitorEventsTruncated=false;
+    schedulePoll(50);
+  }else if(!selectedRun&&busy()){
+    currentRun=null;renderControls();
+  }
+}
 
 function schedulePoll(ms=isCloud?2500:600) { clearTimeout(pollTimer); pollTimer=setTimeout(()=>action(pollRun),ms); }
 async function pollRun() {
-  if(!currentRun)return;
+  // A slow network response must never race a newer poll and rewind run status.
+  if(!currentRun||pollInFlight)return;
+  pollInFlight=true;
   const runId=currentRun.id, after=runEvents[runEvents.length-1]?.sequence||0;
   try {
-    const result=await api("/runs/"+runId+"?after="+after); if(currentRun?.id!==runId)return;
-    currentRun=result; runEvents.push(...result.events); runEvents=runEvents.slice(-600);
+    const result=await api("/runs/"+runId+"?after="+after);
+    if(currentRun?.id!==runId)return;
+    if(!Array.isArray(result.events))throw Error("The run monitor received an incomplete update.");
+    lastPollError="";
+    currentRun=result;
+    if(result.events_truncated) {
+      monitorEventsTruncated=true;
+      runEvents=result.events.slice(-600);
+    } else {
+      const known=new Set(runEvents.map(event=>event.sequence));
+      runEvents.push(...result.events.filter(event=>!known.has(event.sequence)));
+      runEvents=runEvents.slice(-600);
+    }
     if(result.session){id("taskMode").value=result.session.task_mode||"build";renderSession(result.session);}
     else if(result.error&&!busy()){currentRun=null;renderSession(currentSession);}
     else renderControls();
@@ -740,9 +795,15 @@ async function pollRun() {
     renderMonitor();
     const changeKey=(result.session?.changed_files||[]).join()+":"+(result.session?.actions?.length||0);
     if(tab==="changes"&&changeKey!==lastChangeKey) { lastChangeKey=changeKey; await loadChanges(); }
+    if(currentRun?.id!==runId)return;
     if(busy())schedulePoll();
     else { await Promise.all([loadFiles(),loadHistory()]); renderControls(); if(appState.account?.enabled)await refreshAccount(); }
-  } catch(error) { toast(error.message); id("monitorHeartbeat").textContent="Connection lost. Retrying; the engine may still be working."; if(busy())schedulePoll(2000); }
+  } catch(error) {
+    if(currentRun?.id!==runId)return;
+    if(lastPollError!==error.message){toast(error.message);lastPollError=error.message;}
+    id("monitorHeartbeat").textContent="Run monitor disconnected. Reconnecting; your saved task is not being restarted.";
+    if(busy())schedulePoll(2000);
+  } finally {pollInFlight=false;}
 }
 async function startTask(event,resumeOnly=false,goalOverride=null) {
   event?.preventDefault(); if(startingRun||busy()||transferBusy)return;
@@ -754,7 +815,7 @@ async function startTask(event,resumeOnly=false,goalOverride=null) {
   startingRun=true;id("taskError").hidden=true;renderControls();
   try {
     const result=await api("/runs",{project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:currentSession?.undone?null:currentSession?.id,review_edits:isCloud?false:id("reviewEdits").checked,task_mode:id("taskMode").value});
-    currentRun=result; runEvents=[]; lastChangeKey=""; if(!resumeOnly&&!explicitGoal){id("goal").value="";clearDraft();} changeView("build"); renderSession(currentSession); schedulePoll(50);
+    currentRun=result; runEvents=[]; monitorEventsTruncated=false; lastPollError=""; lastChangeKey=""; if(!resumeOnly&&!explicitGoal){id("goal").value="";clearDraft();} changeView("build"); renderSession(currentSession); schedulePoll(50);
   } catch(error) {
     id("taskError").hidden=false;id("taskError").textContent=error.message+" Your prompt is kept. Refresh the workspace to check for a running task before retrying.";
     // A lost response must not cause an automatic second model request.
@@ -763,7 +824,16 @@ async function startTask(event,resumeOnly=false,goalOverride=null) {
   } finally { startingRun=false;renderControls(); }
 }
 async function startDemo() { if(startingRun||busy())return; id("demoButton").disabled=true; try { const result=await api("/demo",{}); currentRun=result.run; projectId=result.project.id; runEvents=[]; currentSession=null; await refreshState(); renderSession(null); changeView("monitor"); schedulePoll(50); } finally { id("demoButton").disabled=false; } }
-async function answerApproval(allow) { if(!currentRun?.approval)return; id("allowCommand").disabled=true; id("denyCommand").disabled=true; try { await api("/runs/"+currentRun.id+"/approval",{approval_id:currentRun.approval.id,allow}); currentRun.approval=null; renderControls(); schedulePoll(10); } finally { id("allowCommand").disabled=false; id("denyCommand").disabled=false; } }
+async function answerApproval(allow,remember=false) {
+  if(!currentRun?.approval)return;
+  for(const name of ["allowCommand","denyCommand","allowRepeatCommand"])id(name).disabled=true;
+  try {
+    await api("/runs/"+currentRun.id+"/approval",{approval_id:currentRun.approval.id,allow,remember});
+    currentRun.approval=null;renderControls();schedulePoll(10);
+  } finally {
+    for(const name of ["allowCommand","denyCommand","allowRepeatCommand"])id(name).disabled=false;
+  }
+}
 
 function openSettings() {
   if(appState?.account?.enabled){openAccount();return;}
@@ -960,7 +1030,7 @@ function renderMonitor() {
   id("monitorAction").textContent=currentRun?.current_action||(session?"Saved task: "+session.goal:"No active task");
   id("monitorStatus").textContent=friendly(currentRun?.status||session?.status);
   id("monitorStatus").className="status-badge "+(currentRun?.status||session?.status||"");
-  id("monitorHeartbeat").textContent=currentRun?"Last event "+new Date(currentRun.last_activity||currentRun.created).toLocaleTimeString()+" · "+(currentRun.mode==="demo"?"Scripted offline demo":shortModel(appState?.settings.model||""))+(currentRun.log_truncated?" · saved log reached its size limit":""):session?"Saved activity from this device. No task is running.":"Start a task to see every operation here.";
+  id("monitorHeartbeat").textContent=currentRun?"Last event "+new Date(currentRun.last_activity||currentRun.created).toLocaleTimeString()+" · "+(currentRun.mode==="demo"?"Scripted offline demo":shortModel(appState?.settings.model||""))+(monitorEventsTruncated?" · older live events omitted; download log for history":"")+(currentRun.log_truncated?" · saved log reached its size limit":""):session?"Saved activity from this device. No task is running.":"Start a task to see every operation here.";
   id("monitorElapsed").textContent=currentRun?duration(currentRun.elapsed_seconds):events.length?duration(events[events.length-1].elapsed):"—";
   id("monitorCalls").textContent=session?.usage?.calls??"—";
   id("monitorFiles").textContent=session?.changed_files?.length||0;
@@ -1171,7 +1241,8 @@ id("newTask").onclick=()=>action(()=>newTask(true));
 id("taskForm").onsubmit=e=>action(()=>startTask(e));
 id("demoButton").onclick=()=>action(startDemo);
 id("stopButton").onclick=()=>action(async()=>{if(currentRun){currentRun=await api("/runs/"+currentRun.id+"/stop",{});renderControls();schedulePoll(20);}});
-id("allowCommand").onclick=()=>action(()=>answerApproval(true)); id("denyCommand").onclick=()=>action(()=>answerApproval(false));
+id("allowCommand").onclick=()=>action(()=>answerApproval(true));
+id("allowRepeatCommand").onclick=()=>action(()=>answerApproval(true,true)); id("denyCommand").onclick=()=>action(()=>answerApproval(false));
 id("toggleChecks").onclick=()=>{id("verificationFields").hidden=!id("verificationFields").hidden;scheduleDraftSave();if(!id("verificationFields").hidden)id("verifyCommands").focus();};
 id("settingsButton").onclick=openSettings; id("modelButton").onclick=openSettings;
 id("settingsForm").onsubmit=e=>{e.preventDefault();action(()=>saveSettings());}; id("testConnection").onclick=()=>action(()=>saveSettings(true));
@@ -1254,6 +1325,9 @@ function renderCloudState(){
   if(!isCloud)return;
   id("workspaceModeSwitch").hidden=false;id("topAccountButton").hidden=false;
   const available=Boolean(appState.account?.ready&&appState.engine?.available);
+  id("workspaceModeSwitch").classList.toggle("offline",!available);
+  id("workspaceModeSwitch").querySelector(".workspace-mode-label").textContent=available?"Cloud connected":"Cloud offline";
+  id("workspaceModeSwitch").title=available?"Cloud workspace connected. Click to check again.":"Cloud workspace unavailable. Click to retry.";
   if(available){clearTimeout(cloudReconnectTimer);cloudReconnectTimer=null;}else if(appState.account?.ready)scheduleCloudReconnect();
   id("projectPath").textContent=appState.projects.find(p=>p.id===projectId)?.name||"Cloud workspace";
   id("projectPath").title="Your account's cloud project";
@@ -1271,6 +1345,11 @@ if(isCloud){
   id("projectDialog").querySelector('.settings-note').textContent="Create a project, then import files or ask the agent to build it.";
   id("briefDialog").querySelector('.settings-note').textContent="Saved with this cloud project. Keep credentials out of the brief.";
   id("topAccountButton").onclick=openAccount;
+  id("workspaceModeSwitch").onclick=()=>action(async()=>{
+    id("workspaceModeSwitch").disabled=true;
+    try{await refreshState();toast(appState.engine?.available?"Cloud workspace connected.":appState.engine?.message||"Cloud workspace is still unavailable.");}
+    finally{id("workspaceModeSwitch").disabled=false;}
+  });
   if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
   window.addEventListener('storage',event=>{if(event.key==='sparkle_device_secret')location.reload();});
 }

@@ -40,6 +40,13 @@ def parse_completion(data: dict, tool_format: str) -> Completion:
             raise ValueError("Expected a message object.")
         content = message.get("content") or ""
         reason = choice.get("finish_reason") or "stop"
+        # Some OpenAI-compatible gateways return a list of text blocks instead
+        # of a single string. Normalize only actual text, never reasoning blocks.
+        if isinstance(content, list):
+            if not all(isinstance(part, dict) and part.get("type") == "text"
+                       and isinstance(part.get("text"), str) for part in content):
+                raise ValueError("Expected text content.")
+            content = "\n".join(part["text"] for part in content)
         if not isinstance(content, str):
             raise ValueError("Expected text content.")
         calls = message.get("tool_calls") or []

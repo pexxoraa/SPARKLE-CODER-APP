@@ -107,6 +107,13 @@ def explain_checks(state):
 
 
 def simple_recovery(state, message="", action="checks"):
+    if action == "instructions" and isinstance(state.get("input_request"), dict):
+        request = state["input_request"]
+        return {"title": "Your answer is needed", "message": (request.get("question", "") + " " + request.get("next_step", "")).strip(),
+                "what_happened": request.get("question", ""),
+                "meaning": "SPARKLE has saved the work so far and is waiting for this specific decision.",
+                "next_step": request.get("next_step", "Reply in the task box, then continue."),
+                "technical_details": message, "action": "instructions", "can_auto_fix": False}
     if action == "checks":
         issue = explain_checks(state)[0]
         return {**issue, "message": issue["what_happened"], "action": action}
@@ -119,7 +126,9 @@ def simple_recovery(state, message="", action="checks"):
             explanation = "The model service is temporarily limiting requests. Your project is saved."
         return {"title": title, "message": explanation, "what_happened": explanation,
                 "meaning": "This is a connection issue, not proof of a problem in your project.",
-                "next_step": "Open Connection settings, test the connection, then resume the saved task.",
+                 "next_step": ("Open Account to check access and credits, then resume the saved task."
+                              if "HTTP 401" in message or "HTTP 402" in message else
+                              "Check the model connection, then resume the saved task. If the provider is down, retry later."),
                 "technical_details": message, "action": "connection", "can_auto_fix": False}
     return {"title": "One detail is needed to continue", "message": message[:800],
             "what_happened": message[:800], "meaning": "Your work is saved.",

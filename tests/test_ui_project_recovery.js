@@ -43,7 +43,7 @@ async function check() {
     throw new Error("Unexpected request: "+route);
   };
   const ui=new Function("id","node","api","busy","toast","loadFiles","loadHistory","newTask","initial",
-    'let appState=initial,projectId="ready",startingRun=false,transferBusy=false,selectedFile="",fileData=null; function saveDraftNow(){}\n'+sections+
+    'let appState=initial,projectId="ready",startingRun=false,transferBusy=false,selectedFile="",fileData=null,currentRun=null,currentSession=null,runEvents=[],lastMessageKey="",lastConsoleKey="",monitorEventsTruncated=false; function saveDraftNow(){} function renderSession(){} function changeView(){} function schedulePoll(){}\n'+sections+
     '\nasync function refreshState(){appState=await api("/state");renderProjects();}\n'+
     'return {renderProjects,openReconnect,reconnectProject,selectProject,retryProjectMigration,selected:()=>projectId};')(
       id,node,api,()=>working,message=>toasts.push(message),async()=>loads++,async()=>loads++,async()=>{},state);
@@ -77,7 +77,10 @@ async function check() {
   assert.equal(toasts.length,1);
   assert.match(toasts[0],/Project reconnected/);
   assert(requests.some(r=>r.route==="/projects/missing/reconnect"&&r.body.path==="/found/project"));
+  working=true;
   await ui.selectProject("ready");
+  assert.equal(ui.selected(),"ready","switching to another project should stay possible while a task runs");
+  working=false;
   state.projects[1].available=false;state.projects[1].migration_pending="This project is locked by a running app.";
   ui.renderProjects();
   assert.equal(id("missingProjectsNotice").hidden,true);

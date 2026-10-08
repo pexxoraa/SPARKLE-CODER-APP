@@ -101,7 +101,9 @@ class HostedAppService(AppService):
             raise ValueError('The scripted desktop demo is not a hosted task.')
         kwargs['review_edits'] = False
         with self.manager.lock:
-            if sum(bool(app.active()) for app in self.manager.apps.values()) >= self.manager.max_running:
+            # Count real runs, not tenants. A member may have two independent
+            # projects running; they must still respect the owner's global cap.
+            if sum(len(app.active_jobs()) for app in self.manager.apps.values()) >= self.manager.max_running:
                 raise ValueError('The coding server is busy. Retry shortly; no model call was started.')
             return super().start(*args,**kwargs)
 

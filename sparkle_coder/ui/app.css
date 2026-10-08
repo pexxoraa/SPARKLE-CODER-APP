@@ -43,3 +43,9 @@
 .token-package strong{font-size:11px}.token-package span{font-size:10px;color:var(--muted)}.token-package small{font-size:10px}
 .token-package.custom small{color:var(--muted)}
 @media(max-width:760px){.token-package-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Cloud state can be inspected and retried directly from the header. */
+.workspace-mode-switch{cursor:pointer;gap:4px;background:var(--surface);color:var(--text)}
+.workspace-mode-switch.offline{color:var(--muted);border-style:dashed}
+.workspace-mode-switch:disabled{opacity:.65;cursor:wait}
+.workspace-mode-switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
