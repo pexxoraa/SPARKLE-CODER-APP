@@ -197,7 +197,7 @@ def select_skills(goal, *, task_profile="standard", limit=12, domains=()):
                     prioritized.append(skill)
         # Generic "fix this project" previously let generic debugging skills
         # consume the limit before the actual domain expertise was reached.
-        if len(chosen) <= 4:
+        if len(chosen) >= max(0, int(limit)):
             chosen = ([name for name in chosen if name == "delivery_excellence"]
                       + prioritized
                       + [name for name in chosen if name != "delivery_excellence"
