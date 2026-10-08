@@ -88,6 +88,11 @@ class Workspace:
         elif not self.root.is_dir():
             raise WorkspaceError(f"This project folder is unavailable: {self.root}. "
                                  "Reconnect its drive or use Find folder to choose its current location.")
+        # Cache only content digests with fresh stat validation. Shell/build
+        # tools may edit files outside the journal, so names and metadata are
+        # still checked on every fingerprint request. On Windows we avoid
+        # trusting ctime as a modification signal (it can mean creation time).
+        self._fingerprint_file_cache = {}
         self.state_dir = self.root / ".nemotron"
         if self.state_dir.is_symlink():
             raise WorkspaceError(".nemotron must not be a symlink.")
@@ -166,16 +171,49 @@ class Workspace:
         return "\n\n".join(guides)[:24000]
 
     def fingerprint(self) -> str | None:
-        """Stream project contents so large projects can also have fresh checks."""
+        """Hash project contents, avoiding repeated unchanged-file reads.
+
+        Explicit stat checks preserve detection of edits from command runners
+        and external programs, while a bounded per-workspace cache prevents
+        repeatedly streaming megabytes through model-context preparation.
+        """
         digest = hashlib.sha256()
+        cached = self._fingerprint_file_cache
+        seen = set()
         try:
             for relative in self.files(limit=None):
                 p = self.path(relative)
+                before = p.stat()
+                stamp = (before.st_dev, before.st_ino, before.st_size,
+                         before.st_mtime_ns, before.st_ctime_ns)
+                record = cached.get(relative) if os.name != "nt" else None
+                if record is not None and record[0] == stamp:
+                    content_digest = record[1]
+                else:
+                    content = hashlib.sha256()
+                    with p.open("rb") as stream:
+                        for chunk in iter(lambda: stream.read(128 * 1024), b""):
+                            content.update(chunk)
+                    after = p.stat()
+                    if stamp != (after.st_dev, after.st_ino, after.st_size,
+                                 after.st_mtime_ns, after.st_ctime_ns):
+                        # A file changed while it was read. Never attach
+                        # acceptance evidence to an uncertain snapshot.
+                        cached.pop(relative, None)
+                        return None
+                    content_digest = content.digest()
+                    if os.name != "nt" and len(cached) < 4096:
+                        cached[relative] = (stamp, content_digest)
+                seen.add(relative)
                 digest.update(relative.encode() + b"\0")
-                with p.open("rb") as stream:
-                    for chunk in iter(lambda: stream.read(128 * 1024), b""):
-                        digest.update(chunk)
+                # Preserve the previous workspace fingerprint byte-for-byte:
+                # it hashed raw file bytes, not their individual hash values.
+                # Use a separate, versioned digest only when safely migrating
+                # persisted check fingerprints in a future release.
+                digest.update(content_digest)
                 digest.update(b"\0")
+            for removed in set(cached) - seen:
+                cached.pop(removed, None)
         except (OSError, WorkspaceError):
             return None
         return digest.hexdigest()
