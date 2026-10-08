@@ -400,9 +400,13 @@ class AppService:
     def suggest_brief(self, project_id):
         _, workspace = self.project(project_id)
         saved = read_brief(workspace)
-        history = self.history(project_id)
+        # Project purpose is the earliest implementation goal, not whichever
+        # session was updated last. Sort explicitly by creation time; existing
+        # second-resolution records use a stable ID tie-break.
+        history = sorted(self.history(project_id),
+                         key=lambda item: (item.get("created") or "", item["id"]))
         goals = []
-        for item in reversed(history):
+        for item in history:
             try:
                 state = Session.load(workspace, item["id"]).state
             except (OSError, ValueError):

@@ -36,7 +36,7 @@ class Session:
     def create(cls, workspace: Workspace, goal: str, verify: list[str], model: dict):
         brief = read_brief(workspace)["brief"]
         session = cls(workspace, {
-            "version": 1, "id": uuid.uuid4().hex[:12], "created": now(),
+            "version": 1, "id": uuid.uuid4().hex[:12], "created": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
             "goal": goal, "user_requests": [goal], "status": "running", "model": model, "required_checks": verify,
             "messages": [{"role": "user", "content": goal}],
             # Only actual accepted answers appear in the conversation. Tool

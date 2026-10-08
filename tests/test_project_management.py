@@ -112,8 +112,12 @@ class ProjectManagementTests(unittest.TestCase):
     def test_brief_draft_is_based_only_on_real_user_task_goals(self):
         project = self.app.add_project("Draft from my work")
         workspace = self.app.project(project["id"])[1]
-        Session.create(workspace, "Build a contact form", [], {})
-        Session.create(workspace, "Make the contact form keyboard accessible", [], {})
+        first = Session.create(workspace, "Build a contact form", [], {})
+        later = Session.create(workspace, "Make the contact form keyboard accessible", [], {})
+        # Creation order remains stable even when earlier tasks are revisited.
+        self.assertLess(first.state["created"], later.state["created"])
+        first.state["summary"] = "Reviewed the initial design later"
+        first.save()
         question = Session.create(workspace, "What does Python mean?", [], {})
         question.state["task_mode"] = "ask"
         question.save()
