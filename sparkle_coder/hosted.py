@@ -196,8 +196,8 @@ class Tenants:
         self.relay_secret,self.image,self.max_running=relay_secret,image,max_running
         self.queue=EngineQueue(max_running)
         self.provider_factory=provider_factory
-        if type(max_running) is not int or not 1<=max_running<=3:
-            raise ValueError('Use 1–3 simultaneous runs.')
+        if type(max_running) is not int or not 1<=max_running<=5:
+            raise ValueError('Use 1–5 simultaneous coding sessions. Host Docker command slots are limited separately.')
         self.apps={};self.lock=threading.RLock()
 
     def get(self, identity, secret, receipt):

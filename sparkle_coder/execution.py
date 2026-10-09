@@ -11,6 +11,34 @@ from .config import Config
 from .workspace import Workspace
 
 
+# Shared across every cloud tenant in this engine process. The owner can admit
+# five coding sessions while running only one resource-heavy Docker command on
+# a small VM. When the VM is upgraded, SPARKLE_HOSTED_COMMAND_SLOTS can be
+# increased after load testing. Never expose the variable to command children.
+_hosted_gate_lock = threading.Lock()
+_hosted_gates = {}
+
+
+def hosted_command_slots():
+    raw = os.environ.get('SPARKLE_HOSTED_COMMAND_SLOTS', '1')
+    if not raw.isdecimal() or not 1 <= int(raw) <= 5:
+        raise ValueError('The hosted command slot limit must be between 1 and 5.')
+    return int(raw)
+
+
+def hosted_command_gate():
+    count = hosted_command_slots()
+    with _hosted_gate_lock:
+        if count not in _hosted_gates:
+            _hosted_gates[count] = threading.BoundedSemaphore(count)
+        return _hosted_gates[count]
+
+
+def hosted_docker_cpu_limit():
+    # Leave CPU room for the web server and model proxy when tools run.
+    return str(max(1, min(2, (os.cpu_count() or 2) // hosted_command_slots())))
+
+
 def child_environment(*, docker: bool = False) -> dict[str, str]:
     allowed = {
         "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMP", "TEMP", "TMPDIR",
@@ -104,11 +132,36 @@ class CommandRunner:
             return {"ok": False, "exit_code": None, "cancelled": True,
                     "output": "Task stopped before this command started."}
         container = None
+        hosted_gate = None
+        gate_acquired = False
+        if self.config.execution == "docker" and getattr(self.config, '_runtime_cloud', False):
+            hosted_gate = hosted_command_gate()
+            if not hosted_gate.acquire(blocking=False):
+                self.observe('command_wait', {'reason': 'Waiting for shared Docker execution capacity. The source files and this run remain saved.'})
+                while not hosted_gate.acquire(timeout=0.2):
+                    if self.should_stop():
+                        return {"ok": False, "exit_code": None, "cancelled": True,
+                                "output": "Stopped while waiting for a shared coding command slot."}
+            gate_acquired = True
+        if self.should_stop():
+            if gate_acquired:
+                hosted_gate.release()
+            return {"ok": False, "exit_code": None, "cancelled": True,
+                    "output": "Task stopped before the coding command started."}
+        try:
+            return self._run_admitted_command(command, cwd, timeout, path, trusted)
+        finally:
+            if gate_acquired:
+                hosted_gate.release()
+
+    def _run_admitted_command(self, command, cwd, timeout, path, trusted):
+        container = None
         if self.config.execution == "docker":
             container = "sparkle-coder-" + uuid.uuid4().hex[:12]
             args = ["docker", "run", "--pull=never", "--rm", "--init", "--name", container,
                     "--cap-drop=ALL", "--security-opt=no-new-privileges",
-                    "--pids-limit=256", "--memory=4g", "--cpus=2", "--read-only",
+                    "--pids-limit=256", "--memory=4g",
+                    "--cpus=" + (hosted_docker_cpu_limit() if getattr(self.config, '_runtime_cloud', False) else "2"), "--read-only",
                     "--tmpfs", "/tmp:rw,exec,size=512m",
                     "--network", "bridge" if self.config.docker_network else "none",
                     "--mount", f"type=bind,src={self.workspace.root},dst=/workspace",

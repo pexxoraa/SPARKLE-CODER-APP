@@ -191,6 +191,44 @@ class CloudEngineTests(unittest.TestCase):
         self.assertEqual(stored.state['messages'][0]['content'],goal)
         self.assertEqual(self.request('/api/runs',{'project_id':pid,'goal':'x'*48001})[0],400)
 
+    def test_five_real_accounts_start_with_one_shared_server(self):
+        from uuid import UUID
+        class HoldingProvider:
+            entered=threading.Event()
+            release=threading.Event()
+            lock=threading.Lock()
+            count=0
+            def __init__(self, config):pass
+            def complete(self, messages, schemas):
+                with HoldingProvider.lock:
+                    HoldingProvider.count+=1
+                    if HoldingProvider.count==5:HoldingProvider.entered.set()
+                if not HoldingProvider.release.wait(4):raise AssertionError('Five-account test was not released')
+                return calls(('request_input',{'question':'Continue?', 'next_step':'Next request.'}))
+        self.manager.provider_factory=HoldingProvider
+        self.manager.queue=EngineQueue(5)
+        accounts=[str(UUID(int=i+50)) for i in range(6)]
+        ids=[self.project(user).split('/')[-1] for user in accounts]
+        runs=[]
+        try:
+            for user,project_id in zip(accounts,ids):
+                runs.append(self.api('/api/runs',{'project_id':project_id,'goal':'Coding task '+user},user=user))
+            self.assertTrue(HoldingProvider.entered.wait(2),'All five should enter model execution')
+            self.assertEqual(HoldingProvider.count,5)
+            self.assertEqual(len(self.manager.queue.running),5)
+            self.assertEqual(runs[5]['status'],'queued')
+        finally:
+            HoldingProvider.release.set()
+        for user,run in zip(accounts,runs):
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline:
+                state=self.api('/api/runs/'+run['id'],user=user)
+                if state['status'] not in ACTIVE:break
+                time.sleep(.015)
+            self.assertNotIn(state['status'],ACTIVE)
+        self.assertEqual(HoldingProvider.count,6)
+        self.assertEqual(len(self.manager.queue.running),0)
+
     def test_global_cloud_capacity_queues_second_account_instead_of_busy_error(self):
         entered=threading.Event()
         release=threading.Event()

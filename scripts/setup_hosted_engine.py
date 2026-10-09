@@ -39,8 +39,8 @@ def read_config():
     value['gateway_url']=https_origin(value['gateway_url'])
     if not isinstance(value.get('relay_secret'),str) or len(value['relay_secret'])<43:
         raise ValueError('The engine configuration has no valid relay secret.')
-    if type(value.get('max_running',1)) is not int or not 1<=value.get('max_running',1)<=3:
-        raise ValueError('Use 1–3 concurrent runs.')
+    if type(value.get('max_running',1)) is not int or not 1<=value.get('max_running',1)<=5:
+        raise ValueError('Use 1–5 concurrent coding sessions.')
     return value
 
 
