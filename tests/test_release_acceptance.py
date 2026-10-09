@@ -21,7 +21,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         files = ['pyproject.toml', 'package.json', 'sparkle_coder/__init__.py',
                  'sparkle_coder/distribution.json', 'sparkle_coder/ui/app.js',
                  'sparkle_coder/ui/app.css', 'gateway/public/agent.js',
-                 'gateway/public/agent.css', 'packaging/windows.iss']
+                 'gateway/public/agent.css', 'gateway/src/worker.mjs', 'packaging/windows.iss']
         for name in files:
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -39,6 +39,7 @@ class ReleaseAcceptanceTests(unittest.TestCase):
             ('packaging/windows.iss', 'AppVersion "0.8.0"', 'AppVersion "0.7.0"'),
             ('sparkle_coder/__init__.py', '__version__ = "0.8.0"', '__version__ = "0.7.0"'),
             ('package.json', '"version": "0.8.0"', '"version": "0.7.0"'),
+            ('gateway/src/worker.mjs', "version:'0.8.0'", "version:'0.7.0'"),
         ]:
             with self.subTest(name=name):
                 target = self.root / name
