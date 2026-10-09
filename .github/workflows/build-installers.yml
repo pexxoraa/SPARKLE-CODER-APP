@@ -61,8 +61,51 @@ jobs:
           node-version: "24"
       - run: npm test
 
+  verify-release:
+    name: Release metadata and performance acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify version parity, cloud UI bundle and tag
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        run: python scripts/release_acceptance.py source --tag "$RELEASE_TAG"
+      - name: Require tagged commit to belong to main history
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::Release tag must point to a commit in main history."
+            exit 1
+          fi
+      - name: Require configured tester gateway for tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SPARKLE_PILOT_URL: ${{ vars.SPARKLE_PILOT_URL }}
+        run: |
+          if [ -z "$SPARKLE_PILOT_URL" ]; then
+            echo "::error::Tagged tester releases require SPARKLE_PILOT_URL. No personal build will be published as a tester release."
+            exit 1
+          fi
+          python scripts/configure_pilot.py --url "$SPARKLE_PILOT_URL"
+      - name: Run bounded workspace fingerprint performance smoke
+        run: python scripts/release_acceptance.py performance --output acceptance-performance.json
+      - name: Publish non-sensitive performance measurements
+        if: always()
+        run: |
+          if [ -f acceptance-performance.json ]; then
+            cat acceptance-performance.json
+          fi
+
   build:
-    needs: [verify-python, verify-gateway, verify-migrations, verify-ui]
+    needs: [verify-python, verify-gateway, verify-migrations, verify-ui, verify-release]
     if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
@@ -135,6 +178,9 @@ jobs:
         shell: bash
         run: |
           python -c "import json,pathlib; d=json.loads(pathlib.Path('sparkle_coder/distribution.json').read_text()); pathlib.Path('out/EDITION.txt').write_text(d['mode']+' edition\n'+d['gateway_url']+'\n')"
+      - name: Create per-platform SHA-256 acceptance manifest
+        shell: bash
+        run: python scripts/release_acceptance.py artifact --platform "$RUNNER_OS" --arch "$RUNNER_ARCH"
       - uses: actions/upload-artifact@v4
         with:
           name: SPARKLE-CODER-${{ runner.os }}-${{ runner.arch }}
@@ -146,10 +192,16 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
           path: release
           merge-multiple: true
+      - name: Verify exact version, matching editions and SHA-256 of all release artifacts
+        run: python scripts/release_acceptance.py aggregate --directory release --require-pilot
       - uses: softprops/action-gh-release@v2
         with:
           files: release/*

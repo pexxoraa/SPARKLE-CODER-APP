@@ -1,6 +1,7 @@
 """User-requested image sourcing and original non-AI SVG graphic creation."""
 from html import escape
 from pathlib import PurePosixPath
+from urllib.parse import urlsplit
 import re
 
 from .files import UserFiles
@@ -18,6 +19,20 @@ def import_commons_image(workspace, query, url):
     """Revalidate metadata at source rather than trusting browser-supplied license."""
     if not isinstance(url, str) or len(url)>2048:
         raise ValueError('Select an image from the search results.')
+    # Commons search returns raster download URLs on these Wikimedia hosts.
+    # Reject obviously unrelated hosts *before* querying the network while
+    # holding the project lock. The downstream downloader still validates
+    # public DNS, redirects, bytes, size and media signature.
+    try:
+        parsed=urlsplit(url)
+        trusted=(parsed.scheme=='https' and parsed.hostname in
+                 ('upload.wikimedia.org','commons.wikimedia.org') and
+                 not parsed.username and not parsed.password and
+                 parsed.port in (None,443) and not parsed.fragment)
+    except ValueError:
+        trusted=False
+    if not trusted:
+        raise ValueError('Search results changed. Search again and choose the Wikimedia image you want.')
     result=search_public_assets(query,8)
     selected=next((r for r in result['results'] if r['url']==url),None)
     if not selected:
