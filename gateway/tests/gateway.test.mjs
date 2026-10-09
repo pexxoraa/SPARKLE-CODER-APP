@@ -418,3 +418,20 @@ test('cross-site password rotation is blocked before a device can be modified',a
    {email:'tester@example.com',password:'TestPass123!'},
    {secret:'device_'+crypto.randomUUID().replaceAll('-','')+'C'.repeat(20)})).status,200);
 });
+
+test('password-change guessing is rate-limited and cannot bypass authentication',async()=>{
+ const f=fixture();await f.approve();
+ for(let attempt=0;attempt<10;attempt++){
+  const result=await f.api('/api/account/password',
+    {current_password:'incorrect-secret',password:'NewPassword123!'});
+  assert.equal(result.status,401);
+ }
+ const limited=await f.api('/api/account/password',
+   {current_password:'TestPass123!',password:'NewPassword123!'});
+ assert.equal(limited.status,429);
+ assert.equal((await f.api('/api/me')).status,200);
+ const fresh='device_'+crypto.randomUUID().replaceAll('-','')+'D'.repeat(20);
+ assert.equal((await f.api('/api/login',
+   {email:'tester@example.com',password:'TestPass123!'},{secret:fresh})).status,200,
+   'a throttled password change must not alter credentials');
+});
