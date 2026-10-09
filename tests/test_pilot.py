@@ -256,7 +256,21 @@ class AccountReceiptTests(unittest.TestCase):
         self.assertEqual(reopened.secret,original);self.assertTrue(result['enrolled'])
 
 
-@unittest.skipUnless(shutil.which('node'),'Node 24 required for gateway integration')
+def node24_available():
+    """Node being installed is insufficient; the gateway needs node:sqlite."""
+    executable = shutil.which('node')
+    if not executable:
+        return False
+    try:
+        result = subprocess.run([executable, '--version'], capture_output=True,
+                                text=True, timeout=3, check=False)
+        return result.returncode == 0 and result.stdout.startswith('v') and (
+            int(result.stdout[1:].split('.', 1)[0]) >= 24)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return False
+
+
+@unittest.skipUnless(node24_available(),'Node 24 required for gateway integration')
 class DesktopGatewayTests(unittest.TestCase):
     def test_signup_approval_model_usage_restart_and_credit_reload(self):
         root=Path(__file__).resolve().parents[1]
