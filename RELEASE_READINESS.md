@@ -21,7 +21,10 @@ calls. No tag or production release is created automatically.
 5. Windows, Linux and macOS must package a working Python runtime, pass real
    executable smoke tests, and upload assets. Windows also runs installer,
    upgrade, uninstall and existing-user-data preservation checks.
-6. Every platform produces an acceptance JSON manifest with release version,
+6. A separate main-branch distribution-integrity job downloads all three
+   build artifacts, checks their actual SHA-256 hashes, versions and editions,
+   and blocks tagged release publication if the aggregate check fails.
+7. Every platform produces an acceptance JSON manifest with release version,
    OS/arch, edition, gateway URL, asset name, size and SHA-256. Tagged release
    publishing verifies all three hashes and refuses mixed editions, invalid
    version tags, or a personal edition disguised as a tester release.
