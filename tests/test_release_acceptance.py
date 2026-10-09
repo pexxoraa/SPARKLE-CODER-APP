@@ -109,6 +109,14 @@ class ReleaseAcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(AcceptanceError, 'Bundled project Python'):
             create_artifact_manifest(self.root, platform='Windows', arch='X64')
 
+    def test_main_build_checks_all_platform_manifests_before_release(self):
+        workflow = (ROOT / '.github/workflows/build-installers.yml').read_text('utf-8')
+        self.assertIn('verify-distribution:', workflow)
+        self.assertIn('needs: [build, verify-distribution]', workflow)
+        self.assertIn('python scripts/release_acceptance.py aggregate --directory release', workflow)
+        self.assertIn('pattern: SPARKLE-CODER-*', workflow)
+        self.assertIn('python scripts/release_acceptance.py aggregate --directory release --require-pilot', workflow)
+
     def test_perf_smoke_detects_actual_edits_and_reports_measured_latency(self):
         result = performance_smoke(count=24, file_bytes=1024,
                                    cold_limit_ms=5000, warm_limit_ms=5000)
