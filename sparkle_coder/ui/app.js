@@ -156,7 +156,7 @@ id("app").innerHTML = `
         <div id="monitorView" class="page-view monitor-view" hidden>
           <div class="view-heading"><div><span class="eyebrow">YOU CONTROL THE WORK</span><h1>Run monitor</h1></div><div class="monitor-controls"><button id="monitorPause" class="button secondary" disabled>Pause</button><button id="monitorStop" class="button danger" disabled>Stop</button></div></div>
           <div class="monitor-current"><span class="pulse-dot"></span><div><strong id="monitorAction">No active task</strong><span id="monitorHeartbeat">Start a task to see every operation here.</span></div><span class="status-badge" id="monitorStatus">Ready</span></div>
-          <div class="monitor-metrics"><div><span>ELAPSED</span><strong id="monitorElapsed">—</strong></div><div><span>MODEL CALLS</span><strong id="monitorCalls">—</strong></div><div><span>FILE-TOOL CHANGES</span><strong id="monitorFiles">0</strong></div><div><span>CHECKS PASSED</span><strong id="monitorChecks">0 / 0</strong></div></div>
+          <div class="monitor-metrics"><div><span>ELAPSED</span><strong id="monitorElapsed">—</strong></div><div><span>MODEL REQUEST ATTEMPTS</span><strong id="monitorCalls">—</strong></div><div><span>FILE-TOOL CHANGES</span><strong id="monitorFiles">0</strong></div><div><span>CHECKS PASSED</span><strong id="monitorChecks">0 / 0</strong></div></div>
           <div class="monitor-plan"><span id="planProgress">No plan recorded yet.</span><progress id="planProgressBar" max="1" value="0" hidden></progress></div>
           <div class="monitor-grid"><section class="timeline-panel"><div class="panel-toolbar"><h2>Activity timeline</h2><button id="downloadReport" class="text-button" disabled>Save report</button></div><div id="eventTimeline" class="event-timeline"></div></section>
           <section class="console-panel"><div class="panel-toolbar"><h2>Command output</h2><div><button id="copyConsole" class="text-button">Copy</button><button id="downloadLog" class="text-button" disabled>Save log</button></div></div><label class="console-follow"><input id="followConsole" type="checkbox" checked> Follow new output</label><pre id="liveConsole" tabindex="0">Command output will appear here as it is emitted.</pre><p>Some programs buffer their output. The current action and elapsed time stay visible while you wait.</p></section></div>
@@ -170,7 +170,7 @@ id("app").innerHTML = `
         <div id="activityTab" class="inspector-content"><div id="plan"></div><div class="panel-label">ACTIVITY</div><div id="activityList" class="activity-list"><div class="empty-detail"><span data-icon="bolt"></span><strong>Ready when you are</strong><p>The agent's progress and decisions will appear here.</p></div></div></div>
         <div id="changesTab" class="inspector-content" hidden><div class="panel-toolbar"><span class="panel-label">FILE CHANGES</span><button id="undoButton" class="text-button" disabled><span data-icon="undo"></span>Undo</button></div><div id="changesList"></div></div>
         <div id="checksTab" class="inspector-content" hidden><div class="panel-label">VERIFICATION</div><div id="checksList"></div></div>
-        <div class="run-metrics"><div><span>MODEL CALLS</span><strong id="callsMetric">—</strong></div><div><span id="tokensMetricLabel">MODEL TOKENS</span><strong id="tokensMetric" title="Model input and output tokens for this task">—</strong><small id="tokensMetricDetail" class="usage-detail"></small></div><span class="metrics-icon" data-icon="bolt"></span></div>
+        <div class="run-metrics"><div><span>MODEL REQUEST ATTEMPTS</span><strong id="callsMetric">—</strong><small id="callsMetricDetail" class="usage-detail"></small></div><div><span id="tokensMetricLabel">MODEL TOKENS</span><strong id="tokensMetric" title="Model input and output tokens for this task">—</strong><small id="tokensMetricDetail" class="usage-detail"></small></div><span class="metrics-icon" data-icon="bolt"></span></div>
       </aside>
     </div>
   </main>
@@ -833,6 +833,24 @@ function appendText(parent,text) {
     else if(piece.trim()) parent.append(node("div","message-text",piece.trim()));
   });
 }
+function modelRequestCounts(usage){
+  // `calls` increments before a request. Failed/cancelled attempts may have
+  // no provider usage and are NOT completed/billed requests.
+  const attempts=usage?.calls;
+  if(!Number.isSafeInteger(attempts)||attempts<0)return {attempts:'—',detail:'',title:'No task usage recorded.'};
+  const confirmed=usage?.confirmed_calls,unreported=usage?.estimated_calls;
+  if(!Number.isSafeInteger(confirmed)||confirmed<0||
+     !Number.isSafeInteger(unreported)||unreported<0||confirmed+unreported>attempts){
+    return {attempts:attempts.toLocaleString(),detail:'Attempt count only · confirmation details unavailable',
+      title:'This legacy task recorded request attempts, not verified model completions or billed API calls.'};
+  }
+  const noResponse=attempts-confirmed-unreported;
+  const detail=confirmed.toLocaleString()+' confirmed · '+unreported.toLocaleString()+' missing usage'+
+    (noResponse?' · '+noResponse.toLocaleString()+' without accepted response':'');
+  return {attempts:attempts.toLocaleString(),detail,
+    title:'Attempts are counted before requesting the model. Confirmed calls have provider-reported token usage. '+
+      'An attempt without accepted response may have failed or been interrupted; billing is verified separately in Account.'};
+}
 function renderTokenUsage(usage){
   const inputValue=usage?.prompt_tokens,outputValue=usage?.completion_tokens;
   const known=Number.isSafeInteger(inputValue)&&inputValue>=0&&
@@ -1008,7 +1026,10 @@ function renderSession(session) {
   if(session && !busy()) renderRecovery(session);
   renderDelivery(session);
   renderRepairHistory(session);
-  id("callsMetric").textContent=session?.usage?.calls ?? "—";
+  const modelCounts=modelRequestCounts(session?.usage);
+  id("callsMetric").textContent=modelCounts.attempts;
+  id("callsMetricDetail").textContent=modelCounts.detail;
+  id("callsMetric").title=modelCounts.title;
   renderTokenUsage(session?.usage);
   renderTaskSnapshot(session);
   id("changeCount").textContent=session?.changed_files?.length||0; id("checkCount").textContent=session?.checks?.length||0;
@@ -2005,7 +2026,9 @@ function renderMonitor() {
   id("monitorStatus").className="status-badge "+(currentRun?.status||session?.status||"");
   id("monitorHeartbeat").textContent=currentRun?"Last event "+new Date(currentRun.last_activity||currentRun.created).toLocaleTimeString()+" · "+(currentRun.mode==="demo"?"Scripted offline demo":shortModel(appState?.settings.model||""))+(monitorEventsTruncated?" · older live events omitted; download log for history":"")+(currentRun.log_truncated?" · saved log reached its size limit":""):session?"Saved activity from this device. No task is running.":"Start a task to see every operation here.";
   id("monitorElapsed").textContent=currentRun?duration(currentRun.elapsed_seconds):events.length?duration(events[events.length-1].elapsed):"—";
-  id("monitorCalls").textContent=session?.usage?.calls??"—";
+  const modelCounts=modelRequestCounts(session?.usage);
+  id("monitorCalls").textContent=modelCounts.attempts;
+  id("monitorCalls").title=modelCounts.detail||modelCounts.title;
   id("monitorFiles").textContent=session?.changed_files?.length||0;
   const checks=(session?.checks||[]).filter(c=>c.active!==false);id("monitorChecks").textContent=(session?.proof?.passed??checks.filter(c=>c.ok).length)+" / "+(session?.proof?.total??checks.length);
   const plan=session?.plan||[],completed=plan.filter(p=>p.status==="completed").length;

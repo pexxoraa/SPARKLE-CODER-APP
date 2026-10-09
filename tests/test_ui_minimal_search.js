@@ -86,8 +86,21 @@ const ui=new Function("id","node","api","action","changeView","loadFiles","openF
  ui.renderGlobalSearch();
  assert.match(id("searchStatus").textContent,/Project changed/);
 
- const tokenCode=between("function renderTokenUsage(", "function renderSession(");
- const renderTokenUsage=new Function("id",tokenCode+";return renderTokenUsage;")(id);
+ const tokenCode=between("function modelRequestCounts(", "function renderSession(");
+ const {renderTokenUsage,modelRequestCounts}=new Function("id",tokenCode+
+   ";return {renderTokenUsage,modelRequestCounts};")(id);
+ const failures=modelRequestCounts({calls:8,confirmed_calls:5,estimated_calls:1});
+ assert.equal(failures.attempts,"8");
+ assert.match(failures.detail,/5 confirmed/);
+ assert.match(failures.detail,/1 missing usage/);
+ assert.match(failures.detail,/2 without accepted response/);
+ assert.equal(modelRequestCounts({calls:1,confirmed_calls:0,estimated_calls:0}).attempts,"1");
+ assert.match(modelRequestCounts({calls:1,confirmed_calls:0,estimated_calls:0}).detail,/without accepted response/);
+ assert.equal(modelRequestCounts({calls:1668}).attempts,"1,668");
+ assert.match(modelRequestCounts({calls:1668}).detail,/confirmation details unavailable/);
+ assert.match(modelRequestCounts({calls:4,confirmed_calls:5,estimated_calls:0}).detail,/confirmation details unavailable/);
+ assert.match(source,/MODEL REQUEST ATTEMPTS/);
+ assert.match(source,/id="callsMetricDetail"/);
  renderTokenUsage({prompt_tokens:1300,completion_tokens:700,calls:2});
  assert.equal(id("tokensMetric").textContent,"2,000");
  assert.equal(id("tokensMetricLabel").textContent,"MODEL TOKENS · REPORTED");
