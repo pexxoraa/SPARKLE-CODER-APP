@@ -52,6 +52,23 @@ class ExecutionRecoveryTests(unittest.TestCase):
         self.assertEqual(self.workspace.fingerprint(), previous_fingerprint(self.workspace))
         self.assertNotIn("app.py", self.workspace._fingerprint_file_cache)
 
+    def test_recent_coarse_timestamp_never_reuses_stale_file_bytes(self):
+        # Force a cache record to have the EXACT new stat tuple but stale
+        # content, as may happen when rapid same-size writes have coarse
+        # filesystem timestamps. This fails with the old unconditional cache.
+        if os.name == "nt":
+            self.skipTest("Windows already streams all fingerprint bytes.")
+        path = self.workspace.root / "quick.py"
+        path.write_text("value = 1\\n")
+        before = self.workspace.fingerprint()
+        path.write_text("value = 2\\n")
+        info = path.stat()
+        stamp = (info.st_dev, info.st_ino, info.st_size,
+                 info.st_mtime_ns, info.st_ctime_ns)
+        self.workspace._fingerprint_file_cache["quick.py"] = (stamp, b"value = 1\\n")
+        self.assertNotEqual(self.workspace.fingerprint(), before)
+        self.assertEqual(self.workspace.fingerprint(), previous_fingerprint(self.workspace))
+
     def test_large_files_are_streamed_and_small_cache_remains_bounded(self):
         (self.workspace.root / "large.bin").write_bytes(b"a" * 1_100_000)
         (self.workspace.root / "small.txt").write_bytes(b"tiny")
