@@ -44,6 +44,8 @@ def verify_source(root=ROOT, *, tag=''):
         'web package': json.loads((root / 'package.json').read_text('utf-8')).get('version'),
         'Windows installer': re.search(
             r'^#define AppVersion "([^"]+)"', (root / 'packaging/windows.iss').read_text('utf-8'), re.M),
+        'gateway status': re.search(
+            r"service:'sparkle-pilot',version:'([^']+)'", (root / 'gateway/src/worker.mjs').read_text('utf-8')),
     }
     for name, value in sources.items():
         actual = value.group(1) if hasattr(value, 'group') else value
