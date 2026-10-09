@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 for (const rel of ['sparkle_coder/ui/app.js', 'gateway/public/agent.js']) {
   const source = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
-  const start = source.indexOf('function renderFileButtons()');
+  const start = source.indexOf('function renderContextualPreview()');
   const end = source.indexOf('function openEditor(', start);
   assert.ok(start >= 0 && end > start, `${rel} includes file action state`);
   const fn = source.slice(start, end);
@@ -14,7 +14,7 @@ for (const rel of ['sparkle_coder/ui/app.js', 'gateway/public/agent.js']) {
     return elements.get(name);
   };
   const ui = new Function('id', `
-    let projectId='project-a', transferBusy=false, fileLoadError='', selectedFile='', fileData=null;
+    let projectId='project-a', loadedFilesProjectId='', files=[], transferBusy=false, fileLoadError='', selectedFile='', fileData=null;
     let running=true, connected=true, isCloud=true;
     let appState={account:{ready:true},engine:{available:true}};
     function busy(){return running;}

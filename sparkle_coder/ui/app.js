@@ -61,7 +61,6 @@ id("app").innerHTML = `
     <nav class="navigation" aria-label="Workspace navigation">
       <button data-view="build" class="nav-item active"><span data-icon="chat"></span>Build<span class="nav-dot"></span></button>
       <button data-view="files" class="nav-item"><span data-icon="folder"></span>Project files<span class="nav-count" id="fileCount">0</span></button>
-      <button id="previewButton" class="nav-item" type="button"><span data-icon="panel"></span>Website preview</button>
       <button id="mediaButton" class="nav-item" type="button"><span data-icon="file"></span>Images & graphics</button>
       <button data-view="monitor" class="nav-item"><span data-icon="panel"></span>Run monitor<span class="nav-count" id="monitorLive">Live</span></button>
       <button id="briefButton" class="nav-item"><span data-icon="file"></span>Project brief</button>
@@ -86,7 +85,7 @@ id("app").innerHTML = `
       <select id="projectSelect" aria-label="Selected project"></select>
       <button class="icon-button" id="addProject" title="Add project" aria-label="Add project"><span data-icon="plus"></span></button><button class="icon-button" type="button" id="openSearch" aria-label="Search project files and saved tasks" title="Search files and tasks (Ctrl/⌘ Shift F)"><span data-icon="search"></span></button><button class="text-button" id="deleteProject" title="Remove the selected project" type="button">Delete project</button>
       <span class="topbar-divider"></span><span class="project-path" id="projectPath"></span>
-      <div class="topbar-actions"><button type="button" id="workspaceModeSwitch" class="workspace-mode-switch" hidden aria-label="Check cloud workspace connection" title="Check cloud connection"><span class="workspace-mode-label">Cloud</span></button><button id="topAccountButton" class="text-button" type="button" hidden>Account</button><button id="trackTask" class="text-button" title="Open live run monitor">Monitor <span id="headerRunStatus">Ready</span></button><button class="icon-button details-toggle" id="detailsButton" aria-label="Show activity panel"><span data-icon="panel"></span></button></div>
+      <div class="topbar-actions"><button type="button" id="workspaceModeSwitch" class="workspace-mode-switch" hidden aria-label="Check cloud workspace connection" title="Check cloud connection"><span class="workspace-mode-label">Cloud</span></button><button id="topAccountButton" class="text-button" type="button" hidden>Account</button><button id="previewReady" class="text-button" type="button" title="Preview this project's static HTML pages" aria-label="Preview website" hidden><span data-icon="panel"></span><span class="preview-ready-label">Preview website</span></button><button id="trackTask" class="text-button" title="Open live run monitor">Monitor <span id="headerRunStatus">Ready</span></button><button class="icon-button details-toggle" id="detailsButton" aria-label="Show activity panel"><span data-icon="panel"></span></button></div>
     </header>
     <div id="missingProjectsNotice" class="missing-projects-notice" role="status" hidden><span id="missingProjectsText"></span><button id="findProjectFolder" class="button secondary">Find folder</button></div>
     <div id="pendingMigrationNotice" class="missing-projects-notice" role="status" hidden><span>Some projects are waiting to move. You can keep working in another project.</span><button id="showProjectMigration" class="button secondary">Review project move</button></div>
@@ -132,7 +131,7 @@ id("app").innerHTML = `
         <div id="filesView" class="page-view files-view" hidden>
           <div class="view-heading"><div><span class="eyebrow" id="fileLocation">ON YOUR DEVICE</span><h1>Project files</h1></div><button id="openProjectFolder" class="button secondary">Open folder ↗</button></div>
           <div id="filesState" class="transfer-status" role="status" hidden><strong id="filesStateTitle"></strong><p id="filesStateMessage"></p><button id="filesStateAction" class="button secondary">Refresh workspace</button></div>
-          <div class="file-actions"><button id="newFile" class="button secondary">New file</button><button id="importFiles" class="button primary">Import files</button><button id="importFolder" class="button secondary">Import folder</button><button id="downloadProject" class="button secondary">Download ZIP</button><button id="exportFolder" class="button secondary">Copy to folder</button><button id="refreshFiles" class="text-button">Refresh</button><button id="previewFiles" class="text-button">Preview website</button><button id="mediaFiles" class="text-button">Find images</button></div>
+          <div class="file-actions"><button id="newFile" class="button secondary">New file</button><button id="importFiles" class="button primary">Import files</button><button id="importFolder" class="button secondary">Import folder</button><button id="downloadProject" class="button secondary">Download ZIP</button><button id="exportFolder" class="button secondary">Copy to folder</button><button id="refreshFiles" class="text-button">Refresh</button><button id="previewFiles" class="text-button" type="button" hidden>Preview website</button><button id="mediaFiles" class="text-button">Find images</button></div>
           <input id="uploadFiles" type="file" multiple hidden><input id="uploadFolder" type="file" webkitdirectory multiple hidden>
           <div id="dropZone" class="drop-zone" tabindex="0">Drop files here, or paste copied files. Existing files are kept; duplicates get a new name.</div>
           <div id="transferStatus" class="transfer-status" hidden role="status"><span id="transferText"></span><button id="cancelImport" class="text-button" hidden>Cancel remaining</button><pre id="transferErrors" hidden></pre></div>
@@ -315,7 +314,7 @@ id("themeToggle").onclick = () => {
 let appState = null, projectId = null, currentSession = null, currentRun = null;
 let accountTimer = null, accountCouponQuote=null, startingRun=false;
 let waitingForCapacity=false,cancelQueuedStart=false,capacityRetryTimer=null,capacityWaitResolve=null;
-let files = [], historyItems = [], changes = [], runEvents = [], view = "build", tab = "activity";
+let files = [], loadedFilesProjectId = "", historyItems = [], changes = [], runEvents = [], view = "build", tab = "activity";
 let fileData=null, transferBusy=false, cancelTransfer=false, lastConsoleKey="", fileLoadError="";
 let pollTimer = null, cloudReconnectTimer = null, lastMessageKey = "", lastChangeKey = "", selectedFile = "", toastTimer = null;
 let pollInFlight = false, lastPollError = "", monitorEventsTruncated = false;
@@ -1177,12 +1176,13 @@ async function loadFiles() {
   try{result=await api("/projects/"+projectId+"/files");}
   catch(error){if(requestedProject!==projectId)return;clearFileSelection();fileLoadError=error.message;renderFilesState();throw error;}
   if(requestedProject!==projectId)return;
-  fileLoadError="";files=result.files; id("fileCount").textContent=files.length+(result.truncated?"+":""); renderFileList();renderFilesState();
+  fileLoadError="";files=result.files;loadedFilesProjectId=requestedProject;
+  id("fileCount").textContent=files.length+(result.truncated?"+":""); renderFileList();renderFilesState();
   if(selectedFile&&!files.includes(selectedFile)){selectedFile="";fileData=null;id("filePreview").textContent="Select a file to preview it.";}
   renderFileButtons();
 }
 function clearFileSelection(){
-  files=[];selectedFile="";fileData=null;fileLoadError="";
+  files=[];loadedFilesProjectId="";selectedFile="";fileData=null;fileLoadError="";
   id("fileCount").textContent="0";id("fileName").textContent="Select a file";id("fileMeta").textContent="";
   id("filePreview").textContent="Select a project to open its files.";
   renderFileList();renderFileButtons();
@@ -1319,7 +1319,7 @@ async function selectProject(next) {
   if(id("mediaDialog").open)id("mediaDialog").close();
   await api("/select-project",{project_id:next});
   projectId=next;editingSentMessage=null;currentRun=null;currentSession=null;runEvents=[];lastMessageKey="";lastConsoleKey="";monitorEventsTruncated=false;
-  selectedFile="";fileData=null;id("fileSearch").value="";
+  clearFileSelection();id("fileSearch").value="";
   id("fileName").textContent="Select a file";id("filePreview").textContent="Select a file to inspect its contents.";
   id("goal").value="";id("verifyCommands").value="";
   id("taskError").hidden=true;
@@ -1334,7 +1334,9 @@ async function selectProject(next) {
 }
 async function refreshState() {
   appState=await api("/state");
+  const previousProject=projectId;
   projectId=appState.projects.some(p=>p.id===projectId)?projectId:appState.selected_project;
+  if(projectId!==previousProject)clearFileSelection();
   renderProjects();renderProvider();renderExperience();renderCloudState();
   // Reconnect only the selected project's run, not a background project.
   const selectedRun=appState.active_run?.project_id===projectId?appState.active_run:null;
@@ -1686,7 +1688,16 @@ async function saveDownload(path,name) {
   link.href=url;link.download=name;document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),30000);toast("Download sent to your browser. Check its Downloads list.");
 }
+function renderContextualPreview() {
+  // A static preview is a project-specific action, not a permanent workspace section.
+  // Do not reuse another project's cached file list while switching projects.
+  const available=!!projectId&&loadedFilesProjectId===projectId&&!fileLoadError&&
+    (!isCloud||!!appState?.engine?.available)&&files.some(path=>/\.html?$/i.test(path));
+  id("previewReady").hidden=!available;
+  id("previewFiles").hidden=!available;
+}
 function renderFileButtons() {
+  renderContextualPreview();
   const chosen=!!selectedFile,working=!!busy()||transferBusy||!projectId||!!fileLoadError||(isCloud&&!appState?.engine?.available);
   id("copyFileText").disabled=!chosen||!fileData||fileData.binary;
   id("copyFilePath").disabled=!chosen;id("downloadFile").disabled=!chosen;
@@ -1866,7 +1877,7 @@ id("downloadLog").onclick=()=>action(()=>saveDownload("/projects/"+projectId+"/s
 id("openProjectFolder").onclick=()=>action(openProjectFiles);
 id("filesStateAction").onclick=()=>action(async()=>{if(isCloud&&!appState?.account?.ready)return openAccount();if(fileLoadError||(isCloud&&!appState?.engine?.available))return openWorkspace();id("addProject").click();});
 id("fileSearch").oninput=renderFileList;
-for(const name of ["previewButton","previewFiles"])id(name).onclick=()=>action(openSitePreview);
+for(const name of ["previewReady","previewFiles"])id(name).onclick=()=>action(openSitePreview);
 for(const name of ["mediaButton","mediaFiles"])id(name).onclick=()=>action(openMediaLibrary);
 id("previewEntry").onchange=()=>{previewData=null;id("sitePreviewFrame").removeAttribute("srcdoc");action(refreshSitePreview);};
 id("refreshPreview").onclick=()=>action(refreshSitePreview);

@@ -179,3 +179,6 @@
 .sent-message-edit-actions .button{padding:9px 13px}
 .sent-message-edit-form .inline-result{margin:0}
 @media(max-width:760px){.message-author{flex-wrap:wrap;row-gap:7px}.sent-message-actions{margin-left:0}.sent-message-edit-form{width:100%}.sent-message-edit-actions .button{min-width:88px}}
+
+/* The contextual preview affordance takes only an icon-width on small screens. */
+@media(max-width:760px){#previewReady .preview-ready-label{display:none}#previewReady{padding:6px}}
