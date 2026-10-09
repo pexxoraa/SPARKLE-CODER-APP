@@ -139,6 +139,42 @@ class CloudEngineTests(unittest.TestCase):
         self.assertEqual(self.api(p+'/file?path=src/edit.txt')['content'],'original')
         self.assertEqual(len(self.api(p+'/sessions')['sessions']),3)
 
+    def test_edit_retry_stays_in_chat_branch_explicit_and_titles_generated(self):
+        p=self.project();pid=p.split('/')[-1]
+        original='Build a photo studio website and gallery'
+        first=self.api('/api/runs',{'project_id':pid,'goal':original,'task_mode':'ask'})
+        finished=self.wait_run(first['id'],lambda r:r['status'] not in ACTIVE)
+        sid=finished['session_id']
+        before=self.api(p+'/sessions/'+sid)
+        self.assertEqual(before['title'],'Photo studio website and gallery')
+        self.assertEqual(before['messages'][0]['content'],original)
+        self.assertEqual(len(self.api(p+'/sessions')['sessions']),1)
+        revised='Build a photo studio website with a booking calendar'
+        changed=self.api('/api/runs',{'project_id':pid,'goal':revised,
+                 'session_id':sid,'edit_index':0,'expected_message':original,'task_mode':'ask'})
+        next_run=self.wait_run(changed['id'],lambda r:r['status'] not in ACTIVE)
+        self.assertEqual(next_run['session_id'],sid,'Edited request must not create another chat')
+        updated=self.api(p+'/sessions/'+sid)
+        self.assertEqual(updated['messages'][0]['content'],revised)
+        self.assertEqual(updated['title'],'Photo studio website with a booking calendar')
+        self.assertEqual(len(self.api(p+'/sessions')['sessions']),1)
+        self.assertEqual(self.request('/api/runs',{'project_id':pid,'goal':'Invalid stale revision',
+                         'session_id':sid,'edit_index':0,'expected_message':original})[0],200)
+        # A stale accepted request may finish asynchronously, but cannot mutate
+        # the persisted chat; its job must report a conflict instead.
+        self.assertEqual(self.request(p+'/sessions/'+sid+'/branch',{'message_index':0},user=BOB)[0],400)
+        stale=[j for j in self.manager.apps[ALICE].jobs.values() if j.project_id==pid][-1]
+        stale.thread.join(3)
+        self.assertEqual(self.api(p+'/sessions/'+sid)['messages'][0]['content'],revised)
+        branch=self.api(p+'/sessions/'+sid+'/branch',{'message_index':0})
+        self.assertNotEqual(branch['id'],sid)
+        self.assertEqual(branch['parent_session'],sid)
+        self.assertIn('Branch',branch['title'])
+        self.assertEqual(branch['messages'][0]['content'],revised)
+        self.assertEqual(len(self.api(p+'/sessions')['sessions']),2)
+        self.assertEqual(self.api(p+'/sessions/'+sid)['id'],sid)
+        self.assertEqual(self.request(p+'/sessions/'+sid+'/branch',{'message_index':999})[0],400)
+
     def test_long_cloud_prompt_is_saved_exactly_and_oversize_is_explained(self):
         p=self.project();pid=p.split('/')[-1]
         goal=('Build a complex software product.\n'+

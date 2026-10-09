@@ -895,6 +895,21 @@ function cancelSentMessageEdit(){
   lastMessageKey="";
   renderSession(currentSession);
 }
+async function branchSentMessage(session,index){
+  if(startingRun||busy()||transferBusy)throw Error('Finish the current coding task before creating a chat branch.');
+  if(!projectId||session?.id!==currentSession?.id)return;
+  if(typeof ideHasUnsaved==='function'&&ideHasUnsaved(projectId)){
+    if(!window.confirm('Unsaved IDE changes are not copied into the new chat. Both chats use the same project files. Continue?'))return;
+  }
+  const sourceProject=projectId;
+  const branch=await api('/projects/'+sourceProject+'/sessions/'+session.id+'/branch',{message_index:index});
+  if(sourceProject!==projectId)return;
+  editingSentMessage=null;currentRun=null;runEvents=[];lastMessageKey='';
+  id('taskMode').value=branch.task_mode||'build';
+  renderSession(branch);changeView('build');
+  await loadHistory();
+  toast('Chat branch created. Earlier conversation preserved; project files are shared.');
+}
 async function retryEditedMessage(){
   const edit=editingSentMessage;
   if(!edit||edit.projectId!==projectId||edit.sessionId!==currentSession?.id)return;
@@ -912,9 +927,9 @@ async function retryEditedMessage(){
   if(button)button.disabled=true;
   const mode=currentSession.task_mode==="ask"?"ask":"build";
   id("taskMode").value=mode;
-  // The original session remains in history. This is a new request, not a
-  // rewrite of history or an automatic, potentially double-billed retry.
-  const accepted=await startTask(null,false,prompt,true);
+  // Re-run the edited turn in this exact conversation, replacing its later
+  // transcript. The engine never rolls back older project file changes.
+  const accepted=await startTask(null,false,prompt,false,{index:edit.index,original:edit.original});
   if(accepted){
     editingSentMessage=null;
   }else if(button){
@@ -992,7 +1007,12 @@ function renderSession(session) {
         editButton.disabled=startingRun||busy()||transferBusy||activeEdit;
         editButton.setAttribute("aria-label","Edit and try again: "+message.content.slice(0,80));
         editButton.onclick=()=>editSentMessage(session,index,message.content);
-        actions.append(editButton);label.append(actions);
+        const branchButton=node("button","text-button sent-message-branch-button","Branch chat");
+        branchButton.type="button";
+        branchButton.disabled=startingRun||busy()||transferBusy;
+        branchButton.setAttribute("aria-label","Branch chat from: "+message.content.slice(0,80));
+        branchButton.onclick=()=>action(()=>branchSentMessage(session,index));
+        actions.append(editButton,branchButton);label.append(actions);
       }
       row.append(label);
       if(activeEdit){
@@ -1002,7 +1022,7 @@ function renderSession(session) {
         field.setAttribute("aria-label","Edit your sent message");
         field.oninput=()=>{editing.draft=field.value;const error=id("sentMessageEditError");if(error)error.hidden=true;};
         const note=node("p","sent-message-edit-note",
-          "Only the revised message is sent as a new task. Original conversation stays saved; existing file changes are not undone. Model usage may consume credits.");
+          "This updates the message in the same chat and replaces later replies. Existing project file changes are not undone. Use Branch chat to keep the original replies separately. Model usage may consume credits.");
         const error=node("p","inline-result");
         error.id="sentMessageEditError";error.hidden=true;error.setAttribute("role","alert");
         const actions=node("div","sent-message-edit-actions");
@@ -1279,20 +1299,20 @@ async function loadHistory() {
   const unfinished=historyItems.find(s=>["paused","interrupted","needs_input","blocked","unverified"].includes(s.status));
   id("continueLastTask").hidden=!unfinished;
   id("continueLastTask").dataset.sessionId=unfinished?.id||"";
-  id("continueLastTaskTitle").textContent=unfinished?"Continue: "+unfinished.goal.slice(0,62):"Continue saved work";
+  id("continueLastTaskTitle").textContent=unfinished?"Continue: "+(unfinished.title||unfinished.goal).slice(0,62):"Continue saved work";
   id("continueLastTaskMeta").textContent=unfinished?friendly(unfinished.status)+" · "+new Date(unfinished.updated).toLocaleString():"Pick up where you stopped";
   if(!historyItems.length) { id("recentTasks").append(node("p","muted","Your tasks will appear here.")); id("historyList").append(emptyPanel("A fresh start","Every task is saved here so you can review or continue it.")); }
   historyItems.forEach((s,index)=> {
     const date=new Date(s.updated).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
     const entry=node("div","history-entry"),button=node("button","history-row"),copy=node("div");
-    copy.append(node("strong","",s.goal),node("span","",date));
+    copy.append(node("strong","",s.title||s.goal),node("span","",date));
     button.append(copy,node("span","status-badge "+s.status,friendly(s.status)));
     button.onclick=()=>action(()=>loadSession(s.id));
     const remove=node("button","text-button history-delete","Delete");
     remove.type="button";remove.setAttribute("aria-label","Delete saved task: "+s.goal);
     remove.disabled=!!busy();remove.onclick=()=>action(()=>deleteSavedTask(s.id));
     entry.append(button,remove);id("historyList").append(entry);
-    if(index<6) { const recent=node("button","recent-item",s.goal); recent.title=s.goal; recent.onclick=()=>action(()=>loadSession(s.id)); id("recentTasks").append(recent); }
+    if(index<6) { const recent=node("button","recent-item",s.title||s.goal); recent.title=s.title||s.goal; recent.onclick=()=>action(()=>loadSession(s.id)); id("recentTasks").append(recent); }
   });
   id("clearHistory").disabled=!!busy()||!historyItems.length;
 }
@@ -1448,7 +1468,7 @@ async function waitForCapacityRetry(attempt){
   capacityWaitResolve=null;
   clearTimeout(capacityRetryTimer);capacityRetryTimer=null;
 }
-async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=false) {
+async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=false,editRequest=null) {
   event?.preventDefault(); if(startingRun||busy()||transferBusy)return false;
   const explicitGoal=goalOverride===null?null:String(goalOverride);
   const goal=explicitGoal??(resumeOnly?"":id("goal").value.trim()); if(!goal&&(!currentSession||freshTask)) { id("goal").focus(); return false; }
@@ -1470,6 +1490,7 @@ async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=fals
   startingRun=true;cancelQueuedStart=false;id("taskError").hidden=true;renderControls();
   try {
     const payload={project_id:projectId,goal,verify:id("verifyCommands").value.split("\n").map(x=>x.trim()).filter(Boolean),session_id:freshTask||currentSession?.undone?null:currentSession?.id,review_edits:isCloud?false:id("reviewEdits").checked,task_mode:id("taskMode").value};
+    if(editRequest){payload.edit_index=editRequest.index;payload.expected_message=editRequest.original;}
     let result,attempt=0;
     while(true){
       try {result=await api("/runs",payload);break;}

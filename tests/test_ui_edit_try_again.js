@@ -57,13 +57,13 @@ const harness=[
  'function icon(){return "<svg></svg>";}',
  'function renderControls(){}function renderRecovery(){}function renderDelivery(){}function renderRepairHistory(){}',
  'function renderActivity(){}function renderChecks(){}function renderMonitor(){}',
- 'function clearDraft(){events.push("clear-draft");} function saveDraftNow(){events.push("saved-draft");} async function waitForCapacityRetry(){} function changeView(){events.push("view");}function schedulePoll(){events.push("poll");}',
+ 'async function loadHistory(){events.push("history");} function clearDraft(){events.push("clear-draft");} function saveDraftNow(){events.push("saved-draft");} async function waitForCapacityRetry(){} function changeView(){events.push("view");}function schedulePoll(){events.push("poll");}',
  'function hostedNoKey(){return false;}function openSettings(){}async function openAccount(){}',
  'function codeChangeRequested(text){return /\\b(fix|add|change|edit|build|create|make)\\b/i.test(text);}',
  'async function refreshState(){if(recover())currentRun=recover();}',
  renderCode,
  submitCode,
- 'return {renderSession,editSentMessage,cancelSentMessageEdit,retryEditedMessage,startTask,',
+ 'return {renderSession,editSentMessage,cancelSentMessageEdit,retryEditedMessage,branchSentMessage,startTask,',
  'current:()=>currentSession,editing:()=>editingSentMessage,currentRun:()=>currentRun,',
  'getLastKey:()=>lastMessageKey,projectChange:name=>{projectId=name;},controls:()=>({startingRun})};'
 ].join("\n");
@@ -80,7 +80,7 @@ const editingField=()=>id("messages").querySelector(".sent-message-editor");
   "Only sent user messages should offer the action.");
  editButton().onclick();
  assert.equal(editingField().value,original.messages[0].content);
- assert.match(descendants(userMessage()).find(el=>el.className==="sent-message-edit-note").textContent,/new task/i);
+ assert.match(descendants(userMessage()).find(el=>el.className==="sent-message-edit-note").textContent,/same chat/i);
  assert.match(descendants(userMessage()).find(el=>el.className==="sent-message-edit-note").textContent,/credits/i);
  editingField().value="Should I use SQLite or PostgreSQL?";
  editingField().oninput();
@@ -92,6 +92,16 @@ const editingField=()=>id("messages").querySelector(".sent-message-editor");
  assert.equal(ui.editing(),null);
  assert.equal(id("messages").querySelector(".sent-message-editor"),null);
  assert.equal(calls.length,0,"Cancel never invokes a model API.");
+ const branchButton=descendants(userMessage()).find(el=>el.className.includes('sent-message-branch-button'));
+ assert.ok(branchButton,'Branch chat is a separate explicit action');
+ response=()=>({id:'branch-2',parent_session:original.id,title:'SQLite tradeoffs · Branch',
+   task_mode:'ask',messages:[{role:'user',content:original.messages[0].content}]});
+ await ui.branchSentMessage(original,0);
+ assert.equal(calls.length,1);
+ assert.equal(calls[0].route,'/projects/project-1/sessions/saved-1/branch');
+ assert.equal(calls[0].body.message_index,0);
+ assert.equal(ui.current().id,'branch-2');
+ calls.length=0;
 
  ui.renderSession(original);
  editButton().onclick();
@@ -109,14 +119,16 @@ const editingField=()=>id("messages").querySelector(".sent-message-editor");
  assert.equal(calls.length,1,"Double click cannot start a second run.");
  assert.equal(calls[0].route,"/runs");
  assert.equal(calls[0].body.goal,"Use SQLite with migrations and backups.");
- assert.equal(calls[0].body.session_id,null,"Edited prompt must fork into a NEW session.");
+ assert.equal(calls[0].body.session_id,original.id,"Edited prompt continues SAME chat.");
+ assert.equal(calls[0].body.edit_index,0);
+ assert.equal(calls[0].body.expected_message,original.messages[0].content);
  assert.equal(calls[0].body.task_mode,"ask");
  assert.deepEqual(original.messages,[{role:"user",content:"What are SQLite tradeoffs?"},{role:"assistant",content:"It is simple."}],
   "Original saved messages must remain untouched.");
  finish({id:"new-run",status:"running"});
  await pending;
  assert.equal(ui.editing(),null);
- assert.equal(ui.current(),null,"Successful retry must not continue the old session.");
+ assert.equal(ui.current().id,original.id,"Successful retry must preserve same chat identity.");
  assert.equal(ui.currentRun().id,"new-run");
 
  // Failure must leave edited request available; no automatic second charge.
@@ -137,5 +149,5 @@ const editingField=()=>id("messages").querySelector(".sent-message-editor");
  assert.equal(editButton().disabled,true===editButton().disabled?true:false);
  await ui.retryEditedMessage();
  assert.equal(calls.length,initial);
- console.log("Edit & try again: user-only buttons, cancel, draft persistence, fresh sessions, no double send, failure safety and active-run guard passed.");
+ console.log("Edit & try again: same chat, explicit revision index, original-message guard, cancel, draft persistence, no double send and busy guard passed.");
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -319,7 +319,10 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/runs":
                 result = app.start(body["project_id"], body.get("goal", ""), body.get("verify"),
                                    body.get("session_id"), review_edits=body.get("review_edits", False),
-                                   task_mode=body.get("task_mode"))
+                                   task_mode=body.get("task_mode"),
+                                   edit_index=body.get("edit_index"), expected_message=body.get("expected_message"))
+            elif len(parts) == 6 and parts[:2] == ["api", "projects"] and parts[3] == "sessions" and parts[5] == "branch":
+                result = app.branch_session(parts[2], parts[4], body.get("message_index"))
             elif len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] in ("import", "duplicate", "export-folder", "save-file", "delete-file"):
                 result = app.file_action(parts[2], parts[3], body)
             elif len(parts) == 5 and parts[:2] == ["api", "projects"] and parts[3] == "image" and parts[4] in ("import", "create"):

@@ -10,6 +10,7 @@ import uuid
 from .workspace import Workspace, WorkspaceError, atomic_write, sha256, write_json, IS_WINDOWS
 from .verification import identify_checks
 from .brief import read_brief, task_requirements
+from .chat_titles import chat_title
 
 
 def now() -> str:
@@ -38,7 +39,7 @@ class Session:
         brief = read_brief(workspace)["brief"]
         session = cls(workspace, {
             "version": 1, "id": uuid.uuid4().hex[:12], "created": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
-            "goal": goal, "user_requests": [goal], "status": "running", "model": model, "required_checks": verify,
+            "goal": goal, "title": chat_title(goal), "user_requests": [goal], "status": "running", "model": model, "required_checks": verify,
             "messages": [{"role": "user", "content": goal}],
             # Only actual accepted answers appear in the conversation. Tool
             # narration and unverified completion attempts remain in history.
@@ -72,6 +73,62 @@ class Session:
         if state.get("version") != 1 or state.get("id") != session_id:
             raise ValueError("Unsupported or invalid session state.")
         return cls(workspace, state)
+
+    def visible_message_offsets(self):
+        """Return model-history offsets corresponding to rendered chat rows."""
+        accepted = self.state.get('visible_message_indices')
+        accepted = set(accepted) if isinstance(accepted, list) else None
+        requests = self.state.get('user_requests', [self.state.get('goal', '')])
+        found = []
+        for offset, message in enumerate(self.state['messages']):
+            if message.get('role') == 'user' and message.get('content') in requests:
+                found.append(offset)
+            elif (message.get('role') == 'assistant' and message.get('content')
+                  and not message.get('tool_calls') and (accepted is None or offset in accepted)):
+                found.append(offset)
+        return found
+
+    def revise_message(self, visible_index: int, expected_text: str, replacement: str):
+        """Replace a sent user turn in place; keep file edits and usage audit.
+
+        No prior tool operation is replayed, reverted, or charged again.
+        Discard only the downstream model transcript, not project files, the
+        session identity, model usage, or historical file-change journal.
+        """
+        offsets = self.visible_message_offsets()
+        if type(visible_index) is not int or not 0 <= visible_index < len(offsets):
+            raise ValueError('The edited message is no longer in this chat. Refresh the conversation.')
+        offset = offsets[visible_index]
+        current = self.state['messages'][offset]
+        if current.get('role') != 'user' or current.get('content') != expected_text:
+            raise ValueError('The message changed since editing began. Refresh before trying again.')
+        self.state.setdefault('message_revisions', []).append({
+            'at': now(), 'visible_index': visible_index, 'previous': expected_text,
+            'replacement': replacement,
+            'note': 'Conversation revised; prior workspace edits were not rolled back.',
+        })
+        self.state['message_revisions'] = self.state['message_revisions'][-30:]
+        kept = self.state['messages'][:offset]
+        kept.append({'role': 'user', 'content': replacement})
+        self.state['messages'] = kept
+        existing_visible = self.state.get('visible_message_indices')
+        self.state['visible_message_indices'] = ([i for i in existing_visible if i < offset]
+            if isinstance(existing_visible, list) else
+            [i for i, m in enumerate(kept) if m.get('role') == 'assistant'
+             and m.get('content') and not m.get('tool_calls')])
+        self.state['user_requests'] = [m['content'] for m in kept if m.get('role') == 'user']
+        if offset == 0:
+            self.state['goal'] = replacement
+            if not self.state.get('title_custom'):
+                self.state['title'] = chat_title(replacement)
+        self.state['status'] = 'running'
+        self.state['summary'] = ''
+        self.state['plan'] = []
+        self.state.pop('task_profile', None)
+        self.state.pop('recovery', None)
+        self.state.pop('delivery', None)
+        self.state['verification_fingerprint'] = None
+        self.save()
 
     def save(self):
         self.state["updated"] = now()

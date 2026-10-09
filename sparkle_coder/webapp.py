@@ -30,6 +30,7 @@ from .media_library import import_commons_image, create_svg_graphic
 from .internet import search_public_assets
 from .storage import resolve_storage, relocate, migrate_legacy, retry_migration, reconnect_portable_projects
 from .state import Session, now
+from .chat_titles import chat_title
 from .explanations import check_title, explain_failure, simple_recovery
 from .verification import proof_summary, replacements, active_checks
 from .skills import (catalog as skill_catalog, delete_custom_skill, save_custom_skill, set_overrides)
@@ -600,9 +601,10 @@ class AppService:
                    "correction_reason": retired.get(check["key"], {}).get("reason", ""),
                    "explanation": explain_failure(check) if not check["ok"] else None}
                   for check in state["checks"][-60:]]
-        return {key: state.get(key) for key in
-                ("id", "goal", "status", "created", "updated", "plan", "usage", "summary", "model", "undone", "task_mode", "recovery",
-                 "project_brief", "requirements", "setup", "repair_history", "skills")} | {
+        return {**{key: state.get(key) for key in
+                ("id", "goal", "title", "parent_session", "status", "created", "updated", "plan", "usage", "summary", "model", "undone", "task_mode", "recovery",
+                 "project_brief", "requirements", "setup", "repair_history", "skills")},
+                "title": state.get("title") or chat_title(state.get("goal", ""))} | {
             "messages": messages, "actions": state["actions"][-100:], "checks": checks,
             "recovery": recovery, "proof": proof_summary(state), "delivery": state.get("delivery", {}),
             "check_revisions": state.get("check_revisions", []),
@@ -634,10 +636,47 @@ class AppService:
             try:
                 session = self._repair_orphaned_session(Session.load(workspace, path.parent.name))
                 state = session.state
-                result.append({k: state.get(k) for k in ("id", "goal", "status", "created", "updated", "undone")})
+                result.append({**{k: state.get(k) for k in ("id", "goal", "status", "created", "updated", "undone", "parent_session")},
+                               "title": state.get("title") or chat_title(state.get("goal", ""))})
             except (OSError, ValueError):
                 continue
         return sorted(result, key=lambda x: x["updated"], reverse=True)[:100]
+
+    def branch_session(self, project_id, session_id, message_index):
+        """New independent conversation, shared project files, no duplicated edits."""
+        with self.lock:
+            if self.active(project_id):
+                raise ValueError('Wait for this project’s active coding task before branching.')
+            _, workspace = self.project(project_id)
+            with workspace.lock():
+                original = Session.load(workspace, session_id)
+                offsets = original.visible_message_offsets()
+                if type(message_index) is not int or not 0 <= message_index < len(offsets):
+                    raise ValueError('Choose a message from the saved conversation.')
+                offset = offsets[message_index]
+                # Keep the selected message and context preceding it. A branch
+                # must not inherit old file-tool journals, billed usage or checks.
+                history = original.state['messages'][:offset + 1]
+                if not history or history[0].get('role') != 'user':
+                    raise ValueError('The saved conversation has no user prompt to branch from.')
+                prefix_requests = [m['content'] for m in history if m.get('role') == 'user']
+                new = Session.create(workspace, prefix_requests[0],
+                                     original.state.get('required_checks', []),
+                                     original.state.get('model', {}))
+                new.state['messages'] = list(history)
+                new.state['user_requests'] = prefix_requests
+                previous_visible = original.state.get('visible_message_indices')
+                new.state['visible_message_indices'] = ([i for i in previous_visible if i <= offset]
+                    if isinstance(previous_visible, list) else
+                    [i for i, m in enumerate(history) if m.get('role') == 'assistant'
+                     and m.get('content') and not m.get('tool_calls')])
+                new.state['task_mode'] = original.state.get('task_mode', 'build')
+                new.state['parent_session'] = original.id
+                new.state['title'] = (original.state.get('title') or chat_title(prefix_requests[0]))[:52] + ' · Branch'
+                new.state['status'] = 'needs_input'
+                new.state['summary'] = 'Branch created. Project files are shared; the prior conversation and file change history remain untouched.'
+                new.save()
+                return self.snapshot(project_id, new.id)
 
     def changes(self, project_id, session_id):
         _, workspace = self.project(project_id)
@@ -664,11 +703,15 @@ class AppService:
                             "diff": "\n".join(lines)[:40000], "truncated": len("\n".join(lines)) > 40000})
         return Redactor((self.config().api_key,)).value(changes)
 
-    def start(self, project_id, goal, verify=None, session_id=None, demo=False, review_edits=False, task_mode=None):
+    def start(self, project_id, goal, verify=None, session_id=None, demo=False, review_edits=False, task_mode=None,
+              edit_index=None, expected_message=None):
         if task_mode not in (None, "build", "ask"):
             raise ValueError("Task mode must be build or ask.")
         if type(review_edits) is not bool:
             raise ValueError("Review edits must be true or false.")
+        if edit_index is not None and (type(edit_index) is not int or edit_index < 0 or edit_index > 500
+                                       or not session_id or not isinstance(expected_message, str) or not goal.strip()):
+            raise ValueError('Editing requires an existing chat and its original message.')
         if not isinstance(goal, str) or len(goal) > 48000 or len(goal.encode("utf-8")) > 131072 or not goal.strip() and not session_id:
             raise ValueError("Describe a task using at most 48,000 characters (128 KiB of text). Your prompt was not shortened. Split longer instructions into follow-up messages or a project brief.")
         verify = verify or []
@@ -723,8 +766,11 @@ class AppService:
                             if not goal.strip():
                                 promote_budget_resume(session.state)
                             if goal.strip():
-                                session.state["messages"].append({"role": "user", "content": goal})
-                                session.state.setdefault("user_requests", [session.state["goal"]]).append(goal)
+                                if edit_index is not None:
+                                    session.revise_message(edit_index, expected_message, goal)
+                                else:
+                                    session.state["messages"].append({"role": "user", "content": goal})
+                                    session.state.setdefault("user_requests", [session.state["goal"]]).append(goal)
                                 # A follow-up can widen a previously tiny task; recalculate its budget/tool profile.
                                 session.state.pop("task_profile", None)
                             session.state["required_checks"] = list(dict.fromkeys(session.state["required_checks"] + verify))
