@@ -184,17 +184,29 @@ async function loginAccount(request,env) {
   return json(await me(await device(request,env),env));
 }
 async function setAccountPassword(request,env) {
-  const account=await device(request,env,true,false),data=await body(request),password=passwordValue(data.password);
+  const account=await device(request,env,true,false);
+  await rate(env,request,'password-change:'+account.id,10,900);
+  const data=await body(request),password=passwordValue(data.password);
+  const current=await one(env,'SELECT salt,password_hash FROM account_credentials WHERE account_id=?',account.id);
+  if(current){
+    // An active device alone does not authorize rotating existing credentials.
+    // Keep the error identical for missing or incorrect current passwords.
+    const previous=String(data.current_password||'');
+    const candidate=await passwordHash(previous,current.salt,env);
+    if(!equalText(candidate,current.password_hash))fail(401,'Current password is incorrect.');
+  }
   const salt=randomHex(16),password_hash=await passwordHash(password,salt,env),stamp=now();
-  await sql(env,`INSERT INTO account_credentials(account_id,salt,password_hash,updated) VALUES (?,?,?,?)
-    ON CONFLICT(account_id) DO UPDATE SET salt=excluded.salt,password_hash=excluded.password_hash,updated=excluded.updated`,
-    account.id,salt,password_hash,stamp).run();
   await env.DB.batch([
+    sql(env,`INSERT INTO account_credentials(account_id,salt,password_hash,updated) VALUES (?,?,?,?)
+      ON CONFLICT(account_id) DO UPDATE SET salt=excluded.salt,password_hash=excluded.password_hash,updated=excluded.updated`,
+      account.id,salt,password_hash,stamp),
     sql(env,'DELETE FROM account_password_setups WHERE account_id=?',account.id),
-    sql(env,'DELETE FROM account_password_resets WHERE account_id=?',account.id)
+    sql(env,'DELETE FROM account_password_resets WHERE account_id=?',account.id),
+    sql(env,"UPDATE devices SET status='revoked' WHERE account_id=? AND id<>? AND status='active'",account.id,account.device_id),
+    sql(env,'INSERT INTO audit VALUES (?,?,?,?,?)',uid(),'account-password',account.id,stamp,
+      current?'Password changed; other active devices revoked':'First-time password created')
   ]);
-  await audit(env,'account-password',account.id,'Login password set or changed from an active device');
-  return json({ok:true,password_set:true});
+  return json(await me(await device(request,env),env));
 }
 async function setupLegacyPassword(request,env) {
   await rate(env,request,'legacy-password-setup',10,900);
