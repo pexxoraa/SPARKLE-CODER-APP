@@ -1,7 +1,15 @@
 // Only the gateway can assert an account to the owner-hosted coding engine.
 function validEngineOrigin(value){
-  try{const url=new URL(value);return url.protocol==='https:'&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash;}
-  catch{return false;}
+  try{
+    const url=new URL(value),host=url.hostname.toLowerCase();
+    // Enforce the same public HTTPS origin policy for both saved runtime
+    // configuration and environment fallback. Never relay device credentials
+    // to loopback, literal IP addresses or localhost aliases.
+    const literalIp=/^(?:\d{1,3}\.){3}\d{1,3}$/.test(host)||host.includes(':');
+    return url.protocol==='https:'&&!url.username&&!url.password&&url.pathname==='/'&&
+      !url.search&&!url.hash&&host.includes('.')&&host!=='localhost'&&
+      !host.endsWith('.localhost')&&!literalIp;
+  }catch{return false;}
 }
 async function runtimeEngineOrigin(env){
   if(env.DB){

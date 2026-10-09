@@ -379,3 +379,59 @@ test('settlement exceeding the reservation rolls back without losing the hold or
  db.exec("UPDATE requests SET state='succeeded' WHERE id='guard-test'");
  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM ledger').get().n,2);
 });
+
+test('password changes require the old secret, revoke other devices and preserve the current account',async()=>{
+ const f=fixture();await f.approve();
+ const accountBefore=(await f.api('/api/me')).body;
+ const other='device_'+crypto.randomUUID().replaceAll('-','')+'B'.repeat(20);
+ let response=await f.api('/api/login',{email:'tester@example.com',password:'TestPass123!'},{secret:other});
+ assert.equal(response.status,200);
+ assert.equal((await f.api('/api/me',undefined,{secret:other})).status,200);
+ for(const current of [undefined,'incorrect-password']){
+  response=await f.api('/api/account/password',{password:'NewPass123!',...(current?{current_password:current}:{})});
+  assert.equal(response.status,401,'A signed-in browser must not change a password without authenticating again');
+ }
+ assert.equal((await f.api('/api/me',undefined,{secret:other})).status,200,'failed change must leave other devices usable');
+ response=await f.api('/api/account/password',{password:'NewPass123!',current_password:'TestPass123!'});
+ assert.equal(response.status,200);assert.equal(response.body.ready,true);
+ assert.equal(response.body.balance_tokens,accountBefore.balance_tokens);
+ assert.equal((await f.api('/api/me')).status,200,'device initiating the change remains signed in');
+ assert.equal((await f.api('/api/me',undefined,{secret:other})).status,401,'all other devices must be revoked');
+ assert.equal((await f.api('/api/login',{email:'tester@example.com',password:'TestPass123!'},{secret:other})).status,401,
+   'previous password must not reactivate a revoked device');
+ response=await f.api('/api/login',{email:'tester@example.com',password:'NewPass123!'},{secret:other});
+ assert.equal(response.status,200,'other device may explicitly sign in with new password');
+ assert.equal(response.body.ready,true);
+ const audit=f.env.DB.db.prepare("SELECT * FROM audit WHERE action='account-password'").all();
+ assert.equal(audit.length,1);
+ assert.doesNotMatch(JSON.stringify(audit),/TestPass123|NewPass123/);
+});
+test('cross-site password rotation is blocked before a device can be modified',async()=>{
+ const f=fixture();await f.approve();
+ const previous=(await f.api('/api/me')).body;
+ const cross=await f.api('/api/account/password',
+   {password:'NewPass123!',current_password:'TestPass123!'},
+   {origin:'https://untrusted.example'});
+ assert.equal(cross.status,403);
+ assert.equal((await f.api('/api/me')).body.balance_tokens,previous.balance_tokens);
+ assert.equal((await f.api('/api/login',
+   {email:'tester@example.com',password:'TestPass123!'},
+   {secret:'device_'+crypto.randomUUID().replaceAll('-','')+'C'.repeat(20)})).status,200);
+});
+
+test('password-change guessing is rate-limited and cannot bypass authentication',async()=>{
+ const f=fixture();await f.approve();
+ for(let attempt=0;attempt<10;attempt++){
+  const result=await f.api('/api/account/password',
+    {current_password:'incorrect-secret',password:'NewPassword123!'});
+  assert.equal(result.status,401);
+ }
+ const limited=await f.api('/api/account/password',
+   {current_password:'TestPass123!',password:'NewPassword123!'});
+ assert.equal(limited.status,429);
+ assert.equal((await f.api('/api/me')).status,200);
+ const fresh='device_'+crypto.randomUUID().replaceAll('-','')+'D'.repeat(20);
+ assert.equal((await f.api('/api/login',
+   {email:'tester@example.com',password:'TestPass123!'},{secret:fresh})).status,200,
+   'a throttled password change must not alter credentials');
+});

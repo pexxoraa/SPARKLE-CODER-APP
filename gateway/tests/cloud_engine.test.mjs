@@ -147,3 +147,43 @@ test('deployed cloud assets match the complete shared UI, with scratch data stil
   assert.match(html,/cloud-features\.css/);assert.match(readFileSync(new URL('../public/cloud-features.js',import.meta.url),'utf8'),/Cloud Workspace Studio/);
   assert.match(readFileSync(new URL('../public/scratch.html',import.meta.url),'utf8'),/src="\/app.js"/);
 });
+
+test('real Worker plus Python engine prevents cross-account project reads and writes',async t=>{
+  const f=await fixture(t,{python:true});
+  await f.enroll();await f.approve();
+  const firstSecret=f.local.get('sparkle_device_secret');
+  const firstState=await f.api('/state');
+  const firstId=firstState.selected_project;
+  assert.ok(firstId);
+  await f.api('/projects/'+firstId+'/save-file',{path:'private.txt',content:'member-one-private-contents'});
+  assert.equal((await f.api('/projects/'+firstId+'/file?path=private.txt')).content,'member-one-private-contents');
+
+  const secondSecret='S'.repeat(64);
+  f.local.set('sparkle_device_secret',secondSecret);
+  const enrolled=await f.api('/account/enroll',{
+    name:'Other tester',email:'other@example.test',password:'OtherPass123!',consent:true});
+  assert.equal(enrolled.ready,false);
+  const submitted=await f.api('/account/payment',{utr:'SECONDUPI1234567'});
+  assert.equal(submitted.ready,false);
+  assert.equal((await f.raw('/api/admin/login',{password:f.env.ADMIN_SECRET},null,true)).status,200);
+  const payment=f.env.DB.db.prepare("SELECT id FROM payments_v2 WHERE utr=?").get('SECONDUPI1234567');
+  assert.ok(payment);
+  assert.equal((await f.raw('/api/admin/payments/'+payment.id,
+    {action:'approve',verified:true},null,true)).status,200);
+  const otherState=await f.api('/state');
+  assert.equal(otherState.account.ready,true);
+  assert.ok(otherState.selected_project);
+  assert.notEqual(otherState.selected_project,firstId);
+  const stolenRead=await f.request('/projects/'+firstId+'/file?path=private.txt');
+  assert.ok([400,403,404].includes(stolenRead.status),'another member cannot inspect project content');
+  assert.doesNotMatch(await stolenRead.text(),/member-one-private-contents/);
+  const stolenWrite=await f.request('/projects/'+firstId+'/save-file',
+    {path:'private.txt',content:'overwritten by other tenant'});
+  assert.ok([400,403,404].includes(stolenWrite.status),'another member cannot mutate project files');
+
+  f.local.set('sparkle_device_secret',firstSecret);
+  const restored=await f.api('/state');
+  assert.equal(restored.selected_project,firstId);
+  assert.equal((await f.api('/projects/'+firstId+'/file?path=private.txt')).content,
+    'member-one-private-contents','denied cross-account edit must leave owner file intact');
+});
