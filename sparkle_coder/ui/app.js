@@ -61,6 +61,7 @@ id("app").innerHTML = `
     <nav class="navigation" aria-label="Workspace navigation">
       <button data-view="build" class="nav-item active"><span data-icon="chat"></span>Build<span class="nav-dot"></span></button>
       <button data-view="files" class="nav-item"><span data-icon="folder"></span>Project files<span class="nav-count" id="fileCount">0</span></button>
+      <button data-view="ide" class="nav-item"><span data-icon="code"></span>IDE workspace</button>
       <button id="mediaButton" class="nav-item" type="button"><span data-icon="file"></span>Images & graphics</button>
       <button data-view="monitor" class="nav-item"><span data-icon="panel"></span>Run monitor<span class="nav-count" id="monitorLive">Live</span></button>
       <button id="briefButton" class="nav-item"><span data-icon="file"></span>Project brief</button>
@@ -139,6 +140,18 @@ id("app").innerHTML = `
           <div class="file-workbench"><div id="fileList" class="file-list"></div><div class="file-content"><div class="file-content-heading"><span id="fileName">Select a file</span><span id="fileMeta"></span></div>
           <div class="file-tools"><button id="editFile" class="text-button" disabled>Edit</button><button id="deleteFile" class="text-button" disabled>Delete</button><button id="copyFileText" class="text-button" disabled>Copy text</button><button id="copyFilePath" class="text-button" disabled>Copy path</button><button id="duplicateFile" class="text-button" disabled>Duplicate</button><button id="downloadFile" class="text-button" disabled>Download file</button></div><pre id="filePreview">Your project files will appear here.</pre></div></div>
           <p class="file-limit-note">Built files and binary assets are supported. Transfers: 20 MiB per file, 100 MiB per project export. Credentials, dependencies, Git internals, and agent history are excluded from project exports. Use Open folder for direct device access.</p>
+        </div>
+        <div id="ideView" class="page-view ide-view" hidden>
+          <div class="ide-topbar"><div><span class="eyebrow">PROJECT WORKSPACE</span><h1>Code editor</h1></div>
+            <div class="ide-actions"><button id="ideRefresh" class="button secondary" type="button">Refresh files</button><button id="ideNew" class="button secondary" type="button">New file</button><button id="ideGoAgent" class="button secondary" type="button">Ask SPARKLE</button><button id="ideSave" class="button primary" type="button" disabled>Save <span class="ide-shortcut">Ctrl/⌘ S</span></button></div></div>
+          <div id="ideNotice" class="ide-notice" role="status">Select a source file to start editing. Save changes before asking the agent to modify the same project.</div>
+          <div class="ide-shell"><aside class="ide-explorer" aria-label="Project file explorer"><div class="ide-explorer-title">EXPLORER <span id="ideFileCount"></span></div><label class="sr-only" for="ideFilter">Filter source files</label><input id="ideFilter" type="search" placeholder="Find a file…" autocomplete="off"><div id="ideTree" class="ide-tree"></div></aside>
+            <section class="ide-workspace" aria-label="Source code editor"><div id="ideTabs" class="ide-tabs" role="tablist" aria-label="Open files"></div>
+              <div id="ideEmpty" class="ide-empty"><span data-icon="code"></span><strong>Open a file to edit</strong><span>Choose a file in Explorer. Your changes stay in their tabs until saved.</span><span class="ide-shortcuts">Ctrl/⌘ S · Save &nbsp; | &nbsp; Tab · Indent &nbsp; | &nbsp; Ctrl/⌘ F · Find</span></div>
+              <div id="ideSurface" class="ide-surface" hidden><div class="ide-path-row"><span id="idePath"></span><span id="ideLanguage"></span></div>
+                <div class="ide-editor" id="ideEditor"><pre id="ideLines" class="ide-lines" aria-hidden="true"></pre><div class="ide-code-layer"><pre id="ideHighlight" class="ide-highlight" aria-hidden="true"></pre><textarea id="ideCode" aria-label="Edit source code" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" wrap="off"></textarea></div></div>
+                <div class="ide-footer"><span id="ideLocation">Ln 1, Col 1</span><span id="ideEncoding">UTF-8</span><span id="ideDirtyStatus">Saved</span></div></div>
+            </section></div>
         </div>
         <div id="monitorView" class="page-view monitor-view" hidden>
           <div class="view-heading"><div><span class="eyebrow">YOU CONTROL THE WORK</span><h1>Run monitor</h1></div><div class="monitor-controls"><button id="monitorPause" class="button secondary" disabled>Pause</button><button id="monitorStop" class="button danger" disabled>Stop</button></div></div>
@@ -401,9 +414,9 @@ function shortModel(model) { if (model.includes("super")) return "SPARKLE Core";
 async function action(fn) { try { await fn(); } catch (error) { toast(error.message); } }
 function emptyPanel(text, description) { const e = node("div", "empty-detail"); const symbol = node("span"); symbol.innerHTML = icon("code"); e.append(symbol, node("strong", "", text), node("p", "", description)); return e; }
 function changeView(name) {
-  if(!["build","files","history","monitor"].includes(name))return;
+  if(!["build","files","ide","history","monitor"].includes(name))return;
   view=name;
-  for(const v of ["build","files","history","monitor"])id(v+"View").hidden=v!==name;
+  for(const v of ["build","files","ide","history","monitor"])id(v+"View").hidden=v!==name;
   document.querySelectorAll("[data-view]").forEach(b=>{
     const active=b.dataset.view===name;
     b.classList.toggle("active",active);
@@ -412,6 +425,7 @@ function changeView(name) {
   });
   closeSidebar();
   if(name==="files")action(loadFiles);
+  if(name==="ide")action(openIde);
   if(name==="history")action(loadHistory);
   if(name==="monitor")renderMonitor();
 }
@@ -1180,12 +1194,14 @@ async function loadFiles() {
   id("fileCount").textContent=files.length+(result.truncated?"+":""); renderFileList();renderFilesState();
   if(selectedFile&&!files.includes(selectedFile)){selectedFile="";fileData=null;id("filePreview").textContent="Select a file to preview it.";}
   renderFileButtons();
+  if(typeof ideOnFileListing === "function")ideOnFileListing(requestedProject);
 }
 function clearFileSelection(){
   files=[];loadedFilesProjectId="";selectedFile="";fileData=null;fileLoadError="";
   id("fileCount").textContent="0";id("fileName").textContent="Select a file";id("fileMeta").textContent="";
   id("filePreview").textContent="Select a project to open its files.";
   renderFileList();renderFileButtons();
+  if(typeof ideOnFileListing === "function")ideOnFileListing(projectId);
 }
 function renderFilesState(){
   const unavailable=isCloud&&!appState?.engine?.available;
@@ -1423,6 +1439,10 @@ async function startTask(event,resumeOnly=false,goalOverride=null,freshTask=fals
     return false;
   }
   if(!resumeOnly&&goal&&codeChangeRequested(goal))id("taskMode").value="build";
+  // Prevent an agent from editing an older on-disk version without warning
+  // the member about unsaved source changes in the IDE.
+  if(typeof ideHasUnsaved==='function'&&ideHasUnsaved(projectId)&&
+      !window.confirm('Unsaved code is open in the editor. SPARKLE will only see saved files. Continue without saving those changes?'))return false;
   if(appState.account?.enabled&&!appState.account.ready){await openAccount();return false;}
   if(!projectId||(isCloud&&!appState.engine?.available)){id("taskError").hidden=false;id("taskError").textContent=appState.engine?.message||"Select a project before starting a task.";return false;}
   if(hostedNoKey(appState.settings.base_url)&&!appState.settings.key_configured) { openSettings(); toast("Add your API key to start a live task."); return false; }
@@ -1712,6 +1732,219 @@ function renderFileButtons() {
   id("downloadProject").title=busy()?"Download a snapshot of the files saved so far. The task keeps running.":"Download current project files as ZIP.";
   id("downloadProject").textContent=busy()?"Download current ZIP":"Download ZIP";
 }
+// Integrated project IDE. All saves use the same authenticated, hash-checked
+// file endpoint as the existing single-file editor; no executable code runs here.
+const ideDocuments=new Map(),ideSelected=new Map();
+let ideShownKey='',ideSaving=false;
+function ideOpenTabs(project=projectId){
+  if(!ideDocuments.has(project))ideDocuments.set(project,new Map());
+  return ideDocuments.get(project);
+}
+function ideActive(){return ideOpenTabs().get(ideSelected.get(projectId))||null;}
+function ideHasUnsaved(project=projectId){return [...(ideDocuments.get(project)?.values()||[])].some(tab=>tab.created||tab.content!==tab.original);}
+function ideNotice(message){id('ideNotice').textContent=message;}
+function ideLanguage(path){
+  const ext=String(path).split('.').pop().toLowerCase();
+  return ({js:'JavaScript',jsx:'JSX',ts:'TypeScript',tsx:'TSX',json:'JSON',py:'Python',html:'HTML',htm:'HTML',css:'CSS',scss:'SCSS',md:'Markdown',rs:'Rust',go:'Go',java:'Java',kt:'Kotlin',swift:'Swift',c:'C',cpp:'C++',h:'C/C++',cs:'C#',sh:'Shell',sql:'SQL',xml:'XML',yaml:'YAML',yml:'YAML',toml:'TOML',rb:'Ruby',php:'PHP',dart:'Dart'})[ext]||'Plain text';
+}
+function ideOnFileListing(loaded){if(view==='ide'&&loaded===projectId)renderIdeTree();}
+function renderIdeTree(){
+  const root=id('ideTree');root.replaceChildren();
+  const entries=loadedFilesProjectId===projectId?files:[];
+  id('ideFileCount').textContent=entries.length?String(entries.length):'';
+  const terms=searchTerms(id('ideFilter').value);
+  const filtered=entries.filter(path=>matchSearch(path,terms));
+  if(!projectId){root.append(node('p','ide-tree-empty','Select a project to explore its source code.'));return;}
+  if(!filtered.length){root.append(node('p','ide-tree-empty',terms.length?'No matching files.': 'No files yet. Create a file or ask SPARKLE to build something.'));return;}
+  const tree={folders:new Map(),files:[]};
+  for(const path of filtered){
+    const parts=path.split('/');let parent=tree;
+    for(const segment of parts.slice(0,-1)){
+      if(!parent.folders.has(segment))parent.folders.set(segment,{folders:new Map(),files:[]});
+      parent=parent.folders.get(segment);
+    }
+    parent.files.push(path);
+  }
+  function renderBranch(branch,target,depth=0){
+    for(const [folder,child] of [...branch.folders.entries()].sort(([a],[b])=>a.localeCompare(b))){
+      const wrapper=node('details','ide-folder');wrapper.open=true;
+      const heading=node('summary','ide-folder-name',folder);heading.style.paddingLeft=(depth*11+10)+'px';
+      wrapper.append(heading);renderBranch(child,wrapper,depth+1);target.append(wrapper);
+    }
+    for(const path of branch.files.sort((a,b)=>a.localeCompare(b))){
+      const button=node('button','ide-file-row',path.split('/').pop());button.type='button';button.title=path;
+      button.style.paddingLeft=(depth*11+16)+'px';
+      button.classList.toggle('active',ideSelected.get(projectId)===path);
+      button.onclick=()=>action(()=>ideOpenFile(path));target.append(button);
+    }
+  }
+  renderBranch(tree,root);
+}
+async function openIde(){
+  renderIdeTree();renderIdeEditor();
+  if(!projectId){ideNotice('Choose a project to open its code.');return;}
+  // File discovery is read-only. Do not replace any open/unsaved tabs.
+  if(loadedFilesProjectId!==projectId||fileLoadError){await loadFiles();renderIdeTree();}
+}
+async function ideOpenFile(path){
+  if(!projectId)return;
+  const selectedProject=projectId,tabs=ideOpenTabs(selectedProject);
+  if(tabs.has(path)){ideSelected.set(selectedProject,path);renderIdeEditor();renderIdeTree();return;}
+  if(tabs.size>=12)throw Error('Close a tab before opening more than 12 files. Unsaved changes will be confirmed first.');
+  ideNotice('Opening '+path+'…');
+  const data=await api('/projects/'+selectedProject+'/file?path='+encodeURIComponent(path));
+  if(projectId!==selectedProject)return;
+  const editable=typeof data.content==='string'&&!data.binary&&!data.truncated&&!data.redacted&&!!data.sha256;
+  const content=editable?data.content:(data.binary?'':String(data.content||''));
+  tabs.set(path,{path,content,original:content,sha256:data.sha256||null,editable,created:false});
+  ideSelected.set(selectedProject,path);ideShownKey='';
+  ideNotice(editable?'Editing '+path+'. Files are saved only when you select Save.': 'Read-only preview: binary, redacted, oversized or incomplete files cannot be edited.');
+  renderIdeEditor();renderIdeTree();
+}
+function ideNewFile(){
+  if(!projectId)throw Error('Create or select a project first.');
+  if(busy()||transferBusy)throw Error('Finish the running task or file transfer before creating files.');
+  const raw=window.prompt('New file path inside this project (for example src/main.py):');
+  if(raw===null)return;
+  const path=raw.trim().replaceAll('\\','/');
+  if(!path||path.startsWith('/')||path.split('/').some(p=>!p||p==='.'||p==='..')||path.length>240)throw Error('Use a valid project-relative file path.');
+  if(files.includes(path)||ideOpenTabs().has(path))throw Error('This file already exists. Open it from Explorer.');
+  const tabs=ideOpenTabs();if(tabs.size>=12)throw Error('Close another tab before creating a new file.');
+  tabs.set(path,{path,content:'',original:'',sha256:null,editable:true,created:true});
+  ideSelected.set(projectId,path);ideShownKey='';renderIdeEditor();renderIdeTree();
+  ideNotice('New file '+path+' — save to create it in your project.');
+  id('ideCode').focus();
+}
+function ideClose(path){
+  const tabs=ideOpenTabs(),tab=tabs.get(path);if(!tab)return;
+  if((tab.content!==tab.original||tab.created)&&!window.confirm('Discard unsaved changes to '+path+'?'))return;
+  tabs.delete(path);
+  if(ideSelected.get(projectId)===path)ideSelected.set(projectId,[...tabs.keys()].at(-1)||'');
+  ideShownKey='';renderIdeEditor();renderIdeTree();
+}
+function ideEscape(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function ideHighlightSource(source,path){
+  if(source.length>30000)return null; // Keep large files responsive and editable.
+  const token=/(\/\*[\s\S]*?\*\/|\/\/[^\n]*|#[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\b(?:async|await|class|const|let|var|function|return|if|else|elif|for|while|def|import|from|export|default|interface|type|extends|public|private|static|new|try|catch|throw|yield|True|False|None|true|false|null|self|package|struct|fn|impl|use|match|switch|case|break|continue|void|int|string|float|bool|print)\b|\b\d+(?:\.\d+)?\b)/g;
+  let markup='',offset=0,match;
+  while((match=token.exec(source))!==null){
+    markup+=ideEscape(source.slice(offset,match.index));
+    const value=match[0];
+    const kind=/^(\/\*|\/\/|#)/.test(value)?'comment':/^["'`]/.test(value)?'string':/^\d/.test(value)?'number':'keyword';
+    markup+='<span class="ide-token-'+kind+'">'+ideEscape(value)+'</span>';
+    offset=token.lastIndex;
+  }
+  return markup+ideEscape(source.slice(offset))+'\n';
+}
+function ideRepaintCode(){
+  const field=id('ideCode'),tab=ideActive();if(!tab)return;
+  const count=Math.min(5000,tab.content.split('\n').length);
+  id('ideLines').textContent=Array.from({length:count},(_,i)=>i+1).join('\n');
+  const html=ideHighlightSource(tab.content,tab.path);
+  id('ideHighlight').hidden=html===null;
+  field.classList.toggle('plain-code',html===null);
+  if(html!==null)id('ideHighlight').innerHTML=html;
+  ideScroll();ideCursor();
+}
+function renderIdeEditor(){
+  const target=id('ideTabs'),tabs=ideOpenTabs(),active=ideActive();target.replaceChildren();
+  for(const tab of tabs.values()){
+    const wrap=node('div','ide-tab'+(active===tab?' selected':''));
+    const button=node('button','ide-tab-open',tab.path.split('/').pop()+(tab.content!==tab.original||tab.created?' ●':''));
+    button.type='button';button.title=tab.path;button.setAttribute('role','tab');button.setAttribute('aria-selected',String(active===tab));
+    button.onclick=()=>{ideSelected.set(projectId,tab.path);renderIdeEditor();renderIdeTree();};
+    const close=node('button','ide-tab-close','×');close.type='button';close.setAttribute('aria-label','Close '+tab.path);
+    close.onclick=()=>ideClose(tab.path);wrap.append(button,close);target.append(wrap);
+  }
+  id('ideEmpty').hidden=!!active;id('ideSurface').hidden=!active;
+  id('ideSave').disabled=!active||!active.editable||busy()||transferBusy||ideSaving||(!active.created&&active.content===active.original);
+  if(!active){ideShownKey='';return;}
+  const key=projectId+'|'+active.path;
+  const field=id('ideCode');
+  if(ideShownKey!==key){ideShownKey=key;field.value=active.content;field.scrollTop=0;field.scrollLeft=0;ideRepaintCode();}
+  field.readOnly=!active.editable||busy()||transferBusy||ideSaving;
+  id('idePath').textContent=active.path;
+  id('ideLanguage').textContent=ideLanguage(active.path);
+  id('ideDirtyStatus').textContent=active.created?'Not created':active.content!==active.original?'Unsaved changes':'Saved';
+  id('ideEncoding').textContent=active.editable?'UTF-8':'Read only';
+}
+function ideInput(){
+  const active=ideActive();if(!active||!active.editable)return;
+  active.content=id('ideCode').value;
+  ideRepaintCode();renderIdeEditor();
+}
+function ideScroll(){
+  id('ideHighlight').scrollTop=id('ideCode').scrollTop;
+  id('ideHighlight').scrollLeft=id('ideCode').scrollLeft;
+  id('ideLines').scrollTop=id('ideCode').scrollTop;
+}
+function ideCursor(){
+  const field=id('ideCode'),index=field.selectionStart||0;
+  const before=field.value.slice(0,index),lines=before.split('\n');
+  id('ideLocation').textContent='Ln '+lines.length+', Col '+(lines.at(-1).length+1);
+}
+function ideKeydown(event){
+  const field=id('ideCode');
+  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){
+    event.preventDefault();action(ideSaveActive);return;
+  }
+  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'){
+    event.preventDefault();ideFind();return;
+  }
+  if(event.key!=='Tab'||field.readOnly||event.ctrlKey||event.metaKey)return;
+  event.preventDefault();
+  const a=field.selectionStart,b=field.selectionEnd,content=field.value;
+  if(event.shiftKey){
+    const lineStart=content.lastIndexOf('\n',a-1)+1;
+    const removed=content.slice(lineStart).match(/^( {1,2}|\t)/)?.[0]||'';
+    if(removed){field.value=content.slice(0,lineStart)+content.slice(lineStart+removed.length);field.setSelectionRange(Math.max(lineStart,a-removed.length),Math.max(lineStart,b-removed.length));}
+  }else if(a!==b&&content.slice(a,b).includes('\n')){
+    const start=content.lastIndexOf('\n',a-1)+1,end=b;
+    const section=content.slice(start,end),indent='  '+section.replaceAll('\n','\n  ');
+    field.value=content.slice(0,start)+indent+content.slice(end);
+    field.setSelectionRange(a+2,b+2*(section.split('\n').length));
+  }else{field.setRangeText('  ',a,b,'end');}
+  ideInput();
+}
+function ideFind(){
+  const field=id('ideCode');if(!ideActive())return;
+  const query=window.prompt('Find text in '+ideActive().path+':',field.value.slice(field.selectionStart,field.selectionEnd));
+  if(!query)return;
+  let at=field.value.indexOf(query,field.selectionEnd);
+  if(at<0)at=field.value.indexOf(query);
+  if(at<0){ideNotice('No matches for “'+query.slice(0,80)+'”.');return;}
+  field.focus();field.setSelectionRange(at,at+query.length);ideCursor();
+}
+async function ideSaveActive(){
+  const tab=ideActive();if(!tab||!tab.editable||ideSaving)return;
+  if(busy()||transferBusy)throw Error('Wait for the coding agent or file import to finish before saving. Your edits remain in this tab.');
+  const payload=tab.content;
+  if(new TextEncoder().encode(payload).length>200000)throw Error('Manual saves support up to 200 KB per file. Your unsaved text is preserved.');
+  const requestedProject=projectId;
+  ideSaving=true;renderIdeEditor();ideNotice('Saving '+tab.path+'…');
+  try{
+    await api('/projects/'+requestedProject+'/save-file',{path:tab.path,content:payload,expected_sha256:tab.sha256});
+    tab.original=payload;tab.created=false;
+    // Until the fresh server hash is confirmed, never reuse an old revision
+    // for a second save. If the read fails, the text stays visible but locked.
+    tab.editable=false;
+    const updated=await api('/projects/'+requestedProject+'/file?path='+encodeURIComponent(tab.path));
+    if(typeof updated.sha256==='string'&&!updated.truncated&&!updated.binary&&!updated.redacted){
+      tab.sha256=updated.sha256;tab.editable=true;
+    }
+    ideNotice('Saved '+tab.path+'. The change is recorded in project history.');
+    if(requestedProject===projectId){await Promise.all([loadFiles(),loadHistory()]);}
+  }catch(error){
+    ideNotice('Save or revision check failed: '+error.message+'. Text stays in the tab; if the save reached the server, close and reopen this file to refresh its revision before editing again.');
+    throw error;
+  }finally{ideSaving=false;renderIdeEditor();renderIdeTree();}
+}
+if(typeof window!=='undefined')window.addEventListener('beforeunload',event=>{
+  if([...ideDocuments.keys()].some(ideHasUnsaved)){
+    event.preventDefault();event.returnValue='';
+  }
+});
+
 function openEditor(create=false) {
   if(busy()||transferBusy||!projectId)throw new Error("Wait for the current task or file transfer to finish.");
   if(!create&&(!fileData?.sha256||fileData.path!==selectedFile||fileData.binary||fileData.redacted))throw new Error("Open a complete text file of at most 200 KB to edit it.");
@@ -1755,6 +1988,7 @@ function renderSupervision() {
   id("currentAction").textContent=currentRun?.current_action||"Ready";
   id("elapsedTime").textContent=duration(currentRun?.elapsed_seconds);
   renderFileButtons();
+  if(view==="ide")renderIdeEditor();
 }
 function eventDescription(e) {
   if(e.kind==="model_retry")return "Reconnecting · attempt "+e.attempt+" in "+e.delay+"s · "+e.reason;
@@ -1877,6 +2111,16 @@ id("downloadLog").onclick=()=>action(()=>saveDownload("/projects/"+projectId+"/s
 id("openProjectFolder").onclick=()=>action(openProjectFiles);
 id("filesStateAction").onclick=()=>action(async()=>{if(isCloud&&!appState?.account?.ready)return openAccount();if(fileLoadError||(isCloud&&!appState?.engine?.available))return openWorkspace();id("addProject").click();});
 id("fileSearch").oninput=renderFileList;
+id("ideFilter").oninput=renderIdeTree;
+id("ideRefresh").onclick=()=>action(async()=>{await loadFiles();ideNotice("File list updated. Unsaved tabs were kept.");});
+id("ideNew").onclick=()=>action(ideNewFile);
+id("ideSave").onclick=()=>action(ideSaveActive);
+id("ideGoAgent").onclick=()=>{if(ideHasUnsaved(projectId)&&!window.confirm("There are unsaved editor changes. Keep them in the IDE while you talk to SPARKLE? The agent will only see files already saved."))return;changeView("build");};
+id("ideCode").oninput=ideInput;
+id("ideCode").onkeyup=ideCursor;
+id("ideCode").onclick=ideCursor;
+id("ideCode").onscroll=ideScroll;
+id("ideCode").onkeydown=ideKeydown;
 for(const name of ["previewReady","previewFiles"])id(name).onclick=()=>action(openSitePreview);
 for(const name of ["mediaButton","mediaFiles"])id(name).onclick=()=>action(openMediaLibrary);
 id("previewEntry").onchange=()=>{previewData=null;id("sitePreviewFrame").removeAttribute("srcdoc");action(refreshSitePreview);};

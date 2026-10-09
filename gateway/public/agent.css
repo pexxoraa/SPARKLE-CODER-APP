@@ -182,3 +182,46 @@
 
 /* The contextual preview affordance takes only an icon-width on small screens. */
 @media(max-width:760px){#previewReady .preview-ready-label{display:none}#previewReady{padding:6px}}
+
+/* Built-in IDE: code stays in the authenticated project, not external services. */
+.ide-view{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--bg)}
+.ide-topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid var(--line)}
+.ide-topbar h1{font-size:20px;font-weight:550;margin:0}
+.ide-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.ide-actions .button{font-size:12px}
+.ide-shortcut{font-size:10px;font-weight:400;opacity:.7}
+.ide-notice{padding:8px 22px;font-size:11px;color:var(--muted);background:var(--surface);border-bottom:1px solid var(--line);min-height:34px;line-height:1.5}
+.ide-shell{display:grid;grid-template-columns:minmax(190px,250px) minmax(0,1fr);flex:1;min-height:0;min-width:0}
+.ide-explorer{border-right:1px solid var(--line);background:var(--sidebar);overflow:auto;min-height:0}
+.ide-explorer-title{display:flex;justify-content:space-between;padding:15px 15px 10px;font-size:10px;font-weight:650;letter-spacing:.1em;color:var(--muted)}
+#ideFilter{display:block;width:calc(100% - 22px);margin:0 11px 12px;padding:8px 10px;border-radius:5px;background:var(--panel);border:1px solid var(--line);font-size:12px;outline-offset:2px}
+.ide-tree{padding:0 6px 22px;min-height:120px}
+.ide-folder{margin:0}.ide-folder-name{padding:6px 8px;font:12px/1.5 var(--mono);cursor:pointer;word-break:break-word;color:var(--muted)}
+.ide-file-row{display:block;width:100%;text-align:left;font:12px/1.5 var(--mono);padding:6px 10px;border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.ide-file-row.active{background:var(--surface);color:var(--accent);font-weight:600}.ide-tree-empty{color:var(--muted);font-size:12px;padding:12px;line-height:1.6}
+.ide-workspace{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--panel)}
+.ide-tabs{display:flex;min-height:42px;overflow-x:auto;border-bottom:1px solid var(--line);scrollbar-width:thin}
+.ide-tab{display:flex;align-items:center;border-right:1px solid var(--line);background:var(--surface);min-width:0;flex:0 0 auto;max-width:210px}
+.ide-tab.selected{background:var(--panel);border-top:2px solid var(--accent)}
+.ide-tab-open{font:12px/1.4 var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:170px;padding:10px 9px 10px 13px}
+.ide-tab-close{font-size:18px;color:var(--muted);padding:0 10px 1px 4px}
+.ide-empty{display:flex;flex:1;flex-direction:column;gap:10px;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--muted);font-size:12px}
+.ide-empty svg{width:28px;height:28px;color:var(--accent)}.ide-empty strong{font-size:18px;font-weight:550;color:var(--text)}
+.ide-shortcuts{font:11px var(--mono);margin-top:10px}
+.ide-surface{display:flex;flex-direction:column;min-width:0;min-height:0;flex:1}
+.ide-path-row{display:flex;justify-content:space-between;gap:8px;padding:9px 16px;font:11px var(--mono);color:var(--muted);border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.ide-editor{display:flex;flex:1;min-height:0;min-width:0;overflow:hidden;background:var(--panel)}
+.ide-lines{flex:none;margin:0!important;min-width:47px;max-width:66px;padding:16px 10px 20px 5px!important;border-radius:0!important;background:var(--surface)!important;border-right:1px solid var(--line);text-align:right;color:var(--muted);white-space:pre!important;overflow:hidden!important;font:13px/21px var(--mono)!important;user-select:none}
+.ide-code-layer{position:relative;min-width:0;flex:1;overflow:hidden}
+#ideHighlight,#ideCode{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:16px 18px 32px;border:0;border-radius:0;tab-size:2;font:13px/21px var(--mono);white-space:pre;letter-spacing:0;overflow:auto;overflow-wrap:normal;word-break:normal}
+#ideHighlight{pointer-events:none;background:transparent;color:var(--text);z-index:1;scrollbar-width:none}
+#ideCode{resize:none;outline:none;background:transparent;color:transparent;caret-color:var(--text);-webkit-text-fill-color:transparent;z-index:2}
+#ideCode::selection{background:color-mix(in srgb,var(--accent) 26%,transparent)}
+#ideCode.plain-code{color:var(--text);-webkit-text-fill-color:var(--text)}
+#ideCode:read-only{cursor:default}
+.ide-token-comment{color:#7e9384}.ide-token-string{color:#ac7344}.ide-token-number{color:#9974c5}.ide-token-keyword{color:#4676b8}
+:root[data-theme="dark"] .ide-token-comment{color:#81988b}:root[data-theme="dark"] .ide-token-string{color:#d9ac7d}:root[data-theme="dark"] .ide-token-number{color:#bc9ce9}:root[data-theme="dark"] .ide-token-keyword{color:#82b7ef}
+.ide-footer{display:flex;gap:16px;align-items:center;justify-content:flex-end;padding:6px 14px;border-top:1px solid var(--line);font:10px var(--mono);color:var(--muted)}
+#ideLocation{margin-right:auto}
+@media(max-width:900px){.ide-shell{grid-template-columns:minmax(150px,200px) minmax(0,1fr)}.ide-topbar{align-items:flex-start;padding:12px 15px;flex-wrap:wrap}.ide-actions{justify-content:flex-start}.ide-shortcut{display:none}}
+@media(max-width:640px){.ide-shell{display:flex;flex-direction:column}.ide-explorer{flex:none;max-height:25vh;min-height:85px;overflow-y:auto;border-right:0;border-bottom:1px solid var(--line)}.ide-explorer-title{padding:8px 12px 5px}#ideFilter{margin-bottom:5px}.ide-tree{min-height:0;padding-bottom:5px}.ide-workspace{flex:1;min-height:240px}.ide-topbar h1{font-size:17px}.ide-notice{padding:7px 12px}.ide-empty{padding:14px}.ide-lines{min-width:38px;padding-left:2px!important;padding-right:7px!important}#ideHighlight,#ideCode{padding-left:10px;padding-right:10px;font-size:12px}.ide-tab-open{max-width:125px}}
