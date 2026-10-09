@@ -1,4 +1,4 @@
-#define AppVersion "0.7.0"
+#define AppVersion "0.8.0"
 [Setup]
 AppId={{AD1C5389-D3FC-49CB-B0C8-054789A4F636}
 AppName=SPARKLE CODER
