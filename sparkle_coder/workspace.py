@@ -200,7 +200,14 @@ class Workspace:
                 info = p.stat()
                 stamp = (info.st_dev, info.st_ino, info.st_size,
                          info.st_mtime_ns, info.st_ctime_ns)
-                entry = cache.get(relative) if os.name != "nt" else None
+                # Some filesystems can report the same mtime/ctime for two
+                # rapid, same-size writes. Within the timestamp-stabilization
+                # window always re-read the bytes instead of trusting a cache
+                # entry; preserve cache speed for older, unchanged files.
+                # Future timestamps (clock skew) are also never trusted.
+                age_ns = time.time_ns() - max(info.st_mtime_ns, info.st_ctime_ns)
+                cache_safe = os.name != "nt" and age_ns >= 3_000_000_000
+                entry = cache.get(relative) if cache_safe else None
                 digest.update(relative.encode() + b"\0")
                 if entry is not None and entry[0] == stamp:
                     digest.update(entry[1])
