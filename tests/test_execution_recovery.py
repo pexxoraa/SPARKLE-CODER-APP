@@ -59,13 +59,13 @@ class ExecutionRecoveryTests(unittest.TestCase):
         if os.name == "nt":
             self.skipTest("Windows already streams all fingerprint bytes.")
         path = self.workspace.root / "quick.py"
-        path.write_text("value = 1\\n")
+        path.write_text("value = 1\n")
         before = self.workspace.fingerprint()
-        path.write_text("value = 2\\n")
+        path.write_text("value = 2\n")
         info = path.stat()
         stamp = (info.st_dev, info.st_ino, info.st_size,
                  info.st_mtime_ns, info.st_ctime_ns)
-        self.workspace._fingerprint_file_cache["quick.py"] = (stamp, b"value = 1\\n")
+        self.workspace._fingerprint_file_cache["quick.py"] = (stamp, b"value = 1\n")
         self.assertNotEqual(self.workspace.fingerprint(), before)
         self.assertEqual(self.workspace.fingerprint(), previous_fingerprint(self.workspace))
 
