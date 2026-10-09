@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import statistics
+import sys
 import tempfile
 import time
 import tomllib
@@ -72,6 +73,8 @@ def performance_smoke(*, count=160, file_bytes=4096,
     This measures the actual project fingerprint API in a disposable workspace.
     The warmed operation must still enumerate files and detect external edits.
     """
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
     from sparkle_coder.workspace import Workspace
     if not 1 <= count <= 1000 or not 1 <= file_bytes <= 32768:
         raise AcceptanceError('Invalid bounded performance fixture.')
